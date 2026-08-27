@@ -19,6 +19,7 @@ from nh.collectors.base import Collector
 from nh.collectors.registry import CollectorSpec, iter_specs
 from nh.config import Settings, get_settings
 from nh.db.types import utcnow
+from nh.jobs.phases import run_phases
 
 log = logging.getLogger(__name__)
 
@@ -94,5 +95,11 @@ def run_nightly(
             record.snapshots_written,
         )
 
-    # Phase 3: nh.features.*  Phase 4: nh.scoring.scorecard / rules
+    # Phases run even when a collector failed: features compute over what is real
+    # and confidence says how much that was, so a dead source must not also cost
+    # the night's feature history. A --only run skips them, because debugging one
+    # collector should never silently rewrite today's features — `nh compute` is
+    # the deliberate path for that (ADR-0014).
+    if only is None:
+        statuses.update(run_phases(run_id, started.date(), job=job))
     return NightlyResult(run_id=run_id, started_at=started, planned=planned, statuses=statuses)

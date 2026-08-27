@@ -282,9 +282,12 @@ class FeatureDaily(Base, Provenance):
     id: Mapped[int] = mapped_column(primary_key=True)
     cluster_id: Mapped[str] = mapped_column(sa.String(48), index=True)
     day: Mapped[date] = mapped_column(sa.Date, index=True)
-    group: Mapped[str] = mapped_column(
-        sa.String(24)
-    )  # demand|supply|openness|voice|money|cost_risk
+    # `metric_group`, not `group`: the latter is a SQL keyword, so every
+    # hand-written traceability query would have to quote it forever — and
+    # traceability is one of the eight production criteria in docs/ROADMAP.md.
+    metric_group: Mapped[str] = mapped_column(sa.String(24))
+    """demand | supply | openness | voice | money | cost_risk"""
+
     name: Mapped[str] = mapped_column(sa.String(64))
     value: Mapped[float | None] = mapped_column(sa.Float)
     confidence: Mapped[float | None] = mapped_column(sa.Float)
@@ -303,6 +306,9 @@ class Scorecard(Base, Provenance):
     cluster_id: Mapped[str] = mapped_column(sa.String(48), index=True)
     day: Mapped[date] = mapped_column(sa.Date, index=True)
     gap: Mapped[float | None] = mapped_column(sa.Float)
+    #: Supply is an input to `gap` (= demand - supply), so it has to be stored
+    #: for the gap to be reconstructible once Slice 3 brings the demand side.
+    supply: Mapped[float | None] = mapped_column(sa.Float)
     openness: Mapped[float | None] = mapped_column(sa.Float)
     value: Mapped[float | None] = mapped_column(sa.Float)
     sustainability: Mapped[float | None] = mapped_column(sa.Float)

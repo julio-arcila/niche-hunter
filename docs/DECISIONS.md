@@ -139,3 +139,66 @@ run short-circuits rather than asking and being refused again. Hitting either
 ceiling is a *degraded* run, not a failed one: what was collected before the stop is
 kept, and `job_runs.quota_used` plus the `nh status --check` quota warning make the
 degradation visible.
+
+## ADR-0012 — The enrichment backfill runs inside the YouTube API collector
+2026-08-27. Accepted. 12,483 RSS-discovered videos carry NULL duration, so format
+filtering is impossible for 91% of the corpus. The backfill is a fourth stage of
+`YouTubeApiCollector.fetch()` rather than a separate collector, because the
+day-aware ledger (ADR-0011) lives in that class: a second collector would either
+duplicate `_spent_today()` or run with its own fresh 9,500 budget, which is exactly
+the bug ADR-0011 fixed. Ordering then falls out for free — discovery, the expensive
+and irreplaceable stage, spends first, and the backfill consumes only what is left
+under the same per-chunk `can_afford` gate. Cost is ~250 units once against ~6,459
+spare, then ~10 a night.
+
+A video that returns no item from `videos.list` (deleted or made private) is marked
+`enriched=True` with duration still NULL. This slightly redefines the flag as "the
+API has been consulted about this id" rather than "this id has a duration", which is
+the honest reading: the raw record documents the absence, unknown duration correctly
+excludes it from format-sensitive metrics, and the id stops being re-queried every
+night forever. The mark is only applied when the quota was not exhausted, so an id
+never asked about is not recorded as missing.
+
+## ADR-0013 — One cluster per item; the ambiguous 14 resolve to a dominant seed
+2026-08-27. Accepted. `ClusterMember.UniqueConstraint("item_type", "item_id")`
+stays. It was tempting to drop it — 14 of 955 channels legitimately span two seeds,
+and soft membership is what HDBSCAN will produce in Slice 4 — but hard assignment is
+what makes `cluster_id` a **partition**, and every aggregate below assumes one. A
+channel in two clusters counts its uploads and views toward two supply and openness
+denominators, and scores across overlapping clusters stop being comparable because
+they share evidence. Slice 4's HDBSCAN also hard-assigns, with a noise flag for the
+remainder; soft membership, if ever wanted, is a later ADR where
+`ClusterMember.confidence` does real work, and that column already exists so nothing
+is foreclosed.
+
+Dominance is computed from discovery lineage and is deterministic: rank a channel's
+candidate seeds by distinct videos discovered under `order_by='date'` (descending),
+then distinct videos total, then lowest `seed_id`. Distinct videos, not raw rows,
+because `discoveries` appends nightly and row counts would drift dominance toward
+whichever seed's queries re-surface the same videos most often. `order='date'` leads
+because `order='viewCount'` hits select on success and should not decide identity.
+`ClusterMember.confidence` records the dominant seed's share.
+
+## ADR-0014 — Features and scoring are job_runs phases, and the gate checks them
+2026-08-27. Accepted. The nightly gains three phases after the collectors —
+`clustering`, `features`, `scoring` — each a `job_runs` row under the same `run_id`
+with `source` set to the phase name and quota columns NULL. Phases are not
+collectors: no fetch, no normalize, no quota, no raw payloads. They share exactly
+two things with collectors, and both are extracted rather than inherited: provenance
+stamping (`nh/db/provenance.py::stamp`, which `Collector._stamp` now delegates to)
+and the write layer.
+
+`nh/jobs/status.py::check` iterates `REGISTRY` ported sources, so phase rows would
+have been **silently ignored** — a features phase failing every night behind a green
+healthcheck, which is the same class of hole that `nh status --check` was built to
+close for collectors. `check` now also requires each phase to be present and `ok`,
+and warns on any `job_runs` source that is neither a registry source nor a phase, so
+the next person to add one learns from the gate rather than from archaeology.
+
+Phases run even when a collector failed: features compute over whatever is real and
+`confidence` says how much that was, and a dead source must not also cost the
+night's feature history. `--only` runs skip phases, so debugging one collector never
+rewrites the day's features; `nh compute` is the deliberate recompute path and
+records `job="partial"`, which the gate ignores by construction. Re-running a day
+rewrites identical values in place — `run_id` and `at` are deliberately refreshed,
+so provenance points at the computation that produced the values currently stored.

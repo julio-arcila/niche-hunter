@@ -35,6 +35,7 @@ from sqlalchemy.engine import Engine
 from nh.collectors.quota import QuotaLedger
 from nh.config import Settings, get_settings
 from nh.db.models import AppendOnly, Base, JobRun, RawRecord
+from nh.db.provenance import stamp
 from nh.db.raw import encode as encode_payload
 from nh.db.session import session_scope
 from nh.db.types import utcnow
@@ -138,18 +139,20 @@ class Collector(ABC):
 
     def _stamp(self, model: type[Base], values: dict[str, Any]) -> dict[str, Any]:
         """Inject provenance and the observation day. A collector physically
-        cannot write a row without `source`, `run_id` and `at`."""
-        columns = model.__table__.c
-        row = dict(values)
-        if "source" in columns:
-            row.setdefault("source", self.source)
-        if "run_id" in columns:
-            row.setdefault("run_id", self.run_id)
-        if "at" in columns:
-            row.setdefault("at", self.observed_at)
-        if "observed_date" in columns:
-            row.setdefault("observed_date", self.observed_date)
-        return row
+        cannot write a row without `source`, `run_id` and `at`.
+
+        Delegates to `nh.db.provenance.stamp`, which the computation phases in
+        `nh/jobs/phases.py` also use — features are not collectors and must not
+        inherit this contract just to borrow one method.
+        """
+        return stamp(
+            model,
+            values,
+            source=self.source,
+            run_id=self.run_id,
+            at=self.observed_at,
+            observed_date=self.observed_date,
+        )
 
     def _flush(self, session, raws: list[Raw], batch: Batch, stats: RunStats) -> None:
         if raws:

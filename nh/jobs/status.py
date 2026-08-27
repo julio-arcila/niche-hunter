@@ -22,6 +22,7 @@ from nh.config import Settings, get_settings
 from nh.db.models import JobRun, VideoSnapshot
 from nh.db.session import session_scope
 from nh.db.types import utcnow
+from nh.jobs.phases import PHASES
 
 JOB = "nightly"
 
@@ -129,4 +130,21 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
 
     if sum(row[4] or 0 for row in rows) == 0:
         result.problems.append("the run wrote no snapshots")
+
+    # Phases are not in REGISTRY, so the loop above cannot see them. Without
+    # this the features phase could fail every night behind a green healthcheck
+    # — the same hole this gate exists to close for collectors (ADR-0014).
+    for phase, _ in PHASES:
+        row = by_source.get(phase)
+        if row is None:
+            result.problems.append(f"{phase} phase did not run")
+        elif row[1] != "ok":
+            result.problems.append(f"{phase} phase finished {row[1]}")
+
+    # Anything writing job_runs that is neither a collector nor a phase is
+    # invisible to both checks above. Warn, so the next person to add one finds
+    # out from the gate rather than from archaeology.
+    known = {s.source for s in REGISTRY} | {p for p, _ in PHASES}
+    for source in sorted(set(by_source) - known):
+        result.warnings.append(f"{source} writes job_runs but no check covers it")
     return result

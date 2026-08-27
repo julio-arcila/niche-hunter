@@ -34,6 +34,14 @@ no source serves history. These rules exist to protect that.
 8. **No live network in tests.** `tests/conftest.py` blocks sockets in every
    test. Record a fixture into `tests/fixtures/<source>/` and replay it with
    `responses`.
-9. **No destructive SQL.** `DROP` / `TRUNCATE` / unscoped `DELETE FROM` are
+9. **Never count events over a fixed window using RSS-sourced rows.** A feed
+   returns at most 15 entries, so a count over any window the data cannot fill
+   censors at the cap: measured, 708 of 892 channels hold every video they have
+   inside 90 days, and a 90-day upload count lands on 1.17/wk for *every* niche
+   (1.1x spread) against 2.2x for the same quantity computed as a rate over the
+   observed span. Rate-from-observed-span is the pattern. More generally: a
+   metric that normalises away the dimension you are comparing on comes out
+   flat, and flat reads as a finding rather than as a bug.
+10. **No destructive SQL.** `DROP` / `TRUNCATE` / unscoped `DELETE FROM` are
    blocked by `scripts/hooks/block_dangerous_sql.sh`. Schema changes go through
    an Alembic migration with a working `downgrade()`.

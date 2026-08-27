@@ -180,6 +180,113 @@ def prune(
 
 
 @app.command()
+def compute(
+    day: datetime | None = typer.Option(None, "--day", formats=["%Y-%m-%d"]),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Recompute clustering, features and scoring for a day, without collecting.
+
+    Recorded as job="partial" so it never disturbs `nh status --check`, which
+    judges the latest full nightly (ADR-0014).
+    """
+    from uuid import uuid4
+
+    from nh.jobs.phases import run_phases
+
+    _setup_logging(verbose)
+    target = day.date() if day else date.today()
+    statuses = run_phases(str(uuid4()), target, job="partial")
+    for phase, status in statuses.items():
+        typer.echo(f"  {status:<8} {phase}")
+    raise typer.Exit(0 if all(v == "ok" for v in statuses.values()) else 1)
+
+
+niche_app = typer.Typer(no_args_is_help=True, help="Inspect one niche.")
+app.add_typer(niche_app, name="niche")
+
+
+def _fmt(value: float | None) -> str:
+    """A dash is 'not computable'; a printed number is a measurement.
+
+    The distinction is the point: 0.00 means we looked and the answer was zero,
+    which is a finding. An em dash means we could not look.
+    """
+    if value is None:
+        return "—"
+    if abs(value) >= 1000:
+        return f"{value:,.0f}"
+    return f"{value:.2f}"
+
+
+@niche_app.command("show")
+def niche_show(
+    slug: str = typer.Argument(..., help="Cluster id, e.g. aviation-disasters."),
+    day: datetime | None = typer.Option(None, "--day", formats=["%Y-%m-%d"]),
+) -> None:
+    """Every metric for one niche, with confidence and where it came from."""
+    from nh.jobs import niche as niche_job
+
+    try:
+        view = niche_job.load(slug, day.date() if day else None)
+    except niche_job.UnknownCluster:
+        typer.echo(f"unknown niche: {slug}", err=True)
+        typer.echo(
+            f"known: {', '.join(niche_job.known_clusters()) or '(none — run nh nightly)'}", err=True
+        )
+        raise typer.Exit(2) from None
+
+    header = f"{view.cluster_id}" + (f" — {view.label}" if view.label else "")
+    typer.echo(header)
+    if not view.metrics:
+        typer.echo("no features computed yet — run `nh compute`")
+        raise typer.Exit(0)
+    run = (view.run_id or "")[:8]
+    typer.echo(f"day {view.day} · run {run}… · {view.member_channels} member channels\n")
+
+    typer.echo(f"{'GROUP':<10}{'METRIC':<28}{'VALUE':>12}{'CONF':>7}{'N':>8}")
+    last_group = None
+    for m in view.metrics:
+        group = m.group if m.group != last_group else ""
+        last_group = m.group
+        typer.echo(
+            f"{group:<10}{m.name:<28}{_fmt(m.value):>12}"
+            f"{_fmt(m.confidence):>7}"
+            f"{f'{m.inputs_n:,}' if m.inputs_n is not None else '—':>8}"
+        )
+        typer.echo(f"          {_provenance(m)}")
+
+    if view.scorecard:
+        parts = " ".join(f"{k}={_fmt(v)}" for k, v in view.scorecard.items())
+        typer.echo(f"\nscorecard {view.day}: {parts}")
+    typer.echo(
+        "\n— means not computable; a printed number is a measurement. "
+        "gap/value/opportunity await demand (Slice 3)."
+    )
+
+
+def _provenance(m) -> str:
+    """The one-line trail under each metric: why this number, from what."""
+    detail = m.detail or {}
+    if m.value is None:
+        return f"no data: {detail.get('reason', 'not computed')}"
+    bits = []
+    if (n := detail.get("contributing_channels")) is not None:
+        bits.append(f"{n} channels contributed")
+    if (n := detail.get("cohort_channels")) is not None:
+        bits.append(f"cohort of {n}")
+    if (n := detail.get("channels_with_breakout")) is not None:
+        bits.append(f"{n} broke through")
+    if (w := detail.get("window")) is not None:
+        bits.append(f"window {w[0]}..{w[1]}")
+    if (p := detail.get("p90_views")) is not None:
+        bits.append(f"p90={p:,.0f}")
+    tables = ", ".join(detail.get("inputs", {}).get("tables", []))
+    if tables:
+        bits.append(f"from {tables}")
+    return " · ".join(bits) or "—"
+
+
+@app.command()
 def doctor() -> None:
     """Check that the database is reachable and the schema is present."""
     import sqlalchemy as sa

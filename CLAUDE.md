@@ -70,10 +70,11 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 <!-- keep this to ~5 lines; update at the end of each session -->
-- Phase: Slice 1 shipped. Cron live at 09:10 daily; first unattended run pending.
-- Live: youtube_api (3,041 units/night, 32%) + youtube_rss (955 feeds). ~14k
-  video_snapshots, 955 channels, 1,484 discoveries across both sort orders.
-- Storage bounded: raw feed payloads gzipped + pruned at 14 days (ADR-0010) after
-  hitting 95.8 MB in three runs. Quota is now per-day, not per-run (ADR-0011).
-- 118 tests, zero network. Restore drill passed; kill-the-cron drill needs a real
-  skipped day. Next: 7-day watch, then Slice 2 per docs/ROADMAP.md.
+- Phase: Slice 2 (walking skeleton) code-complete on branch slice-2-walking-skeleton.
+  Clustering -> features -> scoring run as nightly phases; `nh niche show` reads them.
+- 5 metrics across 3 groups, each verified to VARY across the 5 live niches before
+  implementation. `nh status --check` now also gates the three phases (ADR-0014).
+- Blocked on data, not code: 91% of videos have no duration, so both openness
+  metrics report an empty cohort until the enrichment backfill runs (ADR-0012).
+- 173 tests, zero network. Next: the backfill lands at the 09:10 cron, then
+  re-verify openness discriminates (expected ~40pp spread).

@@ -13,6 +13,7 @@ from datetime import timedelta
 from nh.db.models import JobRun
 from nh.db.session import session_scope
 from nh.db.types import utcnow
+from nh.jobs.phases import PHASES
 from nh.jobs.status import check, recent_runs
 
 RUN_ID = "66666666-6666-6666-6666-666666666666"
@@ -34,8 +35,15 @@ def _run(engine, source, status="ok", snapshots=10, run_id=RUN_ID, ago_days=0, *
 
 
 def _healthy(engine):
+    """A complete good night: both collectors plus all three computation phases.
+
+    The phases are part of what "healthy" means since ADR-0014 — a night that
+    collected but never computed is not a working pipeline, it is a pipeline that
+    stopped producing the product behind a green ping."""
     _run(engine, "youtube_api", snapshots=40, quota_used=3_000, quota_budget=9_500)
     _run(engine, "youtube_rss", snapshots=120)
+    for phase, _ in PHASES:
+        _run(engine, phase, snapshots=None)
 
 
 def test_a_healthy_night_passes(settings, engine):
@@ -86,6 +94,8 @@ def test_spending_the_whole_quota_warns_but_does_not_fail(settings, engine):
     """A degraded run still collected. Worth surfacing, not worth paging over."""
     _run(engine, "youtube_api", snapshots=40, quota_used=9_500, quota_budget=9_500)
     _run(engine, "youtube_rss", snapshots=120)
+    for phase, _ in PHASES:
+        _run(engine, phase, snapshots=None)
     result = check(engine, settings)
     assert result.ok
     assert any("whole quota" in w for w in result.warnings)
@@ -111,7 +121,7 @@ def test_recent_runs_is_newest_first(settings, engine):
     _run(engine, "youtube_rss", run_id="older", ago_days=3)
     _healthy(engine)
     lines = recent_runs(engine, days=7)
-    assert len(lines) == 3
+    assert len(lines) == 2 + 1 + len(PHASES)
     assert lines[0].day >= lines[-1].day
 
 
