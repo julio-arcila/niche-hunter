@@ -83,8 +83,21 @@ class NicheSeed(Base):
     slug: Mapped[str] = mapped_column(sa.String(64), unique=True)
     label: Mapped[str] = mapped_column(sa.String(200))
     keywords: Mapped[list] = mapped_column(JSONVariant)
+    #: The market this niche is *about*, stated rather than left to inference.
+    #: `supply.geo_concentration` measures how far the supply we actually collect
+    #: diverges from it — measured 2026-08-27, 234 of 719 channels are Indian
+    #: against 290 US, while demand is read off English Wikipedia. A seed whose
+    #: supply sits outside its stated geo has a demand number that does not
+    #: describe its supply, and the metric says so rather than `gap` absorbing it.
     geo: Mapped[str | None] = mapped_column(sa.String(8))
     lang: Mapped[str | None] = mapped_column(sa.String(8))
+    #: Dated hand research: `[{name, url, status, reviewed_on}]` with
+    #: `status in {collected, exists_uncollected, none_found}`. Primary-source
+    #: availability is a constant property of a niche with n=5, not a daily
+    #: measurement, so it lives here rather than in `features_daily` — where NULL
+    #: already means "we looked and could not compute" and would have to carry
+    #: "there is nothing to look at" as well (ADR-0020).
+    primary_sources: Mapped[list | None] = mapped_column(JSONVariant)
     active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
     notes: Mapped[str | None] = mapped_column(sa.Text)
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
@@ -115,12 +128,23 @@ class SeedTerm(Base):
     #: '' means worldwide. NOT NULL on purpose: a NULL would split the unique key,
     #: since NULL never equals NULL in SQL.
     geo: Mapped[str] = mapped_column(sa.String(8), default="")
+    #: Which *level* of the subject this term measures: `topic` for the index-page
+    #: articles Slice 3 curated, `event` for named occurrences. The two are carried
+    #: in parallel rather than one replacing the other — measured, they invert the
+    #: demand ranking end to end, and Gate E arbitrates against a criterion
+    #: registered before the new ranking was looked at (ADR-0022). NOT NULL for the
+    #: same reason `geo` is: it is part of the unique key.
+    stratum: Mapped[str] = mapped_column(sa.String(16), default="topic")
     lang: Mapped[str | None] = mapped_column(sa.String(8))
     active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
     notes: Mapped[str | None] = mapped_column(sa.Text)
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
 
-    __table_args__ = (sa.UniqueConstraint("seed_id", "source", "term", name="uq_seed_terms_term"),)
+    __table_args__ = (
+        # `stratum` is in the key so one article may serve both strata; the shared
+        # `demand_snapshots` rows are then fetched once and read twice.
+        sa.UniqueConstraint("seed_id", "source", "term", "stratum", name="uq_seed_terms_term"),
+    )
 
 
 class DemandSnapshot(Base, AppendOnly, Provenance):
@@ -457,7 +481,14 @@ class Scorecard(Base, Provenance):
     opportunity: Mapped[float | None] = mapped_column(sa.Float)
     ci_low: Mapped[float | None] = mapped_column(sa.Float)
     ci_high: Mapped[float | None] = mapped_column(sa.Float)
+    #: Demand-trajectory stage, not a lifecycle stage — supply momentum does not
+    #: exist yet and the name must not promise it (ADR-0023).
     stage: Mapped[str | None] = mapped_column(sa.String(24))
+    stage_confidence: Mapped[float | None] = mapped_column(sa.Float)
+    #: The input vector, the threshold-set version, which axes were available, and
+    #: the alternate-stratum stage. When supply momentum lands in a few weeks and
+    #: stages move, the move has to be attributable rather than mysterious.
+    detail: Mapped[dict | None] = mapped_column(JSONVariant)
 
     __table_args__ = (sa.UniqueConstraint("cluster_id", "day", name="uq_scorecards_day"),)
 

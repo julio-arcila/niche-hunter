@@ -185,6 +185,7 @@ def apply_terms(engine: Engine | None = None, terms=TERMS) -> int:
                 "seed_id": by_slug[t["slug"]],
                 "source": t["source"],
                 "term": t["term"],
+                "stratum": t.get("stratum", "topic"),
                 "geo": t.get("geo", ""),
                 "lang": t.get("lang", "en"),
                 "notes": t.get("notes"),
@@ -198,7 +199,11 @@ def apply_terms(engine: Engine | None = None, terms=TERMS) -> int:
             session,
             SeedTerm,
             rows,
-            conflict_on=["seed_id", "source", "term"],
+            # `stratum` joins the conflict target because it joined the unique
+            # key. SQLite rejects an ON CONFLICT clause that does not match a real
+            # unique index outright, so this is not a subtle drift — `nh seed`
+            # simply stops working, which is how the omission was caught.
+            conflict_on=["seed_id", "source", "term", "stratum"],
             update=["geo", "lang", "notes"],
         )
 

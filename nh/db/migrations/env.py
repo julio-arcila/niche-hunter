@@ -30,6 +30,33 @@ def render_item(type_: str, obj: object, autogen_context) -> str | bool:
     return False
 
 
+def _disable_sqlite_foreign_keys(engine) -> None:
+    """Turn FK enforcement off for migration connections only.
+
+    Batch mode rewrites a table — copy, move rows, drop the original, rename — and
+    with `PRAGMA foreign_keys=ON` that drop raises `FOREIGN KEY constraint failed`
+    on any populated table something references. `nh.db.session` sets that pragma
+    ON for the application, correctly, and `make_engine` is shared, so it has to be
+    switched back off here.
+
+    A `connect` listener, not `exec_driver_sql` on the open connection. The pragma
+    is per-connection and SQLite silently ignores it inside a transaction, so it has
+    to be set as the connection is made; issuing it against an already-open
+    connection opens an implicit transaction and leaves migrations partially
+    applied — measured, that produced 15 tables where a fresh database should have
+    19, with `alembic upgrade head` still reporting success.
+
+    Registered after `make_engine`'s own listener and therefore wins. Scoped to this
+    engine, which exists only for the duration of the migration.
+    """
+    if engine.dialect.name != "sqlite":
+        return
+
+    @sa.event.listens_for(engine, "connect")
+    def _off(dbapi_connection, _record):  # pragma: no cover - driver callback
+        dbapi_connection.execute("PRAGMA foreign_keys=OFF")
+
+
 def _url() -> str:
     return config.get_main_option("sqlalchemy.url") or get_settings().database_url
 
@@ -49,6 +76,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     engine = make_engine(url=_url())
+    _disable_sqlite_foreign_keys(engine)
     with engine.connect() as connection:
         context.configure(
             connection=connection,
