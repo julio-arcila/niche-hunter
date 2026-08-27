@@ -9,8 +9,15 @@ google-ads.yaml
 *.db-wal
 *.db-shm
 data/
+# Scratch analyses stay local, but the calibration and backtest reports are the
+# EVIDENCE for roadmap criterion 4 ("a published precision figure with its base
+# rate and known failure modes") and for Gate E. A report that is not committed
+# cannot be the evidence for anything, so those are tracked deliberately.
 reports/*.md
 !reports/.gitkeep
+!reports/backtest_*.md
+!reports/relevance_*.md
+!reports/labelling_criterion.md
 
 # python
 __pycache__/
