@@ -177,6 +177,54 @@ def cluster_sample(
         typer.echo(f"  {cluster_id:<24}{n:>5}")
 
 
+@cluster_app.command("calibrate")
+def cluster_calibrate() -> None:
+    """Measure the relevance rule against the stored hand labels.
+
+    Reports the held-out half separately, because the threshold was chosen on the
+    other one and a precision quoted from the half you tuned on is not a
+    measurement. See reports/relevance_*.md.
+    """
+    from nh.clustering.calibrate import evaluate
+    from nh.clustering.relevance import RELEVANCE_HIGH
+    from nh.db.session import session_scope
+
+    with session_scope() as session:
+        tuning, held_out, unscorable, unscorable_positive = evaluate(session)
+    if not tuning.n and not held_out.n:
+        typer.secho("no labels stored — run `nh cluster sample` first", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"threshold RELEVANCE_HIGH = {RELEVANCE_HIGH}\n")
+    typer.echo(f"{'half':<10}{'n':>6}{'base':>8}{'precision':>11}{'recall':>9}")
+    for half in (tuning, held_out):
+        typer.echo(
+            f"{half.name:<10}{half.n:>6}{_pct(half.base_rate):>8}"
+            f"{_pct(half.precision):>11}{_pct(half.recall):>9}"
+        )
+    typer.echo("\nband rates (share truly on-niche):")
+    typer.echo(f"{'band':<12}" + "".join(f"{h.name:>14}" for h in (tuning, held_out)))
+    for i, name in enumerate(("on-niche", "undecided", "noise")):
+        cells = "".join(
+            f"{_pct(h.bands[i].rate) + f' (n={h.bands[i].n})':>14}" for h in (tuning, held_out)
+        )
+        typer.echo(f"{name:<12}{cells}")
+    typer.echo(
+        f"\nunscorable: {unscorable} labelled row(s), of which truly on-niche: "
+        f"{unscorable_positive}"
+    )
+    if held_out.precision is not None and held_out.precision < 0.90:
+        typer.secho(
+            f"\nheld-out precision {held_out.precision:.3f} is below the 0.90 target; "
+            "every metric built on this must say so",
+            fg=typer.colors.YELLOW,
+        )
+
+
+def _pct(value: float | None) -> str:
+    return "-" if value is None else f"{value:.3f}"
+
+
 @cluster_app.command("import")
 def cluster_import(
     path: Path = typer.Argument(..., help="The labelled JSONL."),

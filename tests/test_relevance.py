@@ -11,7 +11,14 @@ from __future__ import annotations
 import pytest
 
 from nh.clustering.lexicon import _COMMON, LEXICON_VERSION, LEXICONS, weights
-from nh.clustering.relevance import DESCRIPTION_CAP, Score, normalise, score
+from nh.clustering.relevance import (
+    DESCRIPTION_CAP,
+    RELEVANCE_HIGH,
+    RELEVANCE_LOW,
+    Score,
+    normalise,
+    score,
+)
 
 W = weights()
 AVIATION = W["aviation-disasters"]
@@ -93,8 +100,9 @@ def test_distinct_terms_count_not_occurrences():
 
 
 def test_the_title_outweighs_the_description():
-    in_title = score("runway", "nothing relevant here", AVIATION)
-    in_description = score("nothing relevant here", "runway", AVIATION)
+    """Both carry the same evidence; only its position differs."""
+    in_title = score("runway crash", "nothing relevant here", AVIATION)
+    in_description = score("nothing relevant here", "runway crash", AVIATION)
     assert in_title.value > in_description.value
 
 
@@ -138,11 +146,11 @@ def test_scoring_is_deterministic():
 @pytest.mark.parametrize(
     ("slug", "title"),
     [
-        ("aviation-disasters", "The pilot lost the cockpit and the plane hit the runway"),
-        ("maritime-disasters", "The vessel capsized and the lifeboat drifted at sea"),
-        ("corporate-collapse", "The CEO hid the accounting fraud from shareholders"),
-        ("engineering-failures", "The concrete girder buckled and the bridge fell"),
-        ("court-cases", "The jury reached a verdict and the judge passed sentence"),
+        ("aviation-disasters", "The pilot lost the cockpit and the plane crashed on the runway"),
+        ("maritime-disasters", "The vessel capsized at sea and the crew were lost"),
+        ("corporate-collapse", "The CEO hid the accounting fraud and the company collapsed"),
+        ("engineering-failures", "The concrete girder buckled and the bridge collapsed"),
+        ("court-cases", "The jury reached a guilty verdict and the judge passed sentence"),
     ],
 )
 def test_a_title_scores_highest_against_its_own_niche(slug, title):
@@ -160,3 +168,46 @@ def test_normalise_strips_punctuation_hashtags_and_case():
 
 def test_score_equality_is_structural():
     assert Score(None, reason="x") == Score(None, reason="x")
+
+
+# -- the second axis ---------------------------------------------------------
+
+
+def test_domain_words_alone_are_not_enough():
+    """The measured reason this axis exists. A domain-only scorer reached precision
+    0.62 at best, and every false positive looked like this line: squarely inside
+    the vocabulary, squarely outside the niche."""
+    assert score("Changi Airport Plane Spotting", None, AVIATION).value == 0.0
+    assert (
+        score("Why Concrete Needs Steel Reinforcement", None, W["engineering-failures"]).value
+        == 0.0
+    )
+
+
+def test_event_words_alone_are_not_enough():
+    """The mirror. A fatal fire is not an aviation disaster."""
+    assert score("Tragic fire kills three in apartment block", None, AVIATION).value == 0.0
+
+
+def test_both_axes_together_score():
+    assert score("Plane crashes on runway", None, AVIATION).value > 0.5
+
+
+def test_the_two_axes_are_reported_separately():
+    """`cluster_members.detail` carries both, so a reviewer can see which half of
+    the judgement was weak."""
+    result = score("Boeing 737 crashed on the runway", None, AVIATION)
+    assert set(result.detail) == {"domain", "event"}
+    assert result.detail["domain"] > 0 and result.detail["event"] > 0
+
+
+def test_event_terms_are_marked_in_the_matched_map():
+    matched = score("Plane crashed on the runway", None, AVIATION).matched
+    assert any(k.startswith("~") for k in matched)  # event axis
+    assert any(not k.startswith("~") for k in matched)  # domain axis
+
+
+def test_the_thresholds_carry_their_measured_provenance():
+    """A constant chosen against labels must not drift into one chosen against a
+    metric. The docstring beside these is where the evidence lives."""
+    assert 0.0 <= RELEVANCE_LOW < RELEVANCE_HIGH < 1.0

@@ -97,3 +97,49 @@ def test_reimporting_a_correction_overwrites(engine, tmp_path):
     with session_scope(engine) as s:
         row = s.execute(sa.select(RelevanceLabel.label, RelevanceLabel.labeller)).one()
     assert row == (False, "second")
+
+
+# -- calibration -------------------------------------------------------------
+
+
+def test_the_split_is_stable_across_scorer_changes():
+    """`sha256(video_id) % 2`, not a random seed. If the halves moved when the
+    scorer changed, "measured on held-out data" would stop being true the second
+    time it was run."""
+    from nh.clustering.calibrate import _half
+
+    assert [_half(f"vid{i}") for i in range(8)] == [_half(f"vid{i}") for i in range(8)]
+    assert len({_half(f"vid{i}") for i in range(20)}) == 2  # both halves get used
+
+
+def test_evaluate_scores_labels_into_bands(engine):
+    """A clearly on-niche video and a clearly off-niche one, labelled truthfully,
+    must land in the top and bottom bands respectively."""
+    from nh.clustering.calibrate import evaluate
+    from nh.db.models import Cluster, RelevanceLabel, Video
+    from nh.db.types import utcnow
+
+    with session_scope(engine) as s:
+        s.add(Cluster(cluster_id=CLUSTER, label="Aviation", source="clustering", run_id="t"))
+        for vid, title, label in (
+            ("on1", "Plane crashed on the runway after engine failure", True),
+            ("off1", "Maruti Grand Vitara maintenance cost review", False),
+        ):
+            s.add(
+                Video(
+                    video_id=vid,
+                    channel_id="UCa",
+                    title=title,
+                    source="test",
+                    run_id="t",
+                    at=utcnow(),
+                )
+            )
+            s.add(RelevanceLabel(video_id=vid, cluster_id=CLUSTER, label=label, labeller="t"))
+
+    with session_scope(engine) as s:
+        tuning, held_out, unscorable, _ = evaluate(s)
+    assert tuning.n + held_out.n == 2
+    assert unscorable == 0
+    assert sum(h.bands[0].n for h in (tuning, held_out)) == 1  # on-niche
+    assert sum(h.bands[2].n for h in (tuning, held_out)) == 1  # noise

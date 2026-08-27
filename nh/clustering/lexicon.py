@@ -33,6 +33,107 @@ from __future__ import annotations
 
 LEXICON_VERSION = "2026-08-27.1"
 
+#: Failure and case markers, shared by all five niches by construction.
+#:
+#: This is the second axis, and it was added because the first one alone did not
+#: work. Measured against 298 hand labels, a domain-only scorer topped out at
+#: precision 0.62 (F1-optimal) and every false positive had the same shape:
+#: on-domain, off-niche. "Changi Airport Plane Spotting", "Why Concrete Needs
+#: Steel Reinforcement", "Settlement vs Adjudication", "What's Swiggy's Secret" —
+#: all squarely inside their niche's vocabulary and squarely outside the niche,
+#: because **the niche is domain AND event**, and a domain lexicon can only see
+#: half of it.
+#:
+#: Note the tension these terms sit in, which is the whole reason they need their
+#: own axis: they carry no power to tell one niche from another (that is why
+#: `_COMMON` weighs them zero), and decisive power to tell a failure from a
+#: tutorial. Two different questions, so two different vocabularies.
+EVENT: tuple[str, ...] = (
+    "crash",
+    "crashed",
+    "collapse",
+    "collapsed",
+    "sank",
+    "sunk",
+    "sinking",
+    "wreck",
+    "wreckage",
+    "explosion",
+    "exploded",
+    "blast",
+    "fire",
+    "burned",
+    "disaster",
+    "catastrophe",
+    "catastrophic",
+    "tragedy",
+    "tragic",
+    "accident",
+    "incident",
+    "killed",
+    "died",
+    "death",
+    "deaths",
+    "dead",
+    "fatal",
+    "fatality",
+    "victims",
+    "survivors",
+    "survived",
+    "doomed",
+    "deadly",
+    "lost",
+    "failure",
+    "failed",
+    "fault",
+    "flaw",
+    "defect",
+    "defective",
+    "malfunction",
+    "emergency",
+    "mayday",
+    "distress",
+    "rescue",
+    "evacuation",
+    "aftermath",
+    "investigation",
+    "investigators",
+    "inquiry",
+    "inquest",
+    "probe",
+    "cause",
+    "blame",
+    "responsible",
+    "negligence",
+    "warning",
+    "ignored",
+    "mistake",
+    "error",
+    "cover up",
+    "coverup",
+    "whistleblower",
+    "fraud",
+    "scandal",
+    "scam",
+    "swindle",
+    "bankruptcy",
+    "bankrupt",
+    "insolvent",
+    "collapsed",
+    "ruin",
+    "downfall",
+    "convicted",
+    "guilty",
+    "verdict",
+    "sentenced",
+    "trial",
+    "lawsuit",
+    "charges",
+    "indicted",
+    "sued",
+    "prosecuted",
+)
+
 #: Terms shared by all five niches, so they weigh zero. Listed once, in one place,
 #: rather than repeated five times — but they are genuinely members of every
 #: lexicon and `weights()` treats them as such.
@@ -268,6 +369,16 @@ LEXICONS: dict[str, tuple[str, ...]] = {
         "landmark case",
     ),
 }
+
+
+def event_weights() -> dict[str, float]:
+    """Every event marker weighs 1.0.
+
+    No discriminative weighting here, and deliberately so: the question this axis
+    answers is "did something fail" — a binary about the video, not a comparison
+    between niches — so there is nothing for a term to be discriminative *against*.
+    """
+    return dict.fromkeys(EVENT, 1.0)
 
 
 def weights() -> dict[str, dict[str, float]]:

@@ -40,4 +40,3 @@ logs/*
 .backup/
 
 # Labelling working files; the labelled result belongs in reports/ deliberately.
-reports/relevance_sample.jsonl

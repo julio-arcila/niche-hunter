@@ -14,6 +14,15 @@ swapped two clusters' supply ranks. Identity — which niche a channel belongs t
 is a separate question, still answered by discovery lineage (ADR-0013). This
 answers topicality, which was previously not asked and silently answered yes.
 
+**Two axes, because one did not work.** Domain vocabulary alone reached precision
+0.62 at best against 298 hand labels, and every false positive was the same shape:
+on-domain, off-niche — airport plane spotting, a concrete-reinforcement tutorial,
+"Settlement vs Adjudication", a food-delivery growth story. The niche is *domain
+AND event*, so relevance is the geometric mean of a domain score and a failure/case
+score. A geometric mean rather than a sum because either axis at zero should mean
+zero: a tutorial about bridges is not a bridge collapse, and a video about a
+collapse with no engineering content is not this niche either.
+
 **Unscorable is not zero.** A title in a script the lexicon cannot read scores no
 matches, and calling that "off-niche" would silently delete Hindi aviation content
 from the corpus — 10.5% of titles are non-Latin. Those get `value=None` and a
@@ -27,6 +36,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from math import sqrt
 
 #: The title is the promise a video makes; a description carries sponsor blocks,
 #: link farms and boilerplate. Title evidence is worth double.
@@ -40,6 +50,35 @@ DESCRIPTION_CAP = 3.0
 #: unreachable by construction — the scorer never claims certainty.
 HALF = 2.0
 
+#: Frozen 2026-08-27 against 298 hand labels (reports/relevance_2026-08-27.md).
+#: Chosen on a deterministic half of the labels by the rule "smallest threshold
+#: whose precision reaches 0.90", then measured on the half never used to choose.
+#:
+#:   tuning half   precision 0.900  recall 0.562   (base rate 29.6%, n=162)
+#:   HELD-OUT half precision 0.781  recall 0.694   (base rate 28.6%, n=126)
+#:
+#: The 0.90 target did NOT generalise — held-out precision is 0.781. That is the
+#: number to quote, and it is stated in METRICS.md beside every metric that
+#: depends on it. It is still 2.7x the purity of the status quo, which is no
+#: filter at all and therefore precision 0.286.
+#:
+#: Three revisions were made against these labels, and the report says so: the
+#: event axis, the domain-verb additions to it (which moved no measured number),
+#: and suffix matching. Held-out precision moved 0.62 -> 0.774 -> 0.774 -> 0.781.
+#: Further iteration on 298 labels would be fitting noise, so it stopped here.
+#:
+#: Do not re-tune this against a metric. It was chosen against labels, and the one
+#: way to make a relevance filter produce any ranking you like is to move this
+#: number until the ranking looks right. Same warning docs/METRICS.md carries for
+#: `winner_age_years`.
+RELEVANCE_HIGH = 0.55
+#: Below-or-equal is off-niche. Exactly zero means one whole axis found nothing,
+#: which separates hard: 6.4% of those are on-niche against a 28.6% base rate.
+#: Anything strictly above lands in the undecided band, which measured 37.5%
+#: on-niche — close enough to that base rate to carry almost no information, which
+#: is why it is excluded from numerator and denominator rather than guessed.
+RELEVANCE_LOW = 0.0
+
 _WORD = re.compile(r"[^a-z0-9]+")
 
 
@@ -48,8 +87,11 @@ class Score:
     """`value is None` means unscorable; `reason` then says why."""
 
     value: float | None
+    #: Terms that produced the score. Event-axis terms are prefixed `~` so the two
+    #: axes stay legible in `cluster_members.detail` without a nested structure.
     matched: dict[str, float] = field(default_factory=dict)
     reason: str | None = None
+    detail: dict[str, float] = field(default_factory=dict)
 
     @property
     def scorable(self) -> bool:
@@ -70,6 +112,22 @@ def _latin_share(text: str) -> float | None:
     return latin / len(letters)
 
 
+def _singular(token: str) -> str:
+    """Strip one plural/third-person suffix. Not a stemmer, and deliberately not.
+
+    Exact token matching missed "crashes", "collapses", "sinks" — the same event
+    written in the present tense. A real stemmer would also collapse "collapsed"
+    into "collaps" and start matching things nobody wrote down, which is the kind
+    of silent broadening a frozen lexicon exists to prevent. Two suffixes, applied
+    to both sides, and nothing else.
+    """
+    if len(token) > 4 and token.endswith("es"):
+        return token[:-2]
+    if len(token) > 3 and token.endswith("s") and not token.endswith("ss"):
+        return token[:-1]
+    return token
+
+
 def _matches(text: str, weights: dict[str, float]) -> dict[str, float]:
     """Distinct terms present, not occurrences.
 
@@ -78,12 +136,15 @@ def _matches(text: str, weights: dict[str, float]) -> dict[str, float]:
     match as phrases, single words against the token set.
     """
     normalised = normalise(text)
-    tokens = set(normalised.split())
+    words = normalised.split()
+    tokens = set(words) | {_singular(w) for w in words}
     padded = f" {normalised} "
     found = {}
     for term, weight in weights.items():
-        hit = f" {term} " in padded if " " in term else term in tokens
-        if hit and weight > 0:
+        if weight <= 0:
+            continue
+        hit = f" {term} " in padded if " " in term else _singular(term) in tokens
+        if hit:
             found[term] = weight
     return found
 
@@ -93,8 +154,28 @@ def _capped(matched: dict[str, float], cap: float) -> float:
     return min(sum(sorted(matched.values(), reverse=True)), cap)
 
 
-def score(title: str | None, description: str | None, weights: dict[str, float]) -> Score:
-    """Relevance of one video's text to one cluster's vocabulary."""
+def _axis(title: str, description: str, weights: dict[str, float]) -> tuple[float, dict]:
+    """Saturating evidence on one axis, and the terms that produced it."""
+    in_title = _matches(title, weights)
+    in_description = _matches(description, weights)
+    # A term already credited in the title is not credited again below it.
+    only_description = {t: w for t, w in in_description.items() if t not in in_title}
+    raw = TITLE_WEIGHT * _capped(in_title, TITLE_CAP) + _capped(only_description, DESCRIPTION_CAP)
+    matched = {t: TITLE_WEIGHT * w for t, w in in_title.items()} | only_description
+    return raw / (raw + HALF), matched
+
+
+def score(
+    title: str | None,
+    description: str | None,
+    weights: dict[str, float],
+    event: dict[str, float] | None = None,
+) -> Score:
+    """Relevance of one video's text to one cluster's niche.
+
+    `event` defaults to `lexicon.event_weights()`. It is a parameter rather than an
+    import so the function stays pure and a test can vary one axis at a time.
+    """
     if not (title or "").strip():
         return Score(None, reason="unscorable: no title")
     share = _latin_share(title)
@@ -104,11 +185,14 @@ def score(title: str | None, description: str | None, weights: dict[str, float])
         # An English lexicon cannot read this. Scoring it 0 would call it off-niche.
         return Score(None, reason="unscorable: non-Latin script")
 
-    in_title = _matches(title, weights)
-    in_description = _matches(description or "", weights)
-    # A term already credited in the title is not credited again in the description.
-    only_description = {t: w for t, w in in_description.items() if t not in in_title}
+    if event is None:
+        from nh.clustering.lexicon import event_weights
 
-    raw = TITLE_WEIGHT * _capped(in_title, TITLE_CAP) + _capped(only_description, DESCRIPTION_CAP)
-    matched = {t: TITLE_WEIGHT * w for t, w in in_title.items()} | only_description
-    return Score(raw / (raw + HALF), matched)
+        event = event_weights()
+    domain, domain_terms = _axis(title, description or "", weights)
+    failure, event_terms = _axis(title, description or "", event)
+    return Score(
+        sqrt(domain * failure),
+        domain_terms | {f"~{t}": w for t, w in event_terms.items()},
+        detail={"domain": round(domain, 4), "event": round(failure, 4)},
+    )
