@@ -70,11 +70,10 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 <!-- keep this to ~5 lines; update at the end of each session -->
-- Phase: Slice 2 (walking skeleton) code-complete on branch slice-2-walking-skeleton.
-  Clustering -> features -> scoring run as nightly phases; `nh niche show` reads them.
-- 5 metrics across 3 groups, each verified to VARY across the 5 live niches before
-  implementation. `nh status --check` now also gates the three phases (ADR-0014).
-- Blocked on data, not code: 91% of videos have no duration, so both openness
-  metrics report an empty cohort until the enrichment backfill runs (ADR-0012).
-- 173 tests, zero network. Next: the backfill lands at the 09:10 cron, then
-  re-verify openness discriminates (expected ~40pp spread).
+- Phase: Slice 2 complete. Clustering -> features -> scoring run as nightly phases;
+  `nh niche show` reads them back with confidence and provenance.
+- Enrichment backfill implemented (ADR-0012): ~274 units clears the 13,657-video
+  backlog. Runs on the next cron — today's Pacific quota day is spent.
+- Openness is empty until then, by design (is_short IS NULL excludes 91% of videos).
+  Projected post-backfill: 40pp breakthrough spread, 4.9x views/sub, cohorts 15-47.
+- 181 tests, zero network. Next: confirm openness populates, then Slice 3 (demand).

@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     yt_search_pages: int = 1
     #: Discovery window. Matches the prototype's days_back.
     yt_discover_days: int = 90
+    #: Ceiling on the RSS-discovered videos enriched per night. At 1 unit per
+    #: 50 ids, 25,000 is 500 units — enough to clear the initial backlog in one
+    #: night while capping the worst case if discovery ever floods the queue.
+    yt_backfill_max_ids: int = 25_000
 
     # --- youtube rss -------------------------------------------------------
     rss_user_agent: str = "niche-hunter-rss/0.1 (+contact@example.com)"

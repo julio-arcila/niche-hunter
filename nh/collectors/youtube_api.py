@@ -165,6 +165,62 @@ class YouTubeApiCollector(Collector):
             yield Raw(kind="video", key=item["id"], payload=item)
         for item in self._enrich("channels", list(channel_ids)):
             yield Raw(kind="channel", key=item["id"], payload=item)
+        yield from self._backfill(seen=set(video_ids))
+
+    def _backfill(self, seen: set[str]) -> Iterable[Raw]:
+        """Enrich videos RSS found, which arrive with no duration at all.
+
+        A feed gives title, published and views but never duration, so `is_short`
+        and `midroll_eligible` stay NULL and every format-sensitive metric has to
+        exclude the video. That was 91% of the corpus. At 1 unit per 50 ids this
+        costs ~250 units once against thousands spare, and it runs last so
+        discovery — the expensive, irreplaceable stage — always spends first
+        (ADR-0012).
+        """
+        backlog = {v: c for v, c in self._unenriched_ids() if v not in seen}
+        if not backlog:
+            return
+        self.log.info("backfilling %d unenriched videos", len(backlog))
+
+        returned: set[str] = set()
+        for item in self._enrich("videos", list(backlog)):
+            returned.add(item["id"])
+            yield Raw(kind="video", key=item["id"], payload=item)
+
+        # An id the API declined to return is deleted or private. Mark it
+        # consulted so it stops being re-queried every night forever — but only
+        # if we actually got to ask. An id skipped because the budget ran out is
+        # not missing, and marking it so would lose it permanently.
+        if self.quota.remaining == 0:
+            self.log.warning(
+                "budget ran out mid-backfill; %d ids left unasked", len(backlog) - len(returned)
+            )
+            return
+        for video_id, channel_id in backlog.items():
+            if video_id not in returned:
+                # channel_id travels with it: `videos.channel_id` is NOT NULL, so
+                # the upsert's insert path needs it, and the raw record is more
+                # useful for recording which channel lost a video.
+                yield Raw(
+                    kind="video_missing",
+                    key=video_id,
+                    payload={"video_id": video_id, "channel_id": channel_id},
+                )
+
+    def _unenriched_ids(self) -> list[tuple[str, str]]:
+        """`(video_id, channel_id)` oldest-first, so a backlog too large for one
+        night drains deterministically rather than re-shuffling and starving the
+        same ids every time."""
+        with session_scope(self.engine) as session:
+            return [
+                (video_id, channel_id)
+                for video_id, channel_id in session.execute(
+                    sa.select(Video.video_id, Video.channel_id)
+                    .where(Video.enriched.is_(False))
+                    .order_by(Video.first_seen)
+                    .limit(self.settings.yt_backfill_max_ids)
+                )
+            ]
 
     def _seeds(self) -> list[_Seed]:
         with session_scope(self.engine) as session:
@@ -255,7 +311,32 @@ class YouTubeApiCollector(Collector):
             return self._norm_video(raw)
         if raw.kind == "channel":
             return self._norm_channel(raw)
+        if raw.kind == "video_missing":
+            return self._norm_missing(raw)
         raise ValueError(f"unknown raw kind {raw.kind!r}")
+
+    def _norm_missing(self, raw: Raw) -> Batch:
+        """A video the API would not return: deleted, private, or region-blocked.
+
+        `enriched` is set without a duration, which slightly redefines the flag as
+        "the API has been consulted about this id" rather than "this id has a
+        duration". That is the honest reading: the raw record documents the
+        absence, unknown duration still correctly excludes it from every
+        format-sensitive metric, and the id stops costing a request every night
+        forever (ADR-0012).
+        """
+        return Batch(
+            upserts=[
+                Upsert(
+                    Video,
+                    {
+                        "video_id": raw.key,
+                        "channel_id": raw.payload["channel_id"],
+                        "enriched": True,
+                    },
+                )
+            ]
+        )
 
     def _norm_search(self, raw: Raw) -> Batch:
         """A Discovery row plus a stub Video, so a run whose enrichment is cut short

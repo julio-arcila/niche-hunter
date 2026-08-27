@@ -345,3 +345,135 @@ def test_an_upstream_quota_403_stops_cleanly_rather_than_burning_retries(setting
     record = _collector(settings, engine).run()
     assert record.status == "ok"
     assert len(responses.calls) == 1  # one attempt, no retry storm
+
+
+# -- enrichment backfill (ADR-0012) -----------------------------------------
+
+
+def _unenriched(engine, *video_ids, channel="UC00000000000000000001"):
+    from nh.db.models import Video
+
+    with session_scope(engine) as s:
+        for vid in video_ids:
+            s.add(
+                Video(
+                    video_id=vid,
+                    channel_id=channel,
+                    title=vid,
+                    enriched=False,
+                    source="youtube_rss",
+                    run_id="rss",
+                )
+            )
+
+
+def _video_payload(video_id):
+    item = {**VIDEO_ITEM, "id": video_id}
+    return item
+
+
+@responses.activate
+def test_rss_discovered_videos_get_enriched(settings, engine):
+    """The whole point: a feed gives no duration, so is_short and
+    midroll_eligible stay NULL and every format-sensitive metric excludes it."""
+    from nh.db.models import Video
+
+    _unenriched(engine, "backfill001")
+    responses.add(
+        responses.GET, f"{API}/videos", json={"items": [_video_payload("backfill001")]}, status=200
+    )
+    record = _collector(settings, engine).run()
+    assert record.status == "ok", record.error
+    with session_scope(engine) as s:
+        video = s.get(Video, "backfill001")
+    assert video.enriched is True
+    assert video.duration_s == 1111
+    assert video.is_short is False
+
+
+@responses.activate
+def test_the_backfill_runs_after_discovery_not_before(settings, engine):
+    """Discovery is the expensive, irreplaceable stage; it must always spend
+    first, so the backfill can only ever consume what is left."""
+    apply_seeds(engine, ONE_SEED)
+    _unenriched(engine, "backfill001")
+    _mock_api()
+    responses.add(
+        responses.GET, f"{API}/videos", json={"items": [_video_payload("backfill001")]}, status=200
+    )
+    _collector(settings, engine).run()
+    paths = [c.request.url.split("?")[0].rsplit("/", 1)[-1] for c in responses.calls]
+    assert paths.index("search") < paths.index("videos")
+
+
+@responses.activate
+def test_a_video_already_enriched_this_run_is_not_fetched_twice(settings, engine):
+    apply_seeds(engine, ONE_SEED)
+    _unenriched(engine, "vid00000001")  # the same id discovery will return
+    _mock_api()
+    _collector(settings, engine).run()
+    video_calls = [c for c in responses.calls if "/videos" in c.request.url]
+    assert len(video_calls) == 1
+
+
+@responses.activate
+def test_a_vanished_video_is_marked_consulted_without_inventing_a_duration(settings, engine):
+    """Deleted or private: the API returns nothing for it. Marking it enriched
+    stops it costing a request every night forever, and the NULL duration still
+    correctly excludes it from format-sensitive metrics."""
+    from nh.db.models import Video
+
+    _unenriched(engine, "deleted0001")
+    responses.add(responses.GET, f"{API}/videos", json={"items": []}, status=200)
+    _collector(settings, engine).run()
+    with session_scope(engine) as s:
+        video = s.get(Video, "deleted0001")
+    assert video.enriched is True
+    assert video.duration_s is None
+    assert video.is_short is None  # unknown format, not "not a short"
+
+
+@responses.activate
+def test_ids_left_unasked_when_the_budget_runs_out_are_not_marked_missing(settings, engine):
+    """The dangerous case. An id skipped for want of quota is not deleted, and
+    marking it consulted would lose it permanently — it would never be queued
+    again."""
+    from nh.db.models import Video
+
+    settings.yt_quota_budget = 1  # one videos.list call, then nothing
+    _unenriched(engine, *[f"v{i:011d}" for i in range(200)])
+    responses.add(responses.GET, f"{API}/videos", json={"items": []}, status=200)
+    _collector(settings, engine).run()
+    with session_scope(engine) as s:
+        still_queued = s.scalar(
+            sa.select(sa.func.count()).select_from(Video).where(Video.enriched.is_(False))
+        )
+    assert still_queued > 0
+
+
+@responses.activate
+def test_the_backlog_is_bounded_by_the_configured_cap(settings, engine):
+    settings.yt_backfill_max_ids = 50
+    _unenriched(engine, *[f"v{i:011d}" for i in range(500)])
+    responses.add(responses.GET, f"{API}/videos", json={"items": []}, status=200)
+    collector = _collector(settings, engine)
+    collector.run()
+    assert collector.quota.used == 1  # 50 ids is one chunk, not ten
+
+
+@responses.activate
+def test_the_backlog_drains_oldest_first(settings, engine):
+    """A backlog too large for one night must drain deterministically rather
+    than re-shuffling and starving the same ids every time."""
+    settings.yt_backfill_max_ids = 2
+    _unenriched(engine, "older000001")
+    _unenriched(engine, "newer000001")
+    responses.add(responses.GET, f"{API}/videos", json={"items": []}, status=200)
+    collector = _collector(settings, engine)
+    ids = collector._unenriched_ids()
+    assert ids[0][0] == "older000001"
+
+
+def test_an_unenriched_video_with_no_backlog_costs_nothing(settings, engine):
+    collector = _collector(settings, engine)
+    assert collector._unenriched_ids() == []
