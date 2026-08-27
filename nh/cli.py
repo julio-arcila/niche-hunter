@@ -177,6 +177,45 @@ def cluster_sample(
         typer.echo(f"  {cluster_id:<24}{n:>5}")
 
 
+@cluster_app.command("inspect")
+def cluster_inspect(
+    slug: str = typer.Argument(..., help="Cluster id, e.g. aviation-disasters"),
+    n: int = typer.Option(8, "--n", help="Rows shown per band."),
+) -> None:
+    """Show what the relevance rule decided, and why.
+
+    The two lists that matter are the weakest video it kept and the strongest it
+    dropped: those are where the threshold actually sits, and reading them is how
+    you find out the lexicon is wrong before a metric does.
+    """
+    from nh.clustering.inspect import inspect_cluster
+    from nh.db.session import session_scope
+
+    with session_scope() as session:
+        view = inspect_cluster(session, slug, n)
+    if view is None:
+        typer.secho(f"no cluster {slug!r}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"{view.cluster_id}  ({'active' if view.active else 'RETIRED'})")
+    typer.echo(f"  videos          {view.total:,}")
+    for name, count in view.bands:
+        share = count / view.total if view.total else 0.0
+        typer.echo(f"  {name:<15} {count:>6,}  {share:>6.1%}")
+    typer.echo(f"\nweakest kept (just above {view.threshold}):")
+    for row in view.weakest_kept:
+        _echo_video(row)
+    typer.echo("\nstrongest dropped (just below):")
+    for row in view.strongest_dropped:
+        _echo_video(row)
+
+
+def _echo_video(row) -> None:
+    matched = ", ".join((row.detail or {}).get("matched", [])[:5])
+    typer.echo(f"  {row.relevance:.2f}  {(row.title or '')[:62]}")
+    typer.echo(f"        {matched}")
+
+
 @cluster_app.command("calibrate")
 def cluster_calibrate() -> None:
     """Measure the relevance rule against the stored hand labels.
