@@ -18,6 +18,7 @@ from datetime import UTC, date, datetime, time, timedelta
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from nh.clustering.relevance import RELEVANCE_HIGH as _RELEVANCE_HIGH
 from nh.db.models import (
     ChannelSnapshot,
     Cluster,
@@ -44,6 +45,12 @@ COHORT_MAX_SUBS = 10_000
 
 #: Below this a channel has no stable median to compare a breakout against.
 COHORT_MIN_VIDEOS = 5
+
+#: Read-time cuts on `cluster_members.relevance`, imported rather than redefined so
+#: the calibration report and the queries cannot drift apart. See
+#: reports/relevance_2026-08-27.md: held-out precision 0.781, recall 0.694, against
+#: a 28.6% base rate.
+RELEVANCE_HIGH = _RELEVANCE_HIGH
 
 
 def _midnight(day: date) -> datetime:
@@ -78,6 +85,85 @@ def member_channels(session: Session, cluster_id: str) -> list[str]:
             sa.select(ClusterMember.item_id).where(member_join(ClusterMember.item_id, cluster_id))
         )
     )
+
+
+def on_niche_join(cluster_id: str):
+    """Join predicate for a video judged on-niche.
+
+    Deliberately `relevance >= RELEVANCE_HIGH` and not `is_noise IS FALSE`. The
+    three states are not two: `is_noise` marks only the decided off-niche case, so
+    a NULL-relevance (unscorable) or mid-band (undecided) video is not noise and is
+    also not on-niche. Both are excluded from numerator *and* denominator, and
+    lower confidence instead of being guessed into one side.
+    """
+    return sa.and_(
+        ClusterMember.item_id == Video.video_id,
+        ClusterMember.item_type == "video",
+        ClusterMember.cluster_id == cluster_id,
+        ClusterMember.relevance >= RELEVANCE_HIGH,
+    )
+
+
+def relevance_coverage(session: Session, cluster_id: str) -> tuple[int, int]:
+    """`(decided, total)` videos in the cluster — the share we could judge at all.
+
+    A metric restricted to on-niche videos depends on a decision we make about each
+    one, so "how much of the cluster could we decide about" is a distinct way it
+    lies and belongs in confidence. Undecided and unscorable both count against.
+    """
+    decided, total = session.execute(
+        sa.select(
+            sa.func.count(
+                sa.case(
+                    (
+                        sa.or_(
+                            ClusterMember.relevance >= RELEVANCE_HIGH,
+                            ClusterMember.is_noise.is_(True),
+                        ),
+                        1,
+                    )
+                )
+            ),
+            sa.func.count(),
+        ).where(ClusterMember.item_type == "video", ClusterMember.cluster_id == cluster_id)
+    ).one()
+    return decided or 0, total or 0
+
+
+def eligible_niche_videos(
+    session: Session, cluster_id: str, day: date
+) -> dict[str, list[tuple[str, int]]]:
+    """`eligible_videos`, restricted to videos judged on-niche.
+
+    Supply asks what a newcomer competes against *in this niche*; openness asks
+    whether a video beat *its own channel's* baseline, and that baseline must be the
+    channel's whole output. Two different questions, so two different pools — see
+    docs/METRICS.md on both `supply.median_views` and
+    `openness.breakthrough_rate_cohort`. Do not merge them back together.
+
+    **The relevance filter is applied after the FEED_DEPTH cut, not before.**
+    `eligible_videos` ranks each channel's catalogue and keeps the newest 15,
+    deliberately, so an API-discovered channel gets no deeper window than an
+    RSS-only one (data rule 9). Filtering first would let an on-niche-sparse channel
+    reach much further back in time and would destroy that comparability silently —
+    the medians would still look reasonable.
+    """
+    pool = eligible_videos(session, cluster_id, day)
+    if not pool:
+        return {}
+    on_niche = set(
+        session.scalars(
+            sa.select(ClusterMember.item_id).where(
+                ClusterMember.item_type == "video",
+                ClusterMember.cluster_id == cluster_id,
+                ClusterMember.relevance >= RELEVANCE_HIGH,
+            )
+        )
+    )
+    kept = {
+        channel_id: [row for row in rows if row[0] in on_niche] for channel_id, rows in pool.items()
+    }
+    return {channel_id: rows for channel_id, rows in kept.items() if rows}
 
 
 def eligible_videos(

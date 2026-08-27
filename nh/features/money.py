@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from nh.db.models import ClusterMember, Video
-from nh.features.inputs import member_join
+from nh.features.inputs import member_join, on_niche_join, relevance_coverage
 from nh.features.types import FeatureResult
 
 GROUP = "money"
@@ -21,6 +21,12 @@ WINDOW_DAYS = 90
 #: Per-video and exactly measured, so videos are the honest sample unit. 100
 #: because the window is video-rich and 30 videos can be two channels' output.
 CONFIDENCE_N = 100
+
+
+def _decided(session: Session, cluster_id: str) -> float:
+    """Share of the cluster's videos we could decide on-niche or not."""
+    judged, total = relevance_coverage(session, cluster_id)
+    return min(judged / total, 1.0) if total else 0.0
 
 
 def midroll_eligible_share(session: Session, cluster_id: str, day: date) -> FeatureResult:
@@ -44,6 +50,10 @@ def midroll_eligible_share(session: Session, cluster_id: str, day: date) -> Feat
             Video.published_at.is_not(None),
             Video.published_at > since,
             Video.published_at <= until,
+            # Both numerator and denominator restrict to on-niche: the question is
+            # what share of THIS NICHE's supply can carry a midroll, and a channel's
+            # off-niche uploads answer a different question.
+            sa.exists(sa.select(1).where(on_niche_join(cluster_id)).correlate(Video)),
         )
     ).one()
 
@@ -59,9 +69,13 @@ def midroll_eligible_share(session: Session, cluster_id: str, day: date) -> Feat
         group=GROUP,
         name="midroll_eligible_share",
         value=(eligible or 0) / known,
-        confidence=min(known / CONFIDENCE_N, 1.0),
+        # Times relevance coverage, like the supply metrics: this is now computed
+        # over videos we judged, and how much of the cluster we could judge is a
+        # distinct way it lies. Held-out precision on that judgement is 0.781.
+        confidence=min(known / CONFIDENCE_N, 1.0) * _decided(session, cluster_id),
         inputs_n=known,
         detail={
+            "definition": "v2-on-niche",
             "videos_with_known_duration": known,
             "midroll_eligible": eligible or 0,
             "window": [since.date().isoformat(), day.isoformat()],

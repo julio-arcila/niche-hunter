@@ -25,19 +25,31 @@ DEMAND_FROM = "wiki_weekly_views"
 
 
 def percentile_rank(values: dict[str, float]) -> dict[str, float]:
-    """Rank each cluster's value among the others, 0-1.
+    """Ordinal rank normalised to [0, 1], with ties sharing the average rank.
 
-    Relative by construction: with five clusters this says "more supply than three
-    of the others", not "a lot of supply". A single cluster ranks 0.5 — the middle
-    — because with nothing to compare against, any other answer would be inventing
-    information.
+    Tie handling is not cosmetic. Without it, equal values get distinct ranks
+    resolved by `sorted`'s stability over whatever order the database returned the
+    rows in — so two clusters with identical `median_views` could swap positions
+    between two runs of the same day, and `gap` is a difference of these ranks.
+    A published number must not depend on row order.
     """
     if not values:
         return {}
     if len(values) == 1:
         return {next(iter(values)): 0.5}
     ordered = sorted(values.items(), key=lambda kv: kv[1])
-    return {cid: i / (len(ordered) - 1) for i, (cid, _) in enumerate(ordered)}
+    span = len(ordered) - 1
+    ranks: dict[str, float] = {}
+    i = 0
+    while i < len(ordered):
+        j = i
+        while j + 1 < len(ordered) and ordered[j + 1][1] == ordered[i][1]:
+            j += 1
+        shared = ((i + j) / 2) / span
+        for k in range(i, j + 1):
+            ranks[ordered[k][0]] = shared
+        i = j + 1
+    return ranks
 
 
 def build(session: Session, day: date, mark: Stamp) -> int:

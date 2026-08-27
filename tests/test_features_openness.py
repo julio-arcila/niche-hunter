@@ -7,6 +7,10 @@ points); over the cohort it spreads 40. Each of these tests pins one filter.
 
 from __future__ import annotations
 
+import sqlalchemy as sa
+
+from nh.db.models import ClusterMember
+from nh.db.session import session_scope
 from nh.features.openness import breakthrough_rate_cohort, views_per_sub
 from tests.conftest_features import CLUSTER, DAY, add_channel, make_cluster, session_for
 
@@ -108,3 +112,65 @@ def test_detail_names_the_channels_that_broke_through(engine):
     _cohort_channel(engine, "winner", [100, 100, 100, 100, 9_000])
     detail = breakthrough_rate_cohort(session_for(engine), CLUSTER, DAY).detail
     assert detail["breakout_channel_ids"] == ["winner"]
+
+
+# -- Slice 4 regression: openness must NOT follow supply onto the on-niche pool --
+
+
+def test_openness_uses_the_whole_catalogue_not_the_on_niche_pool(engine):
+    """Breakthrough asks whether a video beat *its own channel's* baseline, and that
+    baseline must be the channel's whole output. Supply asks what a newcomer
+    competes against *in this niche*. Two questions, two pools — merging them back
+    together would shrink every cohort by ~80% and make openness universally NULL,
+    which is a self-inflicted Gate D on a metric group that was not the problem.
+    """
+    make_cluster(engine)
+    add_channel(
+        engine,
+        "UCa",
+        subs=1_000,
+        videos=6,
+        views=[100] * 5 + [10_000],
+        relevant=[True] + [False] * 5,
+    )
+
+    with session_scope(engine) as s:
+        result = breakthrough_rate_cohort(s, CLUSTER, DAY)
+
+    # All six videos count toward the baseline, even though five are off-niche.
+    assert result.inputs_n == 1
+    assert result.value is not None
+
+
+def test_marking_every_video_off_niche_does_not_empty_the_cohort(engine):
+    """The sharpest form of the same guarantee: relevance must not reach openness
+    at all."""
+    make_cluster(engine)
+    add_channel(engine, "UCa", subs=1_000, videos=6, relevant=False)
+    add_channel(engine, "UCb", subs=2_000, videos=6, relevant=False)
+
+    with session_scope(engine) as s:
+        breakthrough = breakthrough_rate_cohort(s, CLUSTER, DAY)
+        per_sub = views_per_sub(s, CLUSTER, DAY)
+
+    assert breakthrough.inputs_n == 2
+    assert per_sub.inputs_n == 2
+
+
+def test_openness_values_are_identical_whatever_the_relevance(engine):
+    """Same world twice, differing only in the relevance decisions. If openness
+    moved, something has quietly joined it to the video-grain membership."""
+    make_cluster(engine)
+    add_channel(engine, "UCa", subs=1_000, videos=6, views=[100] * 5 + [9_000], relevant=True)
+    with session_scope(engine) as s:
+        all_relevant = breakthrough_rate_cohort(s, CLUSTER, DAY).value
+    with session_scope(engine) as s:
+        s.execute(
+            sa.update(ClusterMember)
+            .where(ClusterMember.item_type == "video")
+            .values(relevance=0.0, is_noise=True)
+        )
+        s.commit()
+        none_relevant = breakthrough_rate_cohort(s, CLUSTER, DAY).value
+
+    assert all_relevant == none_relevant

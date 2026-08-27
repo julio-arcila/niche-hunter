@@ -39,7 +39,8 @@ Formula      : count of videos with published_at in (day-28d, day], is_short IS 
                recorded in detail.per_channel_median for reference.
 Inputs       : videos(published_at, is_short, channel_id); cluster_members
                (item_type='channel'); window (day-28d, day].
-Join key     : cluster_id, via videos.channel_id -> cluster_members.item_id
+Join key     : cluster_id, via videos.channel_id -> cluster_members.item_id, AND
+               videos.video_id -> cluster_members(item_type='video').relevance
 Confidence   : min(known_n / 30, 1) * (publishing_n / member_n) -- sample adequacy
                TIMES coverage. Adequacy alone saturates: 74 contributing channels
                of 197 scores 1.00 while the metric sees 38% of the niche, and
@@ -47,6 +48,10 @@ Confidence   : min(known_n / 30, 1) * (publishing_n / member_n) -- sample adequa
                would under-report a small but fully observed cluster. Measured
                live: adequacy-only gave 1.00 for every niche; the product gives
                0.38 for aviation-disasters, which is the true picture.
+CHANGED 2026-08-27 (Slice 4, definition "v2-on-niche"): the numerator counts only
+               videos judged on-niche, and confidence gained a relevance_coverage
+               leg. Values fell 15-30% for every cluster. Not comparable across
+               2026-08-27.
 Failure mode : RSS feeds cap at 15 entries, so a channel uploading >15 times in 28
                days is undercounted. MUST NOT be computed as a count over a fixed
                window using RSS rows -- measured, that censors at the cap and every
@@ -59,17 +64,40 @@ Measured     : 2.2x spread across the five seeds (2.31 to 5.01 /wk)
 
 ### supply.median_views
 ```
-Formula      : median of current views over the pooled eligible videos of all member
-               channels. Eligible: is_short IS FALSE, published_at <= day-14d, within
+Formula      : median of current views over the pooled eligible ON-NICHE videos of
+               all member channels. Eligible: is_short IS FALSE, published_at <= day-14d, within
                the channel's 15 most recent known uploads (uniform per-channel cap =
                RSS feed depth, so API-discovered channels get no deeper window).
                Views from the video's latest video_snapshots row with observed_date
                <= day. Pooled, not median-of-medians: supply is the field you compete
                against, and a 500-sub channel should not weigh the same as a 30M one.
+               The relevance filter is applied AFTER the 15-video cap, never before:
+               filtering first would let an on-niche-sparse channel reach further
+               back in time and silently destroy the comparability the cap exists
+               to create (data rule 9).
 Inputs       : videos; video_snapshots(observed_date, views, source); cluster_members
+               (item_type='channel' for the pool, item_type='video' for relevance)
 Join key     : cluster_id
-Confidence   : min(contributing_channels / 30, 1). Channels, not videos: views are
-               correlated within a channel, so channels are the effective sample.
+Confidence   : min(contributing_channels / 30, 1) * coverage * relevance_coverage.
+               Channels, not videos, for the first leg: views are correlated within
+               a channel, so channels are the effective sample. relevance_coverage
+               is decided_videos / all_videos in the cluster -- a metric computed
+               over videos we judged depends on how much of the cluster we could
+               judge, and that is a distinct way it lies.
+
+CHANGED 2026-08-27 (Slice 4, definition "v2-on-niche"): the pool moved from every
+               eligible video to eligible videos judged on-niche. Values moved
+               0.42x-3.37x; supply RANKS did not change, and `gap` is unchanged for
+               all five clusters. Confidence fell (0.35-0.47 -> 0.16-0.27), which is
+               the honest half: the numbers now rest on a filter whose held-out
+               precision is 0.781. Series spanning this date are not comparable
+               across it -- detail.definition says which side a row is on.
+               NOT comparable to openness.*, which deliberately keeps the whole
+               catalogue: supply asks what a newcomer competes against IN THIS NICHE,
+               openness asks whether a video beat ITS OWN CHANNEL's baseline, and
+               that baseline must be the channel's whole output. Do not merge the
+               two pools back together -- it would shrink every cohort by ~80% and
+               make openness universally NULL.
 Failure mode : current views are LIFETIME views -- a five-year-old hit counts the
                same as last month's, overstating what new content earns today. The
                14-day floor is below view settlement. relevanceLanguage=en skews the
@@ -146,6 +174,12 @@ Join key     : cluster_id
 Confidence   : min(known_duration_videos / 100, 1). A per-video property measured
                exactly, so videos are the honest n; 100 because the window is
                video-rich and 30 videos can be two channels' output.
+CHANGED 2026-08-27 (Slice 4, definition "v2-on-niche"): numerator and denominator
+               both restrict to on-niche videos, and confidence gained a
+               relevance_coverage leg. Values ROSE for every cluster (0.25-0.54 ->
+               0.31-0.69) because off-niche shorts were dragging the share down;
+               confidence fell from 1.00 to 0.74-0.87, which was the number that had
+               been wrong. Not comparable across 2026-08-27.
 Failure mode : depends entirely on the enrichment backfill. Before it runs the
                denominator is the 1,242 API-discovered videos only -- a
                discovery-biased subset. Deleted videos leave unknown durations; if
@@ -240,6 +274,71 @@ Failure mode : +/-5 point sampling jitter between fetches moves the ratio; the
 Feeds        : none yet — corroboration display in Slice 3
 ```
 
+### supply.on_niche_share
+```
+Formula      : videos judged on-niche / videos judged at all, per cluster. Judged
+               means relevance >= RELEVANCE_HIGH (on-niche) or is_noise (off-niche);
+               undecided and unscorable videos are excluded from BOTH sides rather
+               than counted against, the same treatment midroll_eligible_share gives
+               an unknown duration.
+Inputs       : cluster_members(item_type='video', relevance, is_noise)
+Join key     : cluster_id
+Confidence   : decided / total. Coverage only -- there is no sample-adequacy leg
+               because this is a census of the cluster, not a sample of it.
+Failure mode : it measures our LEXICON as much as the corpus. A lexicon edit moves
+               it with no change in the world, which is why cluster_members.detail
+               records LEXICON_VERSION per row. Held-out precision on the underlying
+               judgement is 0.781 and recall 0.694 against a 28.6% base rate
+               (reports/relevance_2026-08-27.md), so this is an estimate with a
+               known error rate, not a count. English-only: 10.5% of titles are
+               non-Latin script and are unscorable by construction.
+Measured     : 2026-08-27 -- aviation 33.7%, court 26.5%, corporate 21.2%,
+               maritime 20.8%, engineering 19.6%. The spread tracks how specific
+               each seed's keywords are.
+```
+
+## Relevance -- the rule every supply number now depends on
+
+Not a metric, but `supply.*` and `money.*` are all computed over the videos it
+selects, so it is defined here rather than only in code.
+
+A video is scored against its cluster on two axes, and relevance is their geometric
+mean, so either at zero means zero:
+
+- **domain** -- terms from the niche's own vocabulary, weighted by how many of the
+  five lexicons contain them (unique 1.00, two 0.50, all five 0.00). The zero row is
+  deliberate: *documentary*, *investigation*, *analysis*, *explained* are what these
+  niches share, not what separates them.
+- **event** -- failure and case markers (crash, collapsed, sank, fraud, verdict).
+  These carry no power to tell one niche from another and decisive power to tell a
+  failure from a tutorial.
+
+The second axis exists because measurement demanded it. A domain-only scorer reached
+precision 0.62 and every false positive had one shape: on-domain, off-niche --
+"Changi Airport Plane Spotting", "Why Concrete Needs Steel Reinforcement",
+"Settlement vs Adjudication". The niche is domain AND event.
+
+Three states, cut at read time so a threshold change is a query and not a rewrite:
+
+| state | rule | held-out share truly on-niche |
+|---|---|---|
+| on-niche | `relevance >= 0.55` | 78.1% |
+| undecided | `0 < relevance < 0.55` | 37.5% |
+| noise | `relevance == 0` | 6.4% |
+| unscorable | `relevance IS NULL` | excluded; 0 of 10 labelled were on-niche |
+
+Base rate 28.6%. **Held-out precision 0.781, recall 0.694 -- the 0.90 target in the
+plan was not met**, and every metric above says so. It still ships because the
+status quo is no filter, which is a filter with precision 0.286.
+
+Weights are a pure function of the frozen lexicon, never of the corpus. Corpus IDF
+was rejected: it drifts as the corpus grows, so the same video would score
+differently on two days and Slice 6 could not replay a historical decision.
+
+Do not re-tune the thresholds against a metric. They were chosen against hand labels
+on a held-out split, and moving them until a ranking looks right is exactly the trap
+this file already warns about for `winner_age_years`.
+
 ## Composite stubs (Slice 2)
 
 Explicitly stubs, replaced by real composites in Slice 5. Named here because they
@@ -249,7 +348,9 @@ render on `scorecards` and a number on screen invites being trusted.
   no weighting is invented.
 - `scorecards.supply` = percentile rank of `supply.median_views` among the clusters
   scored that day. Relative by design. A NULL median_views gives NULL supply, never
-  a default rank.
+  a default rank. Ties share the average rank (Slice 4): without that, equal values
+  got distinct ranks resolved by row order, so two clusters could swap between two
+  runs of the same day and `gap` is a difference of these ranks.
 - `scorecards.demand` = percentile rank of `demand.wiki_weekly_views` among the
   clusters scored that day, same construction as `supply`. NULL level -> NULL rank.
 - `scorecards.gap` = demand - supply, both ranks, range [-1, 1]. A gap OF RELATIVE

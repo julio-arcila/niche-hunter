@@ -26,6 +26,7 @@ METRICS: tuple[Metric, ...] = (
     demand.trends_momentum_13w,
     supply.uploads_per_week,
     supply.median_views,
+    supply.on_niche_share,
     openness.breakthrough_rate_cohort,
     openness.views_per_sub,
     money.midroll_eligible_share,

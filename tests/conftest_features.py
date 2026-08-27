@@ -30,6 +30,21 @@ def _at(day: date) -> datetime:
     return datetime.combine(day, time.min, tzinfo=UTC)
 
 
+def _video_member(cluster_id: str, video_id: str, relevant: bool | None) -> ClusterMember:
+    """One video membership row. `relevant=None` is unscorable: relevance stays NULL
+    and `is_noise` stays False, because "unreadable" is not "off-niche"."""
+    relevance = None if relevant is None else (0.9 if relevant else 0.0)
+    return ClusterMember(
+        cluster_id=cluster_id,
+        item_type="video",
+        item_id=video_id,
+        relevance=relevance,
+        is_noise=relevance == 0.0,
+        source="clustering",
+        run_id=RUN,
+    )
+
+
 def make_cluster(engine, cluster_id: str = CLUSTER) -> None:
     with session_scope(engine) as s:
         s.add(Cluster(cluster_id=cluster_id, label="Aviation", source="clustering", run_id=RUN))
@@ -48,6 +63,7 @@ def add_channel(
     views: int | list[int] = 1_000,
     age_days: int = 60,
     is_short: bool | None = False,
+    relevant: bool | list[bool] | None = True,
     day: date = DAY,
 ) -> list[str]:
     """A channel with `videos` uploads, returning their ids.
@@ -85,9 +101,12 @@ def add_channel(
                     run_id=RUN,
                 )
             )
+        relevance_list = relevant if isinstance(relevant, list) else [relevant] * videos
         for i in range(videos):
             vid = f"{channel_id}-v{i}"
             ids.append(vid)
+            if member:
+                s.add(_video_member(cluster_id, vid, relevance_list[i]))
             s.add(
                 Video(
                     video_id=vid,

@@ -158,3 +158,24 @@ def test_a_lone_cluster_gaps_at_zero(engine):
     with session_scope(engine) as s:
         build(s, DAY, _mark())
         assert s.scalar(sa.select(Scorecard.gap)) == 0.0
+
+
+def test_tied_values_share_a_rank():
+    """Without this, equal values get distinct ranks resolved by `sorted`'s
+    stability over whatever order the database returned rows in — so two clusters
+    could swap positions between two runs of the same day, and `gap` is a
+    difference of these ranks."""
+    ranks = percentile_rank({"a": 10.0, "b": 10.0, "c": 30.0})
+    assert ranks["a"] == ranks["b"] == 0.25
+    assert ranks["c"] == 1.0
+
+
+def test_ranking_does_not_depend_on_input_order():
+    forward = percentile_rank({"a": 5.0, "b": 5.0, "c": 5.0, "d": 9.0})
+    backward = percentile_rank({"d": 9.0, "c": 5.0, "b": 5.0, "a": 5.0})
+    assert forward == backward
+
+
+def test_an_all_tied_set_ranks_everything_at_the_midpoint():
+    ranks = percentile_rank({"a": 1.0, "b": 1.0, "c": 1.0})
+    assert set(ranks.values()) == {0.5}

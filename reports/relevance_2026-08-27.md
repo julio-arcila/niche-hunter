@@ -158,3 +158,59 @@ uv run nh cluster sample --out reports/relevance_sample.jsonl --per-cluster 60 -
 uv run nh cluster import reports/relevance_labels.jsonl --labeller <you>
 uv run nh cluster calibrate           # prints every table above
 ```
+
+## Sensitivity — is the filter producing the ranking?
+
+Cluster ordering on `supply.median_views` across relevance thresholds. If the
+ordering moved with the threshold, the filter rather than the data would be
+producing it, and no amount of precision would make that acceptable.
+
+| threshold | ordering (lowest median first) |
+|---|---|
+| 0.40 | corporate < maritime < engineering < aviation < court |
+| 0.45 | corporate < maritime < engineering < aviation < court |
+| 0.51 | **maritime < corporate** < engineering < aviation < court |
+| **0.55 (chosen)** | corporate < maritime < engineering < aviation < court |
+| 0.60 | corporate < maritime < engineering < aviation < court |
+| 0.65 | corporate < maritime < engineering < aviation < court |
+| 0.70 | **maritime < corporate** < engineering < aviation < court |
+
+**The top three are stable at every threshold tested.** Only corporate-collapse
+and maritime-disasters swap, and their medians are 979.5 and 1,000.5 — within 2%
+of each other. Their relative order is not determined by the data and should not be
+read as a finding at any threshold.
+
+## Effect on the published numbers
+
+Applying the filter changed every supply and money value, and changed **no supply
+rank**:
+
+| metric | aviation | corporate | court | engineering | maritime |
+|---|---|---|---|---|---|
+| median_views before | 323,768 | 933 | 330,181 | 7,729 | 1,696 |
+| median_views after | 209,845 | 980 | 408,594 | 7,729 | 1,000 |
+| uploads/wk before | 24.25 | 23.00 | 30.00 | 24.50 | 14.75 |
+| uploads/wk after | 20.50 | 17.25 | 20.00 | 18.25 | 10.50 |
+| midroll share before | 0.373 | 0.368 | 0.536 | 0.252 | 0.337 |
+| midroll share after | 0.397 | 0.383 | 0.690 | 0.314 | 0.421 |
+
+`gap` is unchanged for all five clusters (0.0, +0.5, 0.0, −0.5, 0.0) because the
+supply *ordering* survived the filter. That is a stronger result than a changed gap
+would have been: the ranking was not an artifact of contamination.
+
+What did change is **confidence**, downward everywhere — `gap_confidence` fell from
+0.35–0.47 to 0.16–0.27. The numbers did not get less true; we found out they rest on
+a filter whose precision is 0.781, and the confidence column now says so.
+
+`supply.on_niche_share`, the new metric:
+
+| cluster | on-niche share | confidence |
+|---|---|---|
+| aviation-disasters | 33.7% | 0.871 |
+| court-cases | 26.5% | 0.820 |
+| corporate-collapse | 21.2% | 0.820 |
+| maritime-disasters | 20.8% | 0.868 |
+| engineering-failures | 19.6% | 0.738 |
+
+Aviation is the cleanest niche and engineering the dirtiest, which matches where
+the seed keywords are most and least specific.
