@@ -71,6 +71,11 @@ def parse_feed(xml_text: str) -> list[dict[str, Any]]:
                 "video_id": entry.findtext("yt:videoId", namespaces=NS),
                 "channel_id": entry.findtext("yt:channelId", namespaces=NS),
                 "title": entry.findtext("a:title", namespaces=NS),
+                # Feeds truncate long descriptions, so this is the text as served,
+                # not necessarily the full text. An absent one stays None.
+                "description": group.findtext("media:description", namespaces=NS)
+                if group is not None
+                else None,
                 "published_at": entry.findtext("a:published", namespaces=NS),
                 # An absent count is unknown, not zero (data rule 6).
                 "views": as_int(stats.get("views")) if stats is not None else None,
@@ -182,20 +187,21 @@ class YouTubeRssCollector(Collector):
             ]
         )
         for entry in parse_feed(payload["xml"]) if payload["xml"] else []:
-            batch.upserts.append(
-                Upsert(
-                    Video,
-                    {
-                        "video_id": entry["video_id"],
-                        "channel_id": entry["channel_id"],
-                        "title": entry["title"],
-                        "published_at": as_utc(entry["published_at"]),
-                        # `enriched` is deliberately absent: on insert the column
-                        # default applies, and on update an existing True survives
-                        # because absent columns never reach the SET clause.
-                    },
-                )
-            )
+            video = {
+                "video_id": entry["video_id"],
+                "channel_id": entry["channel_id"],
+                "title": entry["title"],
+                "published_at": as_utc(entry["published_at"]),
+                # `enriched` is deliberately absent: on insert the column
+                # default applies, and on update an existing True survives
+                # because absent columns never reach the SET clause.
+            }
+            if entry["description"]:
+                # Same reasoning as `enriched`: an empty feed description must not
+                # overwrite the fuller text `youtube_api` may already have stored.
+                # `_group` buckets by column set, so a mixed batch is fine.
+                video["description"] = entry["description"]
+            batch.upserts.append(Upsert(Video, video))
             batch.snapshots.append(
                 Snapshot(
                     VideoSnapshot,

@@ -18,6 +18,16 @@ a real capture via `scripts/record_fixtures.py`.*
   Shorts flag. Enrich new ids once through `youtube_api` (1 unit per 50).
 - **Caveats**: last 15 entries only, no pagination — a channel that uploads more
   than 15 times between polls loses the overflow permanently. Unofficial endpoint.
+- **Measured 2026-08-27: `media:description` is served but truncated.** Present on
+  13,312 of 14,355 feed-sourced videos, median 1,052 characters and capped at
+  5,000; `youtube_api` returns the untruncated text. It is ~20x the title and is
+  the relevance scorer's main input, so both collectors now store it in
+  `videos.description` — before Slice 4 it survived only inside `raw_records` and
+  the nightly prune was on course to delete it (ADR-0017).
+- **The 15-entry cap makes descriptions unbackfillable too.** A video that has
+  fallen out of its channel's window cannot be re-fetched, so the text is
+  recoverable only while the stored payload lives. 1,873 of 14,899 were already
+  past that window on 2026-08-27.
 - **Measured 2026-08-27: the feeds return NO cache validators.** No `ETag`, no
   `Last-Modified` — only `cache-control: max-age=900` and `expires`. Across 955
   channels: 0 ETags, 0 Last-Modified, 0 responses of 304, all 200. Conditional

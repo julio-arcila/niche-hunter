@@ -283,3 +283,54 @@ composite. `geo_tier1_share` is **not ported** until its ~29-country internet-us
 weight dict carries a citation — an uncited constant must not sit under a dollar
 figure. That is a Slice 5 task attached to the RPM model, which is where a dollar
 figure first appears anyway.
+
+## ADR-0017 — Retention may not delete the last copy of a description
+2026-08-27. Accepted. **Refines ADR-0010**, which is still right that raw payloads
+are a replay convenience whose value decays — but that argument holds only while
+every fact a payload carries has been extracted into a typed table. Slice 4 found
+one that had not been.
+
+`videos.description` did not exist until this slice. Descriptions are the richest
+text a video carries — median 1,052 characters against a 67-character title,
+roughly 20x — and the relevance scorer needs them: on the corpus measured
+2026-08-27, adding the description raises the share of videos matching their own
+niche's lexicon from 22.2% to 42.4%. For the 14,899 videos already collected, that
+text existed **only** inside gzipped `feed` payloads in `raw_records`, which
+`scripts/run_nightly.sh` prunes after every nightly at
+`NH_RAW_RETENTION_DAYS` (14). First deletion would have been ~2026-09-10.
+
+The loss would have been permanent for a growing share of it. An Atom feed serves
+15 entries and no history, so a video that has fallen out of its channel's window
+cannot be re-fetched at any price; 1,873 of 14,899 were already past it the day
+this was written, and that number grows every night a channel publishes. This is
+the same class of loss `*_snapshots` retention is forbidden for (rule 4) — the
+difference is only that nobody had noticed the description was in it.
+
+So `prune_raw_records` now decodes its delete set and refuses, absent `--force`,
+when it holds the only stored copy of any `videos.description`. `nh backfill
+descriptions` is the way to satisfy it: a job, not a phase, because a phase runs
+nightly forever and `nh/jobs/status.py` would then gate the healthcheck on a rescue
+that does nothing after the first night. Both collectors now capture the field, so
+the backfill is a one-off for history rather than a standing dependency.
+
+The guard counts what the delete set **actually holds**, not every video missing a
+description. The coarse version refuses forever: 1,044 videos have no description
+in any payload we hold and never will, and a guard that cannot be satisfied is a
+broken nightly rather than a safety feature. Cost is one decode of the delete set,
+which in steady state is a single night's feeds.
+
+Rejected: raising `raw_retention_days`. It re-inflates storage without bound —
+the problem ADR-0010 exists to solve — and only moves the deadline. Also rejected:
+stamping the rescued rows with the backfill's provenance. `nh.db.provenance.stamp`
+uses `setdefault` precisely so a backfill can keep "the run that originally
+produced them rather than the run that moved them", and the description came from
+the payload the original collector fetched. Moving text between two columns of our
+own database is not a new observation. The job's own provenance is its `job_runs`
+row.
+
+One implementation note worth keeping, because it will come up again: this write
+is a targeted `UPDATE`, not an `upsert`. SQLite builds the full candidate row for
+`INSERT ... ON CONFLICT DO UPDATE` before the conflict clause resolves, so a
+payload carrying only `video_id` and `description` fails `NOT NULL constraint
+failed: videos.channel_id`. Supplying the other columns to satisfy that would let
+the job create video rows, which is exactly what it must never do.

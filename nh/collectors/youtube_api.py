@@ -69,6 +69,13 @@ _PARTS = {
 }
 
 _SPONSOR_RE = re.compile(r"sponsored|use code|affiliate|promo code|partner", re.I)
+
+
+def _sponsor_signal(description: str | None) -> bool | None:
+    """None when there is no description to read — absent is not False (rule 7)."""
+    return None if description is None else bool(_SPONSOR_RE.search(description))
+
+
 _MIDROLL_S = 480
 _SHORT_S = 60
 
@@ -381,6 +388,7 @@ class YouTubeApiCollector(Collector):
                         "video_id": raw.key,
                         "channel_id": snippet["channelId"],
                         "title": snippet.get("title"),
+                        "description": snippet.get("description"),
                         "published_at": as_utc(snippet.get("publishedAt")),
                         "duration_s": duration,
                         "category_id": snippet.get("categoryId"),
@@ -390,7 +398,9 @@ class YouTubeApiCollector(Collector):
                         # Unknown duration means unknown format, not "not a short".
                         "is_short": _is_short(duration, tagged_short),
                         "midroll_eligible": None if duration is None else duration >= _MIDROLL_S,
-                        "sponsor_signal": bool(_SPONSOR_RE.search(snippet.get("description", ""))),
+                        # Absent description is unknown, not "no sponsor" (rule 7);
+                        # an empty one is genuinely known to carry no signal.
+                        "sponsor_signal": _sponsor_signal(snippet.get("description")),
                         "enriched": True,
                     },
                 )

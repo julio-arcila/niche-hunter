@@ -151,16 +151,44 @@ def seed(
 
 
 @app.command()
+def backfill(
+    what: str = typer.Argument(..., help="What to recover. Currently only: descriptions"),
+    limit: int = typer.Option(None, "--limit", help="Stop after this many videos."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report only, write nothing."),
+) -> None:
+    """Re-derive stored columns from `raw_records`. No network, no quota.
+
+    Data rule 2: re-normalizing history is a query, never a re-fetch. `descriptions`
+    recovers `videos.description` for videos collected before that column existed —
+    text that otherwise only survives until the next `nh prune` (ADR-0017).
+    """
+    from nh.jobs.backfill import backfill_descriptions
+
+    if what != "descriptions":
+        typer.secho(f"unknown backfill target {what!r}", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+
+    result = backfill_descriptions(limit=limit, dry_run=dry_run)
+    verb = "would write" if result.dry_run else "wrote"
+    typer.echo(
+        f"scanned {result.scanned:,} raw payloads; "
+        f"{verb} {result.found:,} description(s), {result.written:,} row(s) upserted"
+    )
+
+
+@app.command()
 def prune(
     days: int = typer.Option(None, "--days", help="Retention window. Default from settings."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Report only, delete nothing."),
+    force: bool = typer.Option(False, "--force", help="Prune even if it orphans descriptions."),
 ) -> None:
     """Drop aged bulk raw payloads and report storage.
 
     Touches `raw_records` only. Snapshots are never pruned — they are the
-    unbackfillable asset and are kept forever (ADR-0010).
+    unbackfillable asset and are kept forever (ADR-0010). Refuses to delete the last
+    copy of a video description unless forced (ADR-0017).
     """
-    from nh.db.retention import BULK_KINDS, prune_raw_records, storage_report
+    from nh.db.retention import BULK_KINDS, LastCopyRefused, prune_raw_records, storage_report
 
     settings = get_settings()
     window = days if days is not None else settings.raw_retention_days
@@ -172,11 +200,21 @@ def prune(
         total += size
     typer.echo(f"{'total':<13}{'':<7}{'':>8}{total / 1048576:>9.1f}")
 
-    result = prune_raw_records(days=window, dry_run=dry_run)
+    try:
+        result = prune_raw_records(days=window, dry_run=dry_run, force=force)
+    except LastCopyRefused as exc:
+        typer.secho(f"\nrefused: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
     verb = "would delete" if result.dry_run else "deleted"
     typer.echo(
         f"\n{verb} {result.deleted:,} {'/'.join(BULK_KINDS)} payloads older than {window} days"
     )
+    if result.orphaned_descriptions:
+        typer.secho(
+            f"forced past {result.orphaned_descriptions:,} video(s) whose description "
+            "was not stored; that text is gone",
+            fg=typer.colors.YELLOW,
+        )
     if not result.dry_run and result.deleted:
         typer.echo("run `sqlite3 <db> VACUUM;` to return the pages to the filesystem")
 

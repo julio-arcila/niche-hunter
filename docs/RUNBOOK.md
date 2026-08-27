@@ -93,6 +93,7 @@ produced a "successful" 113-byte backup of nothing.
 
 ```bash
 uv run nh prune --dry-run     # storage per kind/codec; what retention would drop
+uv run nh backfill descriptions --dry-run   # re-derive stored columns from raw
 uv run nh status              # last 7 days: runs, quota, snapshots per day
 uv run nh status --check      # the gate; exit 1 if the last night collected nothing
 uv run nh sources             # ported / configured / quota per source
@@ -113,6 +114,29 @@ unbounded growth; `nh prune --dry-run` shows the current split.
 SQLite does not return freed pages to the filesystem on its own. After a large
 prune: `/usr/bin/sqlite3 data/niche_hunter.db "VACUUM;"`. Snapshots are never
 pruned — they are the asset.
+
+### If the prune refuses
+
+```
+refused: pruning would destroy the last copy of N video description(s)
+```
+
+The delete set holds text that is not yet in a typed column (ADR-0017). Fix it,
+do not force it:
+
+```bash
+uv run nh backfill descriptions      # extracts from raw_records; no network, no quota
+uv run nh prune                      # now proceeds
+```
+
+`--force` exists for the case where you have decided the text is not worth
+keeping. It prunes anyway and reports how many descriptions it cost. Feeds serve
+15 entries and no history, so for any video that has fallen out of its channel's
+window that text does not come back.
+
+Because `scripts/run_nightly.sh` prunes non-fatally, a refusal shows up in
+`logs/prune.log` rather than failing the night — check it if `videos.description`
+coverage stops rising.
 
 ## Exit criteria for Slice 1
 

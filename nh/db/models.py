@@ -254,6 +254,11 @@ class Video(Base, Provenance):
     video_id: Mapped[str] = mapped_column(sa.String(16), primary_key=True)
     channel_id: Mapped[str] = mapped_column(sa.String(32), index=True)
     title: Mapped[str | None] = mapped_column(sa.Text)
+    #: The richest text a video carries — ~20x the title, and the input the
+    #: relevance scorer needs. Captured by both collectors, but for videos already
+    #: collected it exists only inside `raw_records`, which `nh prune` deletes at
+    #: `raw_retention_days`; `nh backfill descriptions` rescues those (ADR-0017).
+    description: Mapped[str | None] = mapped_column(sa.Text)
     published_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), index=True)
     duration_s: Mapped[int | None] = mapped_column(sa.Integer)
     category_id: Mapped[str | None] = mapped_column(sa.String(8))
