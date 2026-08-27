@@ -158,30 +158,52 @@ not arrived within 4 weeks, commit to the CSV path and stop waiting.
 
 ---
 
-### Slice 4 — Real clusters · size L · the schedule risk lives here
+### Slice 4 — Real clusters · size L · **AMENDED, shipped 2026-08-27**
 
-**Goal:** sub-niches discovered rather than assumed.
+**Planned:** embeddings over YouTube titles, Reddit question titles, Trends rising
+queries and KP keywords in one space; HDBSCAN per seed; centroid stored daily;
+drift monitoring and weekly frozen cluster IDs; a label / merge / split review UI.
 
-Ships:
-- embeddings over YouTube titles, Reddit question titles, Trends rising queries
-  and KP keywords **in one space**
-- HDBSCAN per seed → sub-niche clusters, centroid stored daily
-- drift monitoring + weekly frozen cluster IDs so scores stay comparable
-- minimal label / merge / split review UI
+**Shipped instead:** per-video relevance. See **ADR-0018**; the short version is
+that this slice's premise was removed by Slice 3 and its exit criterion was not
+measurable.
 
-Why after Slice 3: clustering earns its keep only when there are multiple
-sources to cluster *together*. Cluster YouTube titles alone and you have built a
-topic model, not a demand–supply bridge.
+The premise: this slice sat after Slice 3 because *"clustering earns its keep only
+when there are multiple sources to cluster together"*. Slice 3 then found Reddit
+unapproved, Trends' related-queries endpoints quota-blocked (ADR-0015) and Keyword
+Planner deferred (ADR-0016). One source left, so the argument that ordered this
+slice now argues against building it.
 
-**Exit:** every item has a `cluster_id` or a noise flag · >90% membership
-overlap across consecutive days.
+The criterion: ">90% membership overlap across consecutive days" needed a day *t−1*
+that did not exist — `cluster_members` had no day column and one day of collection
+had happened. Gate D was invoked on those grounds rather than on a stability number.
 
-**Gate D:** if stability stays under 90% after honest effort, freeze to
-seed-level clusters and ship without sub-niches. Sub-niche discovery is a
-research task wearing an engineering task's clothes; it is the most likely
-place for this roadmap to slip, and it is not load-bearing for the core claim.
+What the measurement found instead was a correctness bug in this layer. Membership
+assigned *channels* to seeds and videos inherited their channel's cluster, so
+**only 20% of the videos feeding every `supply.*` and `money.*` number were about
+the niche they were filed under**. Slice 4 fixed that:
 
----
+- `videos.description` rescued from `raw_records` before the nightly prune reached
+  it — 13,855 recovered, 1,873 already past the point of re-fetching (ADR-0017)
+- channel identity unchanged (ADR-0013); a second, separate per-video question
+  added, hard-assigned with a noise flag
+- a two-axis lexical scorer, calibrated against 298 hand labels on a held-out split
+- `supply.*` and `money.*` moved to the on-niche pool; `openness.*` deliberately
+  did not, and has regression tests saying so
+- `nh cluster sample` / `import` / `calibrate` / `inspect`
+
+**Exit, as met:** every video carries a relevance decision or a stated reason it
+could not be scored (0 silently absent), and the rule has a published precision
+with its base rate: **0.781 precision, 0.694 recall, 28.6% base rate** on held-out
+labels. That is **below the 0.90 the plan asked for**, and it is recorded in
+`reports/relevance_2026-08-27.md`, in METRICS.md beside every dependent metric, and
+in a warning `nh cluster calibrate` prints. It ships because the status quo is no
+filter, which is precision 0.286.
+
+**Deferred to a later slice, with named blockers** (ADR-0018): sub-niche discovery,
+embeddings, and the review UI. The blockers to clear first are `demand_terms`
+resolving per seed rather than per cluster (pinned by a test), openness cohorts
+already starving at seed size, and more than one day of collection.
 
 ### Slice 5 — Full feature set · size L
 
@@ -280,7 +302,7 @@ Rough, one person part-time. S1→S3 is predictable; S4 onward is not.
 S1  First light        ██                      week 1
 S2  Walking skeleton     ██                    week 2
 S3  Demand online          ███                 weeks 3-4      ← Gate C (external)
-S4  Real clusters             █████            weeks 5-7      ← highest slip risk
+S4  Relevance (amended)       ███              week 5         ← Gate D invoked, ADR-0018
 S5  Full features                  ████        weeks 8-9
 S6  Calibration                        ████    weeks 10-11    ← GATE E: go/no-go
 S7  Product surface                        ███ weeks 12-13

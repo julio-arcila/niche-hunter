@@ -209,3 +209,27 @@ def test_points_after_the_day_are_dropped_even_inside_a_stored_row(engine):
     points.append([(DAY + timedelta(days=7)).isoformat(), 999.0])
     _series(engine, "plane crash", points, observed=DAY)
     assert trends_momentum_13w(session_for(engine), CLUSTER, DAY).value == 1.0
+
+
+def test_demand_terms_is_per_seed_not_per_cluster(engine):
+    """A named blocker for sub-niche discovery (ADR-0018), pinned as a test.
+
+    `demand_terms` joins `clusters.seed_id -> seed_terms.seed_id`, so two clusters
+    sharing a seed get an identical article list and therefore an identical
+    `wiki_weekly_views`. Today one cluster maps to one seed and this is harmless.
+    The moment a seed is split, every sub-cluster's demand becomes the same number
+    and `gap` degenerates into a within-seed supply shuffle against a constant.
+
+    This test exists so that lands as a red test rather than as five plausible
+    scorecards nobody questions.
+    """
+    from nh.features.inputs import demand_terms
+
+    _cluster(engine, terms=(("wikipedia", "Aviation_safety"),))
+    with session_scope(engine) as s:
+        s.add(Cluster(cluster_id="sub-2", seed_id=1, label="B", source="clustering", run_id="t"))
+        s.commit()
+        first = demand_terms(s, CLUSTER, "wikipedia")
+        second = demand_terms(s, "sub-2", "wikipedia")
+
+    assert first == second == ["Aviation_safety"]

@@ -334,3 +334,83 @@ is a targeted `UPDATE`, not an `upsert`. SQLite builds the full candidate row fo
 payload carrying only `video_id` and `description` fails `NOT NULL constraint
 failed: videos.channel_id`. Supplying the other columns to satisfy that would let
 the job create video rows, which is exactly what it must never do.
+
+## ADR-0018 — Gate D invoked: membership moves to video grain, sub-niches deferred
+2026-08-27. Accepted. **Supersedes the Slice 4 plan in docs/ROADMAP.md.** That slice
+was "sub-niches discovered rather than assumed": embeddings over YouTube titles,
+Reddit question titles, Trends rising queries and Keyword Planner keywords **in one
+space**, then HDBSCAN per seed. It is not built, and the reason is not the one Gate
+D anticipated.
+
+**The premise is void.** The roadmap's own justification for placing clustering
+after Slice 3 was that *"clustering earns its keep only when there are multiple
+sources to cluster together. Cluster YouTube titles alone and you have built a topic
+model, not a demand–supply bridge."* Slice 3 then removed three of the four sources:
+Reddit is unapproved and may never arrive, Trends `related_queries`/`related_topics`
+are quota-blocked (ADR-0015), Keyword Planner is deferred (ADR-0016). Only YouTube
+titles remain, so the roadmap's own argument says not to build it.
+
+**And Gate D's criterion cannot be evaluated.** It says freeze to seed-level
+clusters "if stability stays under 90% after honest effort", which presumes a
+measurement. `cluster_members` had no day column and was overwritten in place, so
+there was no day *t−1* to compare against, and there is one day of collection. The
+criterion is not failing; it is unmeasurable. That is why this is an ADR and not a
+checkbox.
+
+Three measured facts make splitting actively harmful today, and each is a blocker
+that must be cleared before sub-niches are attempted again:
+
+1. **Demand cannot follow a split.** `nh/features/inputs.py::demand_terms` joins
+   `clusters.seed_id → seed_terms.seed_id`, so every sub-cluster of a seed returns
+   an identical article list and an identical `wiki_weekly_views`. `gap` would
+   become a within-seed supply shuffle against a constant. `percentile_rank` now
+   averages ties, but the deeper problem is that the demand side has no per-cluster
+   mapping at all. `tests/test_features_demand.py` pins this invariant so a future
+   split trips a red test rather than silently shipping identical demand.
+2. **Openness dies.** `breakthrough_rate_cohort` and `views_per_sub` are NULL for 4
+   of 5 clusters at ~190 channels per seed; a five-way split takes that to ~38 and
+   makes them universally NULL. That would be trading a real metric group for fake
+   resolution.
+3. **The corpus was 80% off-niche.** HDBSCAN over that pool would have found real,
+   tight, stable clusters — of Indian exam-prep content — and it would have looked
+   like it worked.
+
+**What shipped instead.** The third fact is not a clustering shortfall; it is a
+correctness bug in the layer clustering owns, and it was poisoning every published
+`supply.*` and `money.*` number. `nh/clustering/trivial.py` assigned *channels* to
+seeds and videos inherited their channel's cluster, so one plane-crash video pulled
+a channel's entire catalogue into aviation-disasters. Slice 4 keeps channel identity
+exactly as ADR-0013 defines it and adds a second, separate question — is this
+*video* about that niche — answered per video, hard-assigned, with an explicit
+noise flag. That satisfies Slice 4's stated exit clause ("every item has a
+`cluster_id` or a noise flag") without embeddings, and it delivers the substrate a
+future sub-niche attempt needs.
+
+**Embeddings are deferred with reasons, not by omission.** `tests/conftest.py`
+blocks all sockets, so a model download at test time is impossible and a skipped
+test on the decision gating every supply number is not a test. `sentence-transformers`
+pulls torch, an order-of-magnitude change to a six-dependency project. And with no
+labels an embedding threshold is a number chosen because the output looked nice.
+Lexical fails legibly; embeddings fail invisibly. **No optional extra was added
+either** — an unused extra invites use.
+
+**The rule is calibrated and it missed its bar, which is recorded rather than
+smoothed over.** Held-out precision 0.781 and recall 0.694 against a 28.6% base
+rate; the plan asked for 0.90/0.70 and the 0.90 held only on the half the threshold
+was chosen against (reports/relevance_2026-08-27.md). It ships anyway because the
+status quo is *no* filter, which is a filter with precision 0.286 — refusing to
+filter is choosing a measured-worse estimator, not staying neutral. Every dependent
+metric carries a relevance-coverage leg in its confidence and a `definition` stamp
+in `detail`, and `nh cluster calibrate` warns while precision is under 0.90. The
+labeller was the same system that wrote the lexicon; an independent spot-check is
+outstanding and is named as such at the top of the report.
+
+**No membership history table, and this is the condition that reverses it.** A daily
+`cluster_member_days` snapshot was designed and then dropped. Because the scorer is
+deterministic and pure over `(title, description, lexicon_version)`, membership as
+of any past day is reconstructible from `videos.first_seen` plus the frozen lexicon
+— a recomputable artifact, not the unbackfillable kind data rule 4 protects — and a
+day-over-day stability metric would read ~1.0 by construction and prove nothing.
+**Any scorer whose output depends on the corpus makes this false.** That is the real
+reason corpus IDF is banned in `nh/clustering/lexicon.py`: it would drift with the
+corpus, break Slice 6's replay, and make the history table mandatory.

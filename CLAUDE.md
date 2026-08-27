@@ -69,11 +69,28 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
-<!-- keep this to ~5 lines; update at the end of each session -->
-- Phase: Slice 3 complete. `gap` is computable for all five seeds with confidence.
-- Demand: Wikipedia primary (absolute counts, 3 years backfilled = 16,404 rows),
-  Trends shape-only with no anchor (ADR-0015). Keyword Planner deferred (ADR-0016).
-- 216 tests, zero network. Known: gap is compressed — demand and supply ranks
-  correlate at rho=+0.60, so 3 of 5 niches gap at exactly 0. Expected, see METRICS.md.
-- Still blocked: openness needs the enrichment backfill, which awaits quota reset.
-- Next: Slice 4 (real clustering) per docs/ROADMAP.md.
+- Phase: Slice 4 complete (amended — see ADR-0018). Gate D invoked: sub-niche
+  discovery deferred, per-video relevance shipped instead.
+- Membership is now two questions: channel identity (ADR-0013, unchanged) and
+  per-video topicality (`nh/clustering/relevance.py`). Before this, videos
+  inherited their channel's cluster and **only 20% were about their niche**;
+  every `supply.*` and `money.*` number was computed over the rest.
+- Relevance is a two-axis lexical rule — domain vocabulary AND failure/case
+  markers, geometric mean. Calibrated on 298 hand labels, held-out **precision
+  0.781, recall 0.694, base rate 28.6%**. That is below the 0.90 the plan asked
+  for; it ships because no filter is precision 0.286. reports/relevance_2026-08-27.md.
+  **Outstanding: an independent 50-row spot-check** — the labeller was the same
+  system that wrote the lexicon.
+- `videos.description` rescued from `raw_records` before the prune took it
+  (13,855 rows, 93.0% coverage). `nh prune` now refuses to delete the last copy
+  of a description (ADR-0017).
+- 315 tests, zero network. Supply/money values all moved; supply RANKS and `gap`
+  did not, so the ranking was not an artifact of contamination. Confidence fell
+  everywhere, which is the honest half.
+- Still blocked: openness needs the enrichment backfill (274 units, ~2.9% of
+  budget) — `is_short` is NULL for 92% of videos, so `eligible_videos` sees 8.3%
+  of the corpus and 4 of 5 cohorts are empty. Expected at the next 09:10 cron.
+- Next: Slice 5 (full feature set) per docs/ROADMAP.md. Carried forward from
+  Slice 4 as a Slice 5 candidate: event-level Wikipedia articles dwarf the
+  topic-level baskets demand currently uses (Chernobyl_disaster alone is 4.59M
+  views/12mo against the entire aviation basket's 719K).
