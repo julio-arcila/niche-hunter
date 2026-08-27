@@ -1,13 +1,20 @@
-"""Trivial clustering: one cluster per seed.
+"""Channel identity: which niche does a channel belong to?
 
-Deliberately the simplest thing that produces a real `cluster_id`. Slice 4
-replaces this with embeddings and HDBSCAN; the point of shipping it now is that
-everything above — features, scoring, the CLI — gets built against a populated
-`cluster_members` table rather than against an assumption about one.
+One cluster per seed, and each channel resolved to exactly one of them from its
+discovery lineage (ADR-0013). Slice 4 kept this unchanged and added a *second*
+question beside it — is a given video about that niche — in
+`nh/clustering/relevance.py`. The two are genuinely different: a channel that
+covers plane crashes still uploads plenty that is not about plane crashes, and
+before Slice 4 the pipeline conflated them by letting videos inherit their
+channel's cluster with no further question asked.
 
-Only channels are given membership rows. Videos inherit their channel's cluster
-at query time: materialising 13,725 video rows would add nothing here and would
-need nightly maintenance to stay correct as channels move.
+The docstring here used to say materialising video rows "would add nothing".
+That was true while the only question was identity and false once topicality was
+asked: measured 2026-08-27, only 20% of the videos inheriting a cluster this way
+were about its niche. `nh/clustering/phase.py` writes those rows now.
+
+Slice 4 did NOT bring embeddings or HDBSCAN — see ADR-0018 for why the roadmap's
+plan for this slice was overtaken by what Slice 3 found.
 """
 
 from __future__ import annotations
@@ -50,7 +57,7 @@ def dominant_seed(lineage: Lineage) -> dict[str, tuple[int, float]]:
     return resolved
 
 
-def assign(session: Session, day: date, mark: Stamp) -> int:
+def assign_channels(session: Session, day: date, mark: Stamp) -> int:
     """Write one cluster per active seed, and one membership row per channel."""
     seeds = session.execute(
         sa.select(NicheSeed.id, NicheSeed.slug, NicheSeed.label).where(NicheSeed.active)

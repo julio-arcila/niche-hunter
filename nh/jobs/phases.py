@@ -20,7 +20,7 @@ from functools import partial
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from nh.clustering import trivial
+from nh.clustering import phase as clustering
 from nh.db.models import JobRun
 from nh.db.provenance import Stamp, stamp
 from nh.db.session import session_scope
@@ -35,7 +35,7 @@ Phase = Callable[[Session, date, Stamp], int]
 #: Order is dependency order: features need clusters, scoring needs features.
 #: `nh.jobs.status.check` reads this, so adding one here extends the gate.
 PHASES: tuple[tuple[str, Phase], ...] = (
-    ("clustering", trivial.assign),
+    ("clustering", clustering.assign),
     ("features", features_run.compute),
     ("scoring", scorecard.build),
 )

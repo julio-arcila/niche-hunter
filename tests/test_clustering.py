@@ -12,7 +12,8 @@ from functools import partial
 
 import sqlalchemy as sa
 
-from nh.clustering.trivial import assign, dominant_seed
+from nh.clustering.phase import assign
+from nh.clustering.trivial import dominant_seed
 from nh.db.models import Cluster, ClusterMember, Discovery, NicheSeed, Video
 from nh.db.provenance import stamp
 from nh.db.session import session_scope
@@ -78,6 +79,12 @@ def test_an_unambiguous_channel_scores_full_confidence():
 # -- the writer --------------------------------------------------------------
 
 
+def _channels():
+    """Channel membership only. Slice 4 added `item_type='video'` rows to the same
+    table, so a bare select over it is no longer a select over channels."""
+    return sa.select(ClusterMember.cluster_id).where(ClusterMember.item_type == "channel")
+
+
 def test_one_cluster_per_active_seed_even_with_no_members(engine):
     apply_seeds(engine)
     with session_scope(engine) as s:
@@ -91,7 +98,7 @@ def test_every_discovered_channel_lands_in_exactly_one_cluster(engine):
     _discovered(engine, "ch1", "maritime-disasters", "date", 1)
     with session_scope(engine) as s:
         assign(s, DAY, _mark())
-        rows = s.scalars(sa.select(ClusterMember.cluster_id)).all()
+        rows = s.scalars(_channels()).all()
     assert rows == ["aviation-disasters"]
 
 
@@ -103,7 +110,7 @@ def test_rerunning_moves_a_channel_rather_than_violating_the_unique_key(engine):
     _discovered(engine, "ch1", "maritime-disasters", "date", 5)
     with session_scope(engine) as s:
         assign(s, DAY, _mark())
-        rows = s.scalars(sa.select(ClusterMember.cluster_id)).all()
+        rows = s.scalars(_channels()).all()
     assert rows == ["maritime-disasters"]  # moved, not duplicated
 
 
@@ -112,6 +119,128 @@ def test_membership_carries_provenance(engine):
     _discovered(engine, "ch1", "aviation-disasters", "date", 1)
     with session_scope(engine) as s:
         assign(s, DAY, _mark())
-        row = s.scalars(sa.select(ClusterMember)).one()
+        row = s.scalars(sa.select(ClusterMember).where(ClusterMember.item_type == "channel")).one()
     assert row.source == "clustering"
     assert row.run_id == "test"
+
+
+# -- video membership (Slice 4) ----------------------------------------------
+
+
+def _video(engine, video_id, channel_id, title, description=None):
+    from nh.db.models import Video
+    from nh.db.types import utcnow
+
+    with session_scope(engine) as s:
+        s.add(
+            Video(
+                video_id=video_id,
+                channel_id=channel_id,
+                title=title,
+                description=description,
+                source="youtube_rss",
+                run_id="test",
+                at=utcnow(),
+            )
+        )
+
+
+def _relevance(engine, video_id):
+    with session_scope(engine) as s:
+        return s.scalars(
+            sa.select(ClusterMember).where(
+                ClusterMember.item_type == "video", ClusterMember.item_id == video_id
+            )
+        ).one()
+
+
+def test_every_video_of_a_member_channel_gets_a_decision(engine):
+    """Slice 4's exit criterion: a cluster_id or an explicit reason, never silence."""
+    apply_seeds(engine)
+    _discovered(engine, "ch1", "aviation-disasters", "date", 1)
+    _video(engine, "v1", "ch1", "Plane crashed on the runway")
+    _video(engine, "v2", "ch1", "Maruti Grand Vitara maintenance cost")
+    with session_scope(engine) as s:
+        assign(s, DAY, _mark())
+        rows = s.scalars(sa.select(ClusterMember).where(ClusterMember.item_type == "video")).all()
+    # `_discovered` also creates a video, so this is a superset check by design.
+    assert {"v1", "v2"} <= {r.item_id for r in rows}
+    assert all(r.cluster_id == "aviation-disasters" for r in rows)
+
+
+def test_an_on_niche_video_scores_and_is_not_noise(engine):
+    apply_seeds(engine)
+    _discovered(engine, "ch1", "aviation-disasters", "date", 1)
+    _video(engine, "v1", "ch1", "Plane crashed on the runway after engine failure")
+    with session_scope(engine) as s:
+        assign(s, DAY, _mark())
+    row = _relevance(engine, "v1")
+    assert row.relevance is not None and row.relevance >= 0.55
+    assert row.is_noise is False
+
+
+def test_an_off_niche_video_is_marked_noise(engine):
+    apply_seeds(engine)
+    _discovered(engine, "ch1", "aviation-disasters", "date", 1)
+    _video(engine, "v1", "ch1", "Maruti Grand Vitara maintenance cost review")
+    with session_scope(engine) as s:
+        assign(s, DAY, _mark())
+    row = _relevance(engine, "v1")
+    assert row.relevance == 0.0
+    assert row.is_noise is True
+
+
+def test_an_unscorable_video_is_null_not_noise(engine):
+    """ "We could not read this" and "this is not about the niche" are different
+    claims, and only one of them is a finding (data rule 7)."""
+    apply_seeds(engine)
+    _discovered(engine, "ch1", "aviation-disasters", "date", 1)
+    _video(engine, "v1", "ch1", "क्या पंखा आपको और ज्यादा गरमी का एहसास कराता है")
+    with session_scope(engine) as s:
+        assign(s, DAY, _mark())
+    row = _relevance(engine, "v1")
+    assert row.relevance is None
+    assert row.is_noise is False
+    assert "unscorable" in row.detail["reason"]
+
+
+def test_the_decision_carries_its_evidence(engine):
+    """Production criterion 5: a displayed number reaches its input rows."""
+    apply_seeds(engine)
+    _discovered(engine, "ch1", "aviation-disasters", "date", 1)
+    _video(engine, "v1", "ch1", "Plane crashed on the runway")
+    with session_scope(engine) as s:
+        assign(s, DAY, _mark())
+    detail = _relevance(engine, "v1").detail
+    assert detail["lexicon"]
+    assert detail["domain"] > 0 and detail["event"] > 0
+    assert "crash" in " ".join(detail["matched"])
+
+
+def test_a_cluster_with_no_on_niche_video_is_retired_not_deleted(engine):
+    """features_daily is keyed on cluster_id; deleting the cluster would orphan the
+    history that makes a past score readable."""
+    apply_seeds(engine)
+    _discovered(engine, "ch1", "aviation-disasters", "date", 1)
+    _video(engine, "v1", "ch1", "Maruti Grand Vitara maintenance cost review")
+    with session_scope(engine) as s:
+        assign(s, DAY, _mark())
+        clusters = dict(s.execute(sa.select(Cluster.cluster_id, Cluster.active)).all())
+    assert clusters["aviation-disasters"] is False
+    assert len(clusters) == 5  # retired, still present
+
+
+def test_a_cluster_reactivates_when_it_gains_an_on_niche_video(engine):
+    """A niche that goes quiet for a week must come back on its own."""
+    apply_seeds(engine)
+    _discovered(engine, "ch1", "aviation-disasters", "date", 1)
+    _video(engine, "v1", "ch1", "Maruti Grand Vitara maintenance cost review")
+    with session_scope(engine) as s:
+        assign(s, DAY, _mark())
+    _video(engine, "v2", "ch1", "Plane crashed on the runway after engine failure")
+    with session_scope(engine) as s:
+        assign(s, DAY, _mark())
+        active = s.scalar(
+            sa.select(Cluster.active).where(Cluster.cluster_id == "aviation-disasters")
+        )
+    assert active is True
