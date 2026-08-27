@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
+from pathlib import Path
 
 import typer
 
@@ -148,6 +149,43 @@ def seed(
     if cost > settings.yt_quota_budget:
         typer.echo("this seed set does not fit the daily budget", err=True)
         raise typer.Exit(1)
+
+
+cluster_app = typer.Typer(help="Inspect and calibrate cluster membership.")
+app.add_typer(cluster_app, name="cluster")
+
+
+@cluster_app.command("sample")
+def cluster_sample(
+    out: Path = typer.Option(Path("reports/relevance_sample.jsonl"), "--out"),
+    per_cluster: int = typer.Option(60, "--per-cluster", help="Videos sampled per cluster."),
+    seed: int = typer.Option(20260827, "--seed", help="Reproducibility, not decoration."),
+) -> None:
+    """Write a stratified blind sample to label.
+
+    Fill in `"label": true|false` on each line (null to skip), then `nh cluster
+    labels import`. The scorer's output is deliberately absent from the file — the
+    thresholds are chosen against these labels, so seeing the score first would make
+    the measurement circular.
+    """
+    from nh.jobs.labelling import export_sample
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    result = export_sample(out, per_cluster=per_cluster, seed=seed)
+    typer.echo(f"wrote {result.written} unlabelled rows to {result.path}")
+    for cluster_id, n in sorted(result.per_cluster.items()):
+        typer.echo(f"  {cluster_id:<24}{n:>5}")
+
+
+@cluster_app.command("import")
+def cluster_import(
+    path: Path = typer.Argument(..., help="The labelled JSONL."),
+    labeller: str = typer.Option(..., "--labeller", help="Who judged. Recorded per row."),
+) -> None:
+    """Store hand labels. Re-importing a corrected file overwrites."""
+    from nh.jobs.labelling import import_labels
+
+    typer.echo(f"stored {import_labels(path, labeller=labeller)} label(s)")
 
 
 @app.command()

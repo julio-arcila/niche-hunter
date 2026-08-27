@@ -38,3 +38,6 @@ logs/*
 
 # local operational backups (crontab snapshots etc)
 .backup/
+
+# Labelling working files; the labelled result belongs in reports/ deliberately.
+reports/relevance_sample.jsonl
