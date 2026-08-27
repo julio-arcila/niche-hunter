@@ -170,3 +170,38 @@ def test_an_unrecognised_job_runs_source_warns_rather_than_hiding(engine, settin
         s.add(JobRun(run_id=RUN, job="nightly", source="mystery", status="ok", started_at=utcnow()))
     result = check(engine, settings)
     assert any("mystery" in w for w in result.warnings)
+
+
+def test_a_retired_cluster_keeps_its_history_but_accrues_no_new_rows(engine):
+    """Retirement, not deletion. `features_daily` iterates `clusters`, so a cluster
+    whose seed was switched off would otherwise generate rows forever; deleting it
+    would orphan the history that makes its past scores readable."""
+    from functools import partial
+
+    from nh.db.models import Cluster, FeatureDaily
+    from nh.db.provenance import stamp
+    from nh.db.session import session_scope
+    from nh.db.types import utcnow
+    from nh.features import run as features_run
+    from tests.conftest_features import CLUSTER, DAY, add_channel, make_cluster
+
+    make_cluster(engine)
+    add_channel(engine, "UCa", videos=5, age_days=1)
+    mark = partial(stamp, source="features", run_id="retire-test", at=utcnow())
+    with session_scope(engine) as s:
+        features_run.compute(s, DAY, mark)
+        before = s.scalar(
+            sa.select(sa.func.count())
+            .select_from(FeatureDaily)
+            .where(FeatureDaily.cluster_id == CLUSTER)
+        )
+        s.execute(sa.update(Cluster).where(Cluster.cluster_id == CLUSTER).values(active=False))
+        s.commit()
+        features_run.compute(s, date(2026, 8, 28), mark)
+        after = s.scalar(
+            sa.select(sa.func.count())
+            .select_from(FeatureDaily)
+            .where(FeatureDaily.cluster_id == CLUSTER)
+        )
+    assert before > 0
+    assert after == before  # history intact, nothing new

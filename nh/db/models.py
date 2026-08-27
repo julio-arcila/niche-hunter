@@ -342,8 +342,16 @@ class Cluster(Base, Provenance):
     cluster_id: Mapped[str] = mapped_column(sa.String(48), primary_key=True)
     seed_id: Mapped[int | None] = mapped_column(sa.ForeignKey("niche_seeds.id"), index=True)
     label: Mapped[str | None] = mapped_column(sa.String(200))
+    #: Reserved for an embedding centroid. Stays NULL while clustering is
+    #: lexical — a bag-of-words vector in a column named `centroid` would be a
+    #: placeholder that looks like a score (ADR-0018).
     centroid: Mapped[list | None] = mapped_column(JSONVariant)
-    member_counts: Mapped[dict | None] = mapped_column(JSONVariant)  # by source
+    member_counts: Mapped[dict | None] = mapped_column(JSONVariant)  # by item_type and decision
+    #: Retirement, not deletion. `nh/features/run.py` iterates `clusters`, so a
+    #: cluster whose seed was deactivated would otherwise keep generating feature
+    #: rows forever; deleting it would orphan its `features_daily` history.
+    active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
+    retired_on: Mapped[date | None] = mapped_column(sa.Date)
     updated_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
 
 
@@ -355,9 +363,46 @@ class ClusterMember(Base, Provenance):
     item_type: Mapped[str] = mapped_column(sa.String(24))  # video, question, query, keyword
     item_id: Mapped[str] = mapped_column(sa.String(256))
     confidence: Mapped[float | None] = mapped_column(sa.Float)
+    #: How strongly the item's text matches its cluster's lexicon. NULL means the
+    #: item could not be scored at all — no text, or a script the lexicon cannot
+    #: read — which is not the same as scoring zero (data rule 7). The on-niche and
+    #: noise cuts are applied at read time from this, so changing a threshold is a
+    #: query rather than a rewrite of history.
+    relevance: Mapped[float | None] = mapped_column(sa.Float)
+    #: Which terms matched, at what weight, under which lexicon version — or why
+    #: the item was unscorable. This is what makes a supply number traceable to the
+    #: rows underneath it.
+    detail: Mapped[dict | None] = mapped_column(JSONVariant)
     is_noise: Mapped[bool] = mapped_column(sa.Boolean, default=False)
 
-    __table_args__ = (sa.UniqueConstraint("item_type", "item_id", name="uq_cluster_members_item"),)
+    __table_args__ = (
+        sa.UniqueConstraint("item_type", "item_id", name="uq_cluster_members_item"),
+        # The table grows from ~955 channel rows to ~15,900 once videos are members,
+        # and every feature query filters on both columns.
+        sa.Index("ix_cluster_members_cluster_type", "cluster_id", "item_type"),
+    )
+
+
+class RelevanceLabel(Base):
+    """Hand labels: is this video actually about its cluster's niche?
+
+    The ground truth the relevance thresholds are chosen against, and the only
+    reason `reports/relevance_*.md` can state a precision rather than an impression.
+    Deliberately not a snapshot and not `Provenance`-stamped: a correction should
+    overwrite, and this is hand curation like `SeedTerm`, not a pipeline write.
+    """
+
+    __tablename__ = "relevance_labels"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    video_id: Mapped[str] = mapped_column(sa.String(16), unique=True)
+    cluster_id: Mapped[str] = mapped_column(sa.String(48), index=True)
+    #: True = about this niche. False = not. There is no "unsure" — a label that
+    #: cannot be given is left unwritten rather than recorded as a third state.
+    label: Mapped[bool] = mapped_column(sa.Boolean)
+    labeller: Mapped[str] = mapped_column(sa.String(64))
+    labelled_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
+    notes: Mapped[str | None] = mapped_column(sa.Text)
 
 
 # ---------------------------------------------------------------------------

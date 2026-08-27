@@ -41,7 +41,14 @@ def compute(session: Session, day: date, mark: Stamp) -> int:
     the pipeline did not run, the second says it ran and found nothing — and only
     the second is a fact about the niche.
     """
-    cluster_ids = list(session.scalars(sa.select(Cluster.cluster_id).order_by(Cluster.cluster_id)))
+    # Active only. A retired cluster keeps its `features_daily` history — that is
+    # the point of retiring rather than deleting — but stops accruing new rows,
+    # and stops appearing in the day's percentile-rank population.
+    cluster_ids = list(
+        session.scalars(
+            sa.select(Cluster.cluster_id).where(Cluster.active).order_by(Cluster.cluster_id)
+        )
+    )
     if not cluster_ids:
         log.warning("no clusters — run the clustering phase first")
         return 0
