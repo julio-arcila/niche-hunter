@@ -1,0 +1,18 @@
+# Only needed when NH_DATABASE_URL points at Postgres. SQLite is the Phase 0-1
+# default (see docs/DECISIONS.md ADR-0002) and needs nothing running.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: nh
+      POSTGRES_PASSWORD: nh
+      POSTGRES_DB: nh
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nh"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  pgdata:

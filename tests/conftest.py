@@ -1,0 +1,47 @@
+"""Shared fixtures.
+
+The `no_network` fixture is autouse and non-negotiable: .claude/rules/data.md
+forbids live API calls in tests. Any test that reaches for a socket fails with a
+message pointing at tests/fixtures/ instead of quietly hitting a real quota.
+"""
+
+from __future__ import annotations
+
+import socket
+from collections.abc import Iterator
+
+import pytest
+from sqlalchemy.engine import Engine
+
+from nh.config import Settings
+from nh.db.models import Base
+from nh.db.session import make_engine
+
+
+class NetworkAccessDenied(RuntimeError):
+    pass
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _blocked(*args, **kwargs):
+        raise NetworkAccessDenied(
+            "tests must not touch the network — record a fixture into "
+            "tests/fixtures/<source>/ and replay it with `responses` instead"
+        )
+
+    monkeypatch.setattr(socket.socket, "connect", _blocked)
+    monkeypatch.setattr(socket, "create_connection", _blocked)
+
+
+@pytest.fixture
+def settings(tmp_path) -> Settings:
+    return Settings(database_url=f"sqlite:///{tmp_path / 'test.db'}", yt_api_key="test-key")
+
+
+@pytest.fixture
+def engine(settings: Settings) -> Iterator[Engine]:
+    eng = make_engine(settings)
+    Base.metadata.create_all(eng)
+    yield eng
+    eng.dispose()

@@ -1,0 +1,108 @@
+# Sources
+
+Update this file whenever you learn something about a source — that is what it
+is for. Quota and etiquette specifics live in `.claude/rules/sources.md`.
+
+## youtube_rss — ported ✅ `nh/collectors/youtube_rss.py`
+
+*Reviewed 2026-08-27. Fixtures hand-built to the documented shape; replace with
+a real capture via `scripts/record_fixtures.py`.*
+
+- **URL**: `https://www.youtube.com/feeds/videos.xml?channel_id=UC...`
+  (also accepts `playlist_id=` for `UU`/`UULF`/`UUSH` playlists).
+- **Auth**: none. **Quota**: none.
+- **Gives**: `videoId`, `channelId`, `title`, `published`, `updated`,
+  `description`, thumbnail URL, `media:statistics/@views`,
+  `media:starRating/@count` (≈ likes, since dislikes were hidden).
+- **Does NOT give**: duration, comment count, subscriber count, tags, category,
+  Shorts flag. Enrich new ids once through `youtube_api` (1 unit per 50).
+- **Caveats**: last 15 entries only, no pagination — a channel that uploads more
+  than 15 times between polls loses the overflow permanently. Unofficial endpoint.
+- **Measured 2026-08-27: the feeds return NO cache validators.** No `ETag`, no
+  `Last-Modified` — only `cache-control: max-age=900` and `expires`. Across 955
+  channels: 0 ETags, 0 Last-Modified, 0 responses of 304, all 200. Conditional
+  GET is therefore structurally impossible and the `If-None-Match` /
+  `If-Modified-Since` machinery is inert. It is kept (tested, free, and YouTube
+  may add validators) but do not expect a 304 and do not treat `feed_state.etag`
+  staying NULL as a bug.
+- **Consequence**: every poll transfers the whole feed. `requests` negotiates
+  gzip by default, so it is ~7 KB on the wire per feed (~7 MB a night for 955
+  channels) against ~64 KB decoded. Transfer is fine; *storage* was not — hence
+  compression and retention in ADR-0010.
+- The `fail_count` circuit breaker lives in `feed_state`.
+- **Join key**: `video_id`, `channel_id`.
+- **Why it matters most**: this is the zero-cost view-velocity series, and it
+  cannot be backfilled.
+
+## youtube_api — ported ✅ `nh/collectors/youtube_api.py`
+
+*Reviewed 2026-08-27. Slice 1 scope is discovery + enrichment only — channel
+baselines and comment sampling deferred as quota-expensive and not needed to
+start the snapshot clock.*
+
+- **Auth**: API key only for public data; no OAuth.
+- **Quota**: 10,000 units/day, resets midnight Pacific. Budget 9,500.
+- **Endpoints & cost**: `search.list` 100 · `videos.list` 1/50 ids ·
+  `channels.list` 1/50 ids · `playlistItems.list` 1/50 items ·
+  `commentThreads.list` 1/100 comments.
+- **Caveats**: `search.list` returns ~500 results max per query regardless of
+  paging. `hiddenSubscriberCount` means subs are unknown — write NULL, not 0.
+  The uploads playlist is derivable as `"UU" + channel_id[2:]`, which saves a
+  call. `commentsDisabled` comes back as a 403 and must not be treated as an
+  error.
+- **Load-bearing detail**: discovery must issue **both** sort orders per query.
+  `order=date` is the unbiased pool including flops (the denominator for
+  breakthrough rate); `order=viewCount` is what is winning now (the numerator).
+  Dropping either silently breaks the openness metric.
+- **Join key**: `video_id`, `channel_id`.
+
+## trends — `legacy/niche_hunter_trends.py` → `nh/collectors/trends.py`
+
+- **Library**: `trendspy`. **Auth**: none. Unofficial endpoint.
+- **Gives**: interest over time, interest by region, related/rising queries and
+  topics, trending now.
+- **Caveats**: values are normalized **0–100 per request** — two requests are
+  never comparable unless both contain the same anchor keyword. Max 5 terms per
+  request (1 anchor + 4 targets). No absolute volumes. Sampled: re-running
+  jitters ±5 points. Low-volume terms return all zeros. Prefer topic mids
+  (`/m/0abc`) over raw strings — they aggregate spellings and languages.
+- **Join key**: `keyword+geo+lang`, then `cluster_id` after embedding.
+
+## reddit — `legacy/niche_hunter_reddit.py` → `nh/collectors/reddit.py`
+
+- **Library**: `praw`. **Auth**: OAuth client credentials, read-only.
+- **Access reality (2026)**: the Responsible Builder Policy requires approval
+  **before** any API access; self-service registration closed in late 2025.
+  Grandfathered credentials still work. Until credentials exist,
+  `Settings.configured("reddit")` is False and the nightly job records the
+  source as skipped.
+- **Quota**: ~100 queries/min per client, averaged over 10 minutes. Watch
+  `reddit.auth.limits` — the header is the truth.
+- **Gives**: subreddit ecosystem and size, question posts, "recommend a channel"
+  threads, YouTube links shared in the wild, RPM/CPM disclosures in creator
+  subs, comment text for language/geo proxying.
+- **Caveats**: listings cap around 1000 items; vary `sort` and `time_filter` to
+  widen coverage. `replace_more(limit=0)` — each expansion costs a request.
+- **Join key**: `cluster_id` after embedding; shared video ids join on `video_id`.
+
+## keyword_planner — `legacy/niche_hunter_kp.py` → `nh/collectors/keyword_planner.py`
+
+- **Auth**: Google Ads account (zero-spend is fine) + Manager (MCC) account +
+  developer token. Test-account-only until Basic access is approved.
+- **Quota**: 15,000 ops/day on Basic access. Cache 7 days.
+- **Gives**: absolute monthly search volume, top-of-page bid low/high, average
+  CPC, competition index 0–100, 12 months of monthly volumes, per-country runs.
+- **Fallback**: UI export — Keyword Planner → "Get search volume and forecasts"
+  → paste up to 10k keywords → Historical metrics → CSV. No approval needed.
+- **Caveats**: this is Google **Search** data; YouTube search behaves
+  differently — use CPC as an advertiser-value proxy, never as a YouTube RPM
+  number. Metrics are grouped by close variants, so plurals and misspellings
+  collapse. Long-tail terms often have no bid data; aggregate at niche level,
+  never per keyword. The API returns numeric volumes where the UI shows ranges.
+- **Join key**: `keyword+geo+lang`.
+
+## Planned
+
+`wikipedia` (pageviews + wikidata, join on `wikidata_qid`), `wayback`
+(CDX → historical subscriber counts), and `primary/` sources for cost_risk
+density (`ntsb`, `edgar`, `courtlistener`, …).

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-built to the documented YouTube Atom feed shape. Replace with a real
+     capture from scripts/record_fixtures.py once available. -->
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015"
+      xmlns:media="http://search.yahoo.com/mrss/"
+      xmlns="http://www.w3.org/2005/Atom">
+  <yt:channelId>UC00000000000000000001</yt:channelId>
+  <title>Air Disaster Files</title>
+  <entry>
+    <id>yt:video:vid00000001</id>
+    <yt:videoId>vid00000001</yt:videoId>
+    <yt:channelId>UC00000000000000000001</yt:channelId>
+    <title>Plane crash investigation: the final minutes</title>
+    <published>2026-06-01T10:00:00+00:00</published>
+    <updated>2026-08-20T04:00:00+00:00</updated>
+    <media:group>
+      <media:title>Plane crash investigation: the final minutes</media:title>
+      <media:description>Full breakdown of the NTSB docket.</media:description>
+      <media:thumbnail url="https://i.ytimg.com/vi/vid00000001/hqdefault.jpg"/>
+      <media:community>
+        <media:starRating count="4300" average="4.95"/>
+        <media:statistics views="125000"/>
+      </media:community>
+    </media:group>
+  </entry>
+  <entry>
+    <id>yt:video:vid00000002</id>
+    <yt:videoId>vid00000002</yt:videoId>
+    <yt:channelId>UC00000000000000000001</yt:channelId>
+    <title>What really happened to Flight 447</title>
+    <published>2026-07-14T09:30:00+00:00</published>
+    <updated>2026-08-20T04:00:00+00:00</updated>
+    <media:group>
+      <media:title>What really happened to Flight 447</media:title>
+      <media:description>Deep dive.</media:description>
+      <media:community>
+        <media:starRating count="880" average="4.90"/>
+        <media:statistics views="31000"/>
+      </media:community>
+    </media:group>
+  </entry>
+  <entry>
+    <id>yt:video:vid00000003</id>
+    <yt:videoId>vid00000003</yt:videoId>
+    <yt:channelId>UC00000000000000000001</yt:channelId>
+    <title>Just uploaded, no stats yet</title>
+    <published>2026-08-26T22:00:00+00:00</published>
+    <updated>2026-08-26T22:00:00+00:00</updated>
+    <media:group>
+      <media:title>Just uploaded, no stats yet</media:title>
+    </media:group>
+  </entry>
+</feed>

@@ -1,0 +1,40 @@
+# secrets — never commit, never let Claude edit (see .claude/settings.json deny rules)
+.env
+.env.*
+!.env.example
+google-ads.yaml
+
+# data
+*.db
+*.db-wal
+*.db-shm
+data/
+reports/*.md
+!reports/.gitkeep
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
+
+# claude
+.claude/settings.local.json
+
+# runtime logs
+logs/*
+!logs/.gitkeep
+
+# local operational backups (crontab snapshots etc)
+.backup/
