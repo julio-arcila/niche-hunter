@@ -9,7 +9,13 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from nh.db.models import ClusterMember, Video
-from nh.features.inputs import AGE_FLOOR_DAYS, FEED_DEPTH, eligible_videos, member_channels
+from nh.features.inputs import (
+    AGE_FLOOR_DAYS,
+    FEED_DEPTH,
+    eligible_videos,
+    member_channels,
+    member_join,
+)
 from nh.features.types import FeatureResult
 
 GROUP = "supply"
@@ -29,7 +35,13 @@ def _confidence(sample_n: int, contributing: int, universe: int) -> float:
     observed cluster. The product says "enough rows, and enough of the niche".
     """
     adequacy = min(sample_n / CONFIDENCE_N, 1.0)
-    coverage = contributing / universe if universe else 0.0
+    # Clamped, but the clamp should never bind: `universe` comes from
+    # `member_channels` and `contributing` from a `member_join` query, so both
+    # exclude noise. Coverage above 1.0 means those two populations have drifted
+    # apart again — a bug in the query, not a value. `confidence` is the column
+    # that bounds trust in every other number, so it must not be the one that
+    # silently exceeds its own range.
+    coverage = min(contributing / universe, 1.0) if universe else 0.0
     return adequacy * coverage
 
 
@@ -53,14 +65,7 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
             sa.func.count(Video.video_id),
             sa.func.count(sa.distinct(Video.channel_id)),
         )
-        .join(
-            ClusterMember,
-            sa.and_(
-                ClusterMember.item_id == Video.channel_id,
-                ClusterMember.item_type == "channel",
-                ClusterMember.cluster_id == cluster_id,
-            ),
-        )
+        .join(ClusterMember, member_join(Video.channel_id, cluster_id))
         .where(
             Video.is_short.is_(False),
             Video.published_at.is_not(None),
@@ -72,12 +77,7 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
     known = (
         session.scalar(
             sa.select(sa.func.count(sa.distinct(Video.channel_id))).join(
-                ClusterMember,
-                sa.and_(
-                    ClusterMember.item_id == Video.channel_id,
-                    ClusterMember.item_type == "channel",
-                    ClusterMember.cluster_id == cluster_id,
-                ),
+                ClusterMember, member_join(Video.channel_id, cluster_id)
             )
         )
         or 0

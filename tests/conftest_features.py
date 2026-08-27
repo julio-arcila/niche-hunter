@@ -42,6 +42,7 @@ def add_channel(
     subs: int | None = 1_000,
     cluster_id: str = CLUSTER,
     member: bool = True,
+    noise: bool = False,
     date_lineage: bool = True,
     videos: int = 0,
     views: int | list[int] = 1_000,
@@ -55,7 +56,8 @@ def add_channel(
     row at all, which is how a hidden count is represented (never a zero).
     `is_short=None` means unknown format, which is how an unenriched RSS video
     looks. `date_lineage` controls whether the channel was ever discovered under
-    `order=date`, the cohort's unbiased-denominator filter.
+    `order=date`, the cohort's unbiased-denominator filter. `noise=True` writes the
+    membership row with `is_noise` set, which every metric must exclude.
     """
     view_list = views if isinstance(views, list) else [views] * videos
     ids = []
@@ -78,7 +80,7 @@ def add_channel(
                     item_type="channel",
                     item_id=channel_id,
                     confidence=1.0,
-                    is_noise=False,
+                    is_noise=noise,
                     source="clustering",
                     run_id=RUN,
                 )

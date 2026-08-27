@@ -13,6 +13,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from nh.db.models import ClusterMember, Video
+from nh.features.inputs import member_join
 from nh.features.types import FeatureResult
 
 GROUP = "money"
@@ -37,14 +38,7 @@ def midroll_eligible_share(session: Session, cluster_id: str, day: date) -> Feat
             sa.func.count(Video.video_id),
             sa.func.sum(sa.case((Video.midroll_eligible.is_(True), 1), else_=0)),
         )
-        .join(
-            ClusterMember,
-            sa.and_(
-                ClusterMember.item_id == Video.channel_id,
-                ClusterMember.item_type == "channel",
-                ClusterMember.cluster_id == cluster_id,
-            ),
-        )
+        .join(ClusterMember, member_join(Video.channel_id, cluster_id))
         .where(
             Video.midroll_eligible.is_not(None),
             Video.published_at.is_not(None),

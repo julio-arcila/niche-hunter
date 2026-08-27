@@ -50,14 +50,32 @@ def _midnight(day: date) -> datetime:
     return datetime.combine(day, time.min, tzinfo=UTC)
 
 
+def member_join(column, cluster_id: str, item_type: str = "channel"):
+    """The membership predicate, defined once.
+
+    Every metric that resolves an item to a cluster joins on the same three
+    conditions plus `is_noise IS FALSE`, and until Slice 4 four of the six join
+    sites had hand-copied the first three and dropped the fourth. That was
+    invisible while nothing wrote noise, and would have become a live corruption
+    the moment something did: `supply._confidence` takes its universe from
+    `member_channels` (noise-free) and its numerator from a leaky join, so
+    coverage — and therefore confidence — could exceed 1.0.
+
+    The module docstring already promised "one definition, so supply and openness
+    cannot quietly drift apart". This is that promise made mechanical.
+    """
+    return sa.and_(
+        ClusterMember.item_id == column,
+        ClusterMember.item_type == item_type,
+        ClusterMember.cluster_id == cluster_id,
+        ClusterMember.is_noise.is_(False),
+    )
+
+
 def member_channels(session: Session, cluster_id: str) -> list[str]:
     return list(
         session.scalars(
-            sa.select(ClusterMember.item_id).where(
-                ClusterMember.cluster_id == cluster_id,
-                ClusterMember.item_type == "channel",
-                ClusterMember.is_noise.is_(False),
-            )
+            sa.select(ClusterMember.item_id).where(member_join(ClusterMember.item_id, cluster_id))
         )
     )
 
@@ -94,15 +112,7 @@ def eligible_videos(
             .label("rn"),
         )
         .join(latest, latest.c.video_id == Video.video_id)
-        .join(
-            ClusterMember,
-            sa.and_(
-                ClusterMember.item_id == Video.channel_id,
-                ClusterMember.item_type == "channel",
-                ClusterMember.cluster_id == cluster_id,
-                ClusterMember.is_noise.is_(False),
-            ),
-        )
+        .join(ClusterMember, member_join(Video.channel_id, cluster_id))
         .where(
             Video.is_short.is_(False),
             Video.published_at.is_not(None),
@@ -131,14 +141,7 @@ def latest_subs(session: Session, cluster_id: str, day: date) -> dict[str, int]:
             ChannelSnapshot.channel_id,
             sa.func.max(ChannelSnapshot.subs),
         )
-        .join(
-            ClusterMember,
-            sa.and_(
-                ClusterMember.item_id == ChannelSnapshot.channel_id,
-                ClusterMember.item_type == "channel",
-                ClusterMember.cluster_id == cluster_id,
-            ),
-        )
+        .join(ClusterMember, member_join(ChannelSnapshot.channel_id, cluster_id))
         .where(ChannelSnapshot.observed_date <= day, ChannelSnapshot.subs.is_not(None))
         .group_by(ChannelSnapshot.channel_id)
     ).all()
@@ -158,14 +161,7 @@ def date_discovered_channels(session: Session, cluster_id: str) -> set[str]:
         session.scalars(
             sa.select(Video.channel_id)
             .join(Discovery, Discovery.video_id == Video.video_id)
-            .join(
-                ClusterMember,
-                sa.and_(
-                    ClusterMember.item_id == Video.channel_id,
-                    ClusterMember.item_type == "channel",
-                    ClusterMember.cluster_id == cluster_id,
-                ),
-            )
+            .join(ClusterMember, member_join(Video.channel_id, cluster_id))
             .where(Discovery.order_by == "date")
             .distinct()
         )
