@@ -29,6 +29,7 @@ METRICS: tuple[Metric, ...] = (
     supply.on_niche_share,
     openness.breakthrough_rate_cohort,
     openness.views_per_sub,
+    openness.winner_age_years,
     money.midroll_eligible_share,
 )
 

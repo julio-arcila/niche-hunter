@@ -12,17 +12,23 @@ from __future__ import annotations
 import statistics
 from datetime import date
 
+import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from nh.db.models import Channel, ClusterMember, Video, VideoSnapshot
 from nh.features.inputs import (
     COHORT_MAX_SUBS,
     COHORT_MIN_VIDEOS,
     cohort,
     latest_subs,
+    on_niche_join,
 )
 from nh.features.types import FeatureResult
 
 GROUP = "openness"
+#: How many of the niche's biggest videos define "who wins here".
+TOP_N = 100
+DAYS_PER_YEAR = 365.25
 #: A video at or above this multiple of its channel's median is a breakout.
 BREAKOUT_X_MEDIAN = 5.0
 #: ...or this multiple of the channel's subscriber count, which catches a channel
@@ -126,5 +132,68 @@ def views_per_sub(session: Session, cluster_id: str, day: date) -> FeatureResult
             "inputs": {
                 "tables": ["cluster_members", "channel_snapshots", "videos", "video_snapshots"]
             },
+        },
+    )
+
+
+def winner_age_years(session: Session, cluster_id: str, day: date) -> FeatureResult:
+    """Median age of the channels behind the niche's biggest videos. LOWER IS MORE OPEN.
+
+    A second openness signal that shares no machinery with the cohort metrics above:
+    it asks who is *currently winning* rather than whether a small entrant can break
+    out, and it needs no subscriber counts and no discovery lineage — so it survives
+    the cohort being empty, which for four of five clusters it currently is.
+
+    Deliberately threshold-free. An earlier draft used "share of top videos from
+    channels younger than 3 years" and 3 was chosen because it maximised spread
+    across five niches; docs/METRICS.md records that and says not to reintroduce a
+    cutoff. A median needs no cutoff.
+
+    No per-channel cap here, unlike `eligible_videos`. A cap would change what "top"
+    means, and the real risk — a handful of prolific channels filling the top 100 —
+    is what `confidence` measures rather than something to engineer away.
+    """
+    latest = (
+        sa.select(VideoSnapshot.video_id, sa.func.max(VideoSnapshot.views).label("views"))
+        .where(VideoSnapshot.observed_date <= day, VideoSnapshot.views.is_not(None))
+        .group_by(VideoSnapshot.video_id)
+        .subquery()
+    )
+    rows = session.execute(
+        sa.select(Video.channel_id, Channel.created_at, latest.c.views)
+        .join(latest, latest.c.video_id == Video.video_id)
+        .join(Channel, Channel.channel_id == Video.channel_id)
+        .join(ClusterMember, on_niche_join(cluster_id))
+        .where(Channel.created_at.is_not(None))
+        .order_by(latest.c.views.desc())
+        .limit(TOP_N)
+    ).all()
+    if not rows:
+        return FeatureResult.empty(
+            GROUP, "winner_age_years", "no on-niche video with views and a dated channel"
+        )
+
+    ages = [(day - created.date()).days / DAYS_PER_YEAR for _, created, _ in rows]
+    channels = {channel_id for channel_id, _, _ in rows}
+    return FeatureResult(
+        group=GROUP,
+        name="winner_age_years",
+        value=float(statistics.median(ages)),
+        # Distinct channels, not videos: if the top-N comes from few prolific
+        # channels the median describes those channels rather than the niche.
+        confidence=min(len(channels) / TOP_N, 1.0),
+        inputs_n=len(rows),
+        detail={
+            "top_n": TOP_N,
+            "videos_ranked": len(rows),
+            "distinct_channels": len(channels),
+            "youngest_years": round(min(ages), 2),
+            "oldest_years": round(max(ages), 2),
+            "as_of": day.isoformat(),
+            "note": (
+                "ranked on lifetime views, which favours older videos and so "
+                "UNDER-states openness; on-niche videos only"
+            ),
+            "inputs": {"tables": ["cluster_members", "videos", "video_snapshots", "channels"]},
         },
     )

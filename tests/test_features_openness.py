@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 from nh.db.models import ClusterMember
 from nh.db.session import session_scope
-from nh.features.openness import breakthrough_rate_cohort, views_per_sub
+from nh.features.openness import breakthrough_rate_cohort, views_per_sub, winner_age_years
 from tests.conftest_features import CLUSTER, DAY, add_channel, make_cluster, session_for
 
 
@@ -174,3 +174,110 @@ def test_openness_values_are_identical_whatever_the_relevance(engine):
         none_relevant = breakthrough_rate_cohort(s, CLUSTER, DAY).value
 
     assert all_relevant == none_relevant
+
+
+# -- winner_age_years --------------------------------------------------------
+
+
+def _dated_channel(engine, channel_id, created, views, *, relevant=True, n=1):
+    """A channel with a known creation date and `n` videos at `views`."""
+    from datetime import timedelta
+
+    from nh.db.models import Channel
+    from nh.db.types import utcnow
+
+    add_channel(engine, channel_id, videos=n, views=views, relevant=relevant)
+    with session_scope(engine) as s:
+        s.execute(
+            sa.update(Channel)
+            .where(Channel.channel_id == channel_id)
+            .values(created_at=utcnow() - timedelta(days=int(created * 365.25)))
+        )
+        s.commit()
+
+
+def test_winner_age_is_the_median_age_behind_the_top_videos(engine):
+    make_cluster(engine)
+    _dated_channel(engine, "UCyoung", created=1.0, views=1_000)
+    _dated_channel(engine, "UCmid", created=5.0, views=900)
+    _dated_channel(engine, "UCold", created=9.0, views=800)
+
+    with session_scope(engine) as s:
+        result = winner_age_years(s, CLUSTER, DAY)
+
+    assert 4.5 < result.value < 5.5  # the middle channel
+    assert result.inputs_n == 3
+
+
+def test_it_ranks_on_views_so_a_big_old_channel_pulls_the_median_up(engine):
+    """The documented bias: lifetime views favour older videos, so this
+    UNDER-states openness rather than over-stating it."""
+    make_cluster(engine)
+    _dated_channel(engine, "UCold", created=10.0, views=1_000_000, n=3)
+    _dated_channel(engine, "UCyoung", created=1.0, views=10)
+
+    with session_scope(engine) as s:
+        result = winner_age_years(s, CLUSTER, DAY)
+
+    assert result.value > 5.0
+
+
+def test_confidence_is_distinct_channels_not_videos(engine):
+    """If the top-N comes from few prolific channels the median describes those
+    channels, not the niche — which is exactly what confidence must say."""
+    make_cluster(engine)
+    _dated_channel(engine, "UConly", created=4.0, views=1_000, n=10)
+
+    with session_scope(engine) as s:
+        result = winner_age_years(s, CLUSTER, DAY)
+
+    assert result.inputs_n == 10
+    assert result.confidence == 1 / 100  # one channel, however many videos
+    assert result.detail["distinct_channels"] == 1
+
+
+def test_off_niche_videos_do_not_decide_who_wins(engine):
+    """ "Who wins in this niche" is a question about the niche's content."""
+    make_cluster(engine)
+    _dated_channel(engine, "UConniche", created=2.0, views=100)
+    _dated_channel(engine, "UCoffniche", created=12.0, views=5_000_000, relevant=False)
+
+    with session_scope(engine) as s:
+        result = winner_age_years(s, CLUSTER, DAY)
+
+    assert result.value < 3.0
+    assert result.detail["distinct_channels"] == 1
+
+
+def test_it_survives_an_empty_cohort(engine):
+    """The reason this metric earns its place: it needs no subscriber counts and no
+    discovery lineage, so it reports where the cohort metrics cannot."""
+    make_cluster(engine)
+    _dated_channel(engine, "UChidden", created=3.0, views=500)
+    with session_scope(engine) as s:
+        s.execute(sa.text("DELETE FROM channel_snapshots"))
+        s.execute(sa.text("DELETE FROM discoveries"))
+        s.commit()
+        assert breakthrough_rate_cohort(s, CLUSTER, DAY).value is None
+        assert winner_age_years(s, CLUSTER, DAY).value is not None
+
+
+def test_a_channel_with_no_creation_date_is_excluded_not_zeroed(engine):
+    make_cluster(engine)
+    _dated_channel(engine, "UCdated", created=6.0, views=100)
+    add_channel(engine, "UCundated", videos=1, views=999_999)  # created_at stays NULL
+
+    with session_scope(engine) as s:
+        result = winner_age_years(s, CLUSTER, DAY)
+
+    assert result.detail["distinct_channels"] == 1
+    assert 5.5 < result.value < 6.5
+
+
+def test_it_is_empty_when_nothing_qualifies(engine):
+    make_cluster(engine)
+    with session_scope(engine) as s:
+        result = winner_age_years(s, CLUSTER, DAY)
+    assert result.value is None
+    assert result.confidence == 0.0
+    assert "no on-niche video" in result.detail["reason"]

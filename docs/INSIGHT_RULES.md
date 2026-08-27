@@ -39,7 +39,7 @@ False pos  : a seasonal upload spike with no real change in openness — check
 
 ### Rule 7 — Demand without supply
 ```
-Predicate  : demand.momentum_13p above the universe 80th percentile AND
+Predicate  : demand.trends_momentum_13w above the universe 80th percentile AND
              supply.uploads_per_week below the universe 20th percentile AND
              voice.unanswered_rate > 0.5
 Window     : current day, with 28-day smoothing on demand
@@ -50,6 +50,12 @@ Why        : people are asking and nobody is answering on video
 False pos  : demand that is a single news event rather than a standing interest
              — check demand.volatility and whether breakout_z is driving it
 ```
+
+> **Naming note (Slice 5).** This rule was written against `demand.momentum_13p`,
+> a prototype name that resolves to no shipped metric; the shipped one is
+> `demand.trends_momentum_13w` and the predicate now says so. A rule that names a
+> metric which does not exist cannot be implemented and cannot be tested, so the
+> mismatch was invisible until someone tried.
 
 ### Undefined
 Rules 1, 2, 3, 5, 6, 8, 9, 10 — name and define as their input metrics land.

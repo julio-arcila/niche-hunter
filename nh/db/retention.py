@@ -122,8 +122,14 @@ def storage_report(engine: Engine | None = None) -> list[tuple[str, str, int, in
                 RawRecord.codec,
                 sa.func.count(),
                 sa.func.sum(
+                    # `payload_gz` is LargeBinary -> bytea, where length() is bytes.
+                    # `payload` is JSONVariant -> JSONB on Postgres, where
+                    # `length(jsonb)` DOES NOT EXIST: it raises UndefinedFunction at
+                    # runtime, not a wrong number. No test catches it because
+                    # tests/conftest.py is SQLite-only. Cast first, on both dialects,
+                    # so the swap does not discover this the hard way (ADR-0019).
                     sa.func.coalesce(sa.func.length(RawRecord.payload_gz), 0)
-                    + sa.func.coalesce(sa.func.length(RawRecord.payload), 0)
+                    + sa.func.coalesce(sa.func.length(sa.cast(RawRecord.payload, sa.Text)), 0),
                 ),
             )
             .group_by(RawRecord.kind, RawRecord.codec)

@@ -1,11 +1,16 @@
 """The hand-picked starting points. Everything downstream hangs off a seed.
 
-Each niche is chosen so that a free, dense **primary source** already exists for
-it. That is deliberate, not incidental: `docs/ARCHITECTURE.md` already names
-`nh/collectors/primary/{ntsb,edgar,courtlistener}.py`, and `cost_risk.*` in
-Slice 5 scores primary-source density and cadence. Seeding against sources we
-intend to collect means that slice has real material instead of niches picked for
-Slice 1's convenience.
+Each niche was chosen so that a free, dense **primary source** already exists for
+it, so that `cost_risk.*` would have real material rather than niches picked for
+Slice 1's convenience. `docs/SOURCES.md` lists `primary/` (ntsb, edgar,
+courtlistener) under "Planned"; no such collector exists yet.
+
+That premise held for two of the five. Tested live 2026-08-27: CourtListener's
+REST API works unauthenticated and carries `dateFiled`; SEC EDGAR's submissions
+and full-text endpoints work unauthenticated; NTSB's CAROL query API is reachable
+but rejects documented-looking payloads and its shape is undocumented; USCG
+returns 403; NIST has no API. Per-seed findings live in `NicheSeed.primary_sources`
+so the research is dated and reviewable rather than folded into a score (ADR-0020).
 
 Quota follows directly from what is here: cost is
 ``seeds x keywords x 2 sort orders x pages x 100 units``. Five seeds of three

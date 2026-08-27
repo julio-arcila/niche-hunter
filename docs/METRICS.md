@@ -26,8 +26,9 @@ Feeds        : which composite score, if any
 
 ## Defined
 
-Five metrics, three groups. Each was verified to **vary across the five live
-niches** before implementation — a metric that is flat across the units it
+Ten metrics across four of the six groups (`voice` and `cost_risk` are still
+empty). Each was verified to **vary across the five live niches** before
+implementation — a metric that is flat across the units it
 compares is not a comparator, however plausible its formula.
 
 ### supply.uploads_per_week
@@ -297,6 +298,34 @@ Measured     : 2026-08-27 -- aviation 33.7%, court 26.5%, corporate 21.2%,
                each seed's keywords are.
 ```
 
+### openness.winner_age_years
+```
+Formula      : rank the cluster's videos by latest-snapshot views descending, take
+               the top 100, return the median of (day - channels.created_at) in years
+               for the channels behind them. LOWER IS MORE OPEN.
+Inputs       : video_snapshots(views); channels.created_at (100% coverage); cluster_members
+Join key     : cluster_id
+Confidence   : distinct_channels_in_top_100 / 100
+Failure mode : if the top-100 comes from few prolific channels the median describes
+               those channels, not the niche -- which is what the confidence measures.
+               Ranking on latest-snapshot views favours older videos, biasing toward
+               established channels, so it UNDER-states openness. Threshold-free on
+               purpose: an earlier draft used "share of top videos from channels
+               younger than 3 years" and 3 was chosen because it maximised spread
+               across five niches. Do not reintroduce a cutoff.
+Feeds        : none yet -- a second openness signal beside breakthrough_rate_cohort,
+               which it does not replace. It needs no subscriber counts and no
+               discovery lineage, so it reports where the cohort metrics cannot --
+               and today the cohort is empty for four of five clusters.
+Measured     : Slice 5, on-niche videos only -- 4.9x spread, maritime 1.58y (most
+               open) to court-cases 7.73y (most closed), confidence 0.31-0.48.
+               An earlier pass over ALL member-channel videos gave 6.4x with
+               corporate at 11.6y; restricting to on-niche moved corporate to 3.2y.
+               The pool matters as much as the formula.
+```
+
+---
+
 ## Relevance -- the rule every supply number now depends on
 
 Not a metric, but `supply.*` and `money.*` are all computed over the videos it
@@ -373,28 +402,7 @@ render on `scorecards` and a number on screen invites being trusted.
 
 ## Defined but not implemented
 
-### openness.winner_age_years
-```
-Formula      : rank the cluster's videos by latest-snapshot views descending, take
-               the top 100, return the median of (day - channels.created_at) in years
-               for the channels behind them. LOWER IS MORE OPEN.
-Inputs       : video_snapshots(views); channels.created_at (100% coverage); cluster_members
-Join key     : cluster_id
-Confidence   : distinct_channels_in_top_100 / 100
-Failure mode : if the top-100 comes from few prolific channels the median describes
-               those channels, not the niche -- which is what the confidence measures.
-               Ranking on latest-snapshot views favours older videos, biasing toward
-               established channels, so it UNDER-states openness. Threshold-free on
-               purpose: an earlier draft used "share of top videos from channels
-               younger than 3 years" and 3 was chosen because it maximised spread
-               across five niches. Do not reintroduce a cutoff.
-Status       : designed and measured (6.4x spread: maritime 1.8y to corporate 11.6y,
-               stable at the extremes across N=50/100/200) but NOT implemented. It
-               was built to replace breakthrough_rate_cohort, which turned out not to
-               need replacing. Candidate for Slice 5 as a second openness signal.
-```
-
----
+*(empty — `openness.winner_age_years` was implemented in Slice 5.)*
 
 ## Inventory — already implemented in the prototypes, not yet defined here
 
@@ -407,7 +415,8 @@ is only the I/O around it that needs replacing.
 |---|---|---|---|
 | supply | `uploads_per_week` | `niche_hunter_yt.py` `channel_baseline` (cadence) | **yes** |
 | supply | `upload_interval_days` | `niche_hunter_yt.py` `channel_baseline` | no |
-| supply | `median_views`, `p90_views` | `niche_hunter_yt.py` `channel_baseline` | **yes** |
+| supply | `median_views` | `niche_hunter_yt.py` `channel_baseline` | **yes** |
+| supply | `p90_views` | `niche_hunter_yt.py` `channel_baseline` | detail-only |
 | openness | `breakthrough_rate_cohort` | `niche_hunter_yt.py` `channel_baseline.breakthroughs` (≥5× median, or ≥10× subs) | **yes** |
 | openness | `views_per_sub` | `niche_hunter_yt.py` `channel_baseline` | **yes** |
 | openness | `channel_breakthroughs` (feed-only) | `niche_hunter_rss.py` `channel_breakthroughs` | no |
@@ -453,6 +462,14 @@ Two known definitional gaps to resolve when writing these up:
 ## Not yet implemented anywhere
 
 `supply.top10_concentration`, `supply.median_top_video_age`,
-`supply.format_mix`, `openness.newcomer_share`, `demand.wikipedia_pageviews`,
-`cost_risk.*` (primary-source density and cadence, PD asset density, evergreen
-score, brand-safety lexicon, enforcement trend).
+`supply.format_mix`, `cost_risk.*` (primary-source density and cadence, PD asset
+density, evergreen score, brand-safety lexicon, enforcement trend).
+
+Two names removed from this list rather than implemented:
+
+- `demand.wikipedia_pageviews` — **superseded**, not pending. `demand.wiki_weekly_views`
+  is that metric, shipped in Slice 3.
+- `openness.newcomer_share` — **superseded by `openness.winner_age_years`**, not
+  blocked. Its natural form is "share of top videos from channels younger than T
+  years", and T is exactly the cutoff `winner_age_years` was deliberately built
+  without. Implementing it would reintroduce the thing that entry tells you not to.
