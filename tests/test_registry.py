@@ -7,7 +7,9 @@ from nh.jobs.nightly import plan
 
 
 def test_every_prototype_has_a_port_target():
-    prototypes = {spec.prototype for spec in REGISTRY}
+    """Wikipedia is excluded: it is new in Slice 3 with no legacy prototype behind
+    it, which the spec records explicitly rather than leaving blank."""
+    prototypes = {spec.prototype for spec in REGISTRY if "legacy/" in spec.prototype}
     assert prototypes == {
         "legacy/niche_hunter_rss.py",
         "legacy/niche_hunter_yt.py",
@@ -15,6 +17,11 @@ def test_every_prototype_has_a_port_target():
         "legacy/niche_hunter_reddit.py",
         "legacy/niche_hunter_kp.py",
     }
+
+
+def test_a_source_without_a_prototype_says_so():
+    spec = next(s for s in REGISTRY if s.source == "wikipedia")
+    assert "none" in spec.prototype.lower()
 
 
 def test_discovery_runs_before_rss():

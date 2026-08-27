@@ -88,3 +88,73 @@ def test_one_row_per_cluster_per_day_however_often_it_runs(engine):
         build(s, DAY, _mark())
         build(s, DAY, _mark())
         assert s.scalar(sa.select(sa.func.count()).select_from(Scorecard)) == 1
+
+
+# -- gap (Slice 3) -----------------------------------------------------------
+
+
+def _demand(engine, cluster_id, value, confidence=1.0):
+    _feature(engine, cluster_id, "wiki_weekly_views", value, group="demand")
+    with session_scope(engine) as s:
+        s.execute(
+            sa.update(FeatureDaily)
+            .where(FeatureDaily.cluster_id == cluster_id, FeatureDaily.name == "wiki_weekly_views")
+            .values(confidence=confidence)
+        )
+
+
+def test_gap_is_demand_rank_minus_supply_rank(engine):
+    """Ranks rather than raw units: pageviews and video views share no currency,
+    and any exchange rate between them would be a fabricated constant."""
+    for cid, demand, supply in (("a", 100.0, 900.0), ("b", 900.0, 100.0)):
+        _demand(engine, cid, demand)
+        _feature(engine, cid, "median_views", supply, group="supply")
+    with session_scope(engine) as s:
+        build(s, DAY, _mark())
+        gaps = dict(s.execute(sa.select(Scorecard.cluster_id, Scorecard.gap)).all())
+    assert gaps == {"a": -1.0, "b": 1.0}
+
+
+def test_gap_is_null_when_either_side_is_missing(engine):
+    _demand(engine, "a", 100.0)  # demand only, no supply
+    with session_scope(engine) as s:
+        build(s, DAY, _mark())
+        card = s.scalars(sa.select(Scorecard)).one()
+    assert card.demand is not None
+    assert card.gap is None
+    assert card.gap_confidence is None
+
+
+def test_gap_confidence_is_the_weaker_leg(engine):
+    _demand(engine, "a", 100.0, confidence=0.9)
+    _feature(engine, "a", "median_views", 100.0, group="supply")
+    with session_scope(engine) as s:
+        s.execute(
+            sa.update(FeatureDaily)
+            .where(FeatureDaily.name == "median_views")
+            .values(confidence=0.2)
+        )
+        build(s, DAY, _mark())
+        card = s.scalars(sa.select(Scorecard)).one()
+    assert card.gap_confidence == 0.2
+
+
+def test_the_demand_rank_is_stored_so_the_gap_is_reconstructible(engine):
+    """The same reason `supply` is stored: a score nobody can take apart is a
+    score nobody can check."""
+    _demand(engine, "a", 100.0)
+    _feature(engine, "a", "median_views", 100.0, group="supply")
+    with session_scope(engine) as s:
+        build(s, DAY, _mark())
+        card = s.scalars(sa.select(Scorecard)).one()
+    assert card.gap == card.demand - card.supply
+
+
+def test_a_lone_cluster_gaps_at_zero(engine):
+    """Both ranks land mid-scale, because with nothing to compare against any
+    other answer would be inventing information."""
+    _demand(engine, "a", 100.0)
+    _feature(engine, "a", "median_views", 100.0, group="supply")
+    with session_scope(engine) as s:
+        build(s, DAY, _mark())
+        assert s.scalar(sa.select(Scorecard.gap)) == 0.0

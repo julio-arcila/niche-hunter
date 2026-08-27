@@ -56,7 +56,22 @@ start the snapshot clock.*
   Dropping either silently breaks the openness metric.
 - **Join key**: `video_id`, `channel_id`.
 
-## trends — `legacy/niche_hunter_trends.py` → `nh/collectors/trends.py`
+## trends — ported ✅ (partially) `nh/collectors/trends.py`
+
+*Reviewed 2026-08-27. **Shape only** — one term per request, no anchor (ADR-0015).*
+
+**Measured, live:** `interest_over_time`, `interest_by_region` and `trending_now`
+work. `related_queries` and `related_topics` return `TrendsQuotaExceededError`,
+and the documented referer workaround also fails — so `expand_seeds()` and
+topic-mid resolution are unavailable, which removes the prototype's own
+prescribed fix for low-volume terms. `trendspy` was last released 2024-12-25.
+
+Our niche phrases mostly read literal **zero**: Trends normalises 0–100 per
+request against the batch maximum, so a small term beside a large one rounds
+away. `aviation disasters documentary` is NaN even queried alone. Hence broad
+proxy terms in `seed_terms`, and level coming from Wikipedia instead.
+
+## trends — original notes
 
 - **Library**: `trendspy`. **Auth**: none. Unofficial endpoint.
 - **Gives**: interest over time, interest by region, related/rising queries and
@@ -100,6 +115,29 @@ start the snapshot clock.*
   collapse. Long-tail terms often have no bid data; aggregate at niche level,
   never per keyword. The API returns numeric volumes where the UI shows ranges.
 - **Join key**: `keyword+geo+lang`.
+
+## wikipedia — ported ✅ `nh/collectors/wikipedia.py`
+
+*New in Slice 3; no legacy prototype. The primary demand signal (ADR-0015).*
+
+- **Endpoint**: `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/
+  en.wikipedia/all-access/user/{article}/daily/{start}/{end}`
+- **Auth**: none. **Quota**: none. Wikimedia's policy asks for a descriptive
+  User-Agent with contact details — `NH_WIKI_USER_AGENT`.
+- **Gives**: absolute daily pageviews, back to **2015-07-01**. Measured: 16,404
+  rows across 15 articles covering 1,095 days, fetched in under a minute.
+- **`agent=user` is mandatory.** Bot and spider traffic is **19–54% of raw
+  counts and is not uniform across articles** (Corporate_scandal 54%, Aviation
+  19%), so `all-agents` systematically inflates small niches relative to large
+  ones. Measured: filtering widens the cross-niche spread from 295× to 590×.
+- **Counts mature over 24–48h.** Snapshots are first-write-wins, so nothing
+  closer than `NH_WIKI_LAG_DAYS` (2) is ever requested — an early fetch would
+  freeze an undercount permanently.
+- **Caveats**: measures encyclopedic curiosity, not intent to watch a video.
+  Reference-heavy articles carry school-calendar traffic. News events spike
+  attention without durable video demand. The article mapping is curation and
+  nothing in the data detects a bad one.
+- **Join key**: `seed_terms.term`, and `wikidata_qid` when populated.
 
 ## Planned
 

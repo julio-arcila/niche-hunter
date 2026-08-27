@@ -202,3 +202,84 @@ rewrites the day's features; `nh compute` is the deliberate recompute path and
 records `job="partial"`, which the gate ignores by construction. Re-running a day
 rewrites identical values in place — `run_id` and `at` are deliberately refreshed,
 so provenance points at the computation that produced the values currently stored.
+
+## ADR-0015 — Wikipedia is the primary demand signal; Trends is shape-only, with no anchor
+2026-08-27. Accepted. **Supersedes the anchor-scaling language** in ROADMAP Slice 3,
+the `trends` note in `nh/collectors/registry.py`, and the prototype docstring.
+
+Measured against the live endpoints before designing:
+
+* `related_queries` and `related_topics` return `TrendsQuotaExceededError`, and the
+  documented referer workaround also fails. That removes `expand_seeds()` and, more
+  importantly, topic-mid (`/m/0abc`) resolution — which the prototype's own
+  docstring names as *the* fix for low-volume terms.
+* Our seed phrases mostly read literal zero. Trends normalises 0–100 per request
+  against the batch maximum, so a small term beside a large one rounds away. With
+  `documentary` (mean 44.8) as anchor: 0 of 3 targets had data. With
+  `air crash investigation` (17.7): 2 of 3. Queried alone,
+  `aviation disasters documentary` is `nan` — no volume in any framing.
+* Wikipedia pageviews return data for all five niches in **absolute** units,
+  spanning 590x (with `agent=user`), from an official quota-free API, and hand over
+  11.2 years of history on the first call.
+
+So Wikipedia carries **level** and Trends carries **shape**.
+
+**No anchor, and no anchor chain.** The anchor exists for exactly one purpose: to
+carry level across batches. Once level comes from Wikipedia, Trends does not need
+to. What per-request normalisation does *not* destroy is within-series shape —
+momentum, log-slope and seasonality are scale-invariant — so Trends is queried one
+term per request with no anchor at all. A chain was considered and rejected: every
+link is an integer-quantised 0–100 ratio carrying ±5 points of sampling jitter, and
+the weakest useful link measured (0.27 against a mean-17.7 anchor) is built from
+weekly values that mostly round to 0 or 1 — near 100% relative error before the
+chain multiplies it. It would also make every niche's number depend on every link
+staying fetchable on a quota-blocked, 20-month-stale client. `Settings.trends_anchor`
+is deleted rather than left in config inviting use; its default was `documentary`,
+the measured-worst choice.
+
+`observed_date` acquires two readings, and this ADR **refines ADR-0008** rather than
+violating it. For `demand_snapshots` it is *the day the value describes*, with `at`
+recording when we fetched — the affordance `nh/db/provenance.py::stamp` was built
+for, since it uses `setdefault`. ADR-0008's rule then reads "one reading per
+described day per source". For `video_snapshots` and `channel_snapshots` it keeps
+meaning "when we looked", because a view count is only knowable as of the poll.
+Wikimedia counts mature over 24–48h, so nothing closer than `day − 2` is ever
+fetched and the feature window ends there symmetrically — otherwise first-write-wins
+would freeze an undercount permanently.
+
+Trends gets its own table rather than sharing `demand_snapshots`, because **its
+weekly points cannot be appended across fetches**: each fetch renormalises to its
+own peak, so a new all-time peak silently rescales future points against frozen old
+ones and corrupts the series undetectably. The honest unit of observation is the
+entire curve as seen on a date, which is also the leak-free replay shape Slice 6
+needs.
+
+`legacy/niche_hunter_trends.py` is **kept** despite ADR-0005's deletion clause. The
+port is deliberately partial — `expand_seeds` (blocked upstream), `geo_tier1_share`
+(uncited weights, see ADR-0016) and `trending_matches` (Slice 4 material) remain
+reference. Its survival is a decision, not an oversight.
+
+## ADR-0016 — Gate C: Keyword Planner deferred, and tier1_share resolved by fiat
+2026-08-27. Accepted. `NH_GADS_CUSTOMER_ID` is empty and `google-ads.yaml` does not
+exist, so there is no API access and no application in flight. Slice 3 therefore
+ships **zero money metrics**; its exit criterion needs only `gap`, which depends on
+Wikipedia and the existing supply side.
+
+The four-week clock in the roadmap's Gate C starts today. On expiry, commit to the
+UI CSV export path, which needs no approval and is adequate for five niches. What is
+built now so that switching on is configuration rather than a rewrite: the
+`seed_terms` table carries a `source='keyword_planner'` slot, and `docs/SOURCES.md`
+records the storage contract (raw payloads to `raw_records`, monthly volumes to
+`demand_snapshots` as month-start rows — a stable described-month fact of the same
+shape as Wikipedia, plus a `keyword_metrics` entity table for bids and competition,
+migrated when the data can actually be fetched). The prototype already proves API
+and CSV rows normalise identically via its `source='ideas'|'ui_csv'` column.
+
+The `tier1_share` double definition flagged in METRICS.md is resolved by decision:
+Keyword Planner's `cpc_geo_spread` is **authoritative** for anything feeding a
+dollar figure, because it is measured price times volume in absolute units; the
+Trends `interest_by_region` share is context and display only and may never feed a
+composite. `geo_tier1_share` is **not ported** until its ~29-country internet-user
+weight dict carries a citation — an uncited constant must not sit under a dollar
+figure. That is a Slice 5 task attached to the RPM model, which is where a dollar
+figure first appears anyway.

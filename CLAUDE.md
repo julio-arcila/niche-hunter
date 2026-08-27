@@ -70,10 +70,10 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 <!-- keep this to ~5 lines; update at the end of each session -->
-- Phase: Slice 2 complete. Clustering -> features -> scoring run as nightly phases;
-  `nh niche show` reads them back with confidence and provenance.
-- Enrichment backfill implemented (ADR-0012): ~274 units clears the 13,657-video
-  backlog. Runs on the next cron — today's Pacific quota day is spent.
-- Openness is empty until then, by design (is_short IS NULL excludes 91% of videos).
-  Projected post-backfill: 40pp breakthrough spread, 4.9x views/sub, cohorts 15-47.
-- 181 tests, zero network. Next: confirm openness populates, then Slice 3 (demand).
+- Phase: Slice 3 complete. `gap` is computable for all five seeds with confidence.
+- Demand: Wikipedia primary (absolute counts, 3 years backfilled = 16,404 rows),
+  Trends shape-only with no anchor (ADR-0015). Keyword Planner deferred (ADR-0016).
+- 216 tests, zero network. Known: gap is compressed — demand and supply ranks
+  correlate at rho=+0.60, so 3 of 5 niches gap at exactly 0. Expected, see METRICS.md.
+- Still blocked: openness needs the enrichment backfill, which awaits quota reset.
+- Next: Slice 4 (real clustering) per docs/ROADMAP.md.

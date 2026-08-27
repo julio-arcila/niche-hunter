@@ -98,7 +98,7 @@ def _collectors_ok(engine, run_id=RUN):
     from nh.db.types import utcnow
 
     with session_scope(engine) as s:
-        for source in ("youtube_api", "youtube_rss"):
+        for source in ("youtube_api", "youtube_rss", "wikipedia"):
             s.add(
                 JobRun(
                     run_id=run_id,

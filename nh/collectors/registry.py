@@ -49,12 +49,21 @@ REGISTRY: tuple[CollectorSpec, ...] = (
         notes="Zero quota. The one series that cannot be backfilled — never let it lapse.",
     ),
     CollectorSpec(
+        source="wikipedia",
+        dotted="nh.collectors.wikipedia:WikipediaCollector",
+        cadence="nightly",
+        prototype="(none — new in Slice 3)",
+        ported=True,
+        notes="Primary demand signal. Absolute counts, agent=user, 2-day maturation lag, "
+        "backfills to 2015 on first run.",
+    ),
+    CollectorSpec(
         source="trends",
         dotted="nh.collectors.trends:TrendsCollector",
         cadence="nightly",
         prototype="legacy/niche_hunter_trends.py",
-        ported=False,
-        notes="Unofficial endpoint. Anchor-scale every batch or the numbers do not compare.",
+        ported=True,
+        notes="Shape only — one term per request, no anchor (ADR-0015). related_queries/topics are quota-blocked upstream.",
     ),
     CollectorSpec(
         source="reddit",

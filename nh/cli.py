@@ -125,12 +125,13 @@ def seed(
 
     from nh.db.models import NicheSeed
     from nh.db.session import get_engine, session_scope
-    from nh.seeds import SEEDS, apply_seeds, search_budget
+    from nh.seeds import SEEDS, TERMS, apply_seeds, apply_terms, search_budget
 
     settings = get_settings()
     cost = search_budget(pages=settings.yt_search_pages)
     if not show:
         apply_seeds()
+        apply_terms()
     with session_scope(get_engine()) as session:
         rows = session.scalars(sa.select(NicheSeed).order_by(NicheSeed.slug)).all()
         rows = [(r.slug, r.lang, len(r.keywords), r.active) for r in rows]
@@ -139,7 +140,8 @@ def seed(
     for slug, lang, n_keywords, active in rows:
         typer.echo(f"{slug:<24}{lang or '-':<7}{n_keywords:<11}{'yes' if active else 'no'}")
     typer.echo(
-        f"\n{len(SEEDS)} seeds · {settings.yt_search_pages} page(s) per query per sort order"
+        f"\n{len(SEEDS)} seeds · {len(TERMS)} demand terms · "
+        f"{settings.yt_search_pages} page(s) per query per sort order"
         f"\nsearch.list cost: {cost:,} of {settings.yt_quota_budget:,} units "
         f"({100 * cost // settings.yt_quota_budget}% of budget)"
     )
@@ -260,7 +262,7 @@ def niche_show(
         typer.echo(f"\nscorecard {view.day}: {parts}")
     typer.echo(
         "\n— means not computable; a printed number is a measurement. "
-        "gap/value/opportunity await demand (Slice 3)."
+        "value/opportunity await the Slice 5 composites."
     )
 
 

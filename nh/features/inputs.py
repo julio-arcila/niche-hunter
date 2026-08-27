@@ -18,7 +18,15 @@ from datetime import UTC, date, datetime, time, timedelta
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from nh.db.models import ChannelSnapshot, ClusterMember, Discovery, Video, VideoSnapshot
+from nh.db.models import (
+    ChannelSnapshot,
+    Cluster,
+    ClusterMember,
+    Discovery,
+    SeedTerm,
+    Video,
+    VideoSnapshot,
+)
 
 #: Views on a very fresh upload have not settled, so comparing one against an
 #: older video measures age rather than performance. A stopgap until the snapshot
@@ -181,3 +189,26 @@ def cohort(session: Session, cluster_id: str, day: date) -> dict[str, list[int]]
         and channel_id in dated
         and 0 < subs.get(channel_id, 0) <= COHORT_MAX_SUBS
     }
+
+
+def demand_terms(session: Session, cluster_id: str, source: str) -> list[str]:
+    """Active demand terms for the cluster's seed.
+
+    Joins through `clusters.seed_id`, which is the one place to touch when Slice 4
+    changes what a `cluster_id` is. Deliberately does NOT fall back to
+    `niche_seeds.keywords`: those are YouTube search phrases and are demand-dead
+    elsewhere — most read literal zero on Trends — so reusing them would
+    manufacture confident nonsense (ADR-0015).
+    """
+    return list(
+        session.scalars(
+            sa.select(SeedTerm.term)
+            .join(Cluster, Cluster.seed_id == SeedTerm.seed_id)
+            .where(
+                Cluster.cluster_id == cluster_id,
+                SeedTerm.source == source,
+                SeedTerm.active.is_(True),
+            )
+            .order_by(SeedTerm.term)
+        )
+    )

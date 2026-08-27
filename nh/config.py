@@ -60,8 +60,17 @@ class Settings(BaseSettings):
     rss_workers: int = 8
     rss_jitter_s: tuple[float, float] = (0.2, 0.8)
 
-    # --- google trends -----------------------------------------------------
-    trends_anchor: str = "documentary"
+    # --- wikipedia (primary demand signal, ADR-0015) -----------------------
+    #: Wikimedia asks for a descriptive User-Agent with contact details.
+    wiki_user_agent: str = "niche-hunter/0.1 (+contact@example.com)"
+    #: How far back the first fetch reaches. The endpoint serves from 2015-07-01,
+    #: so three years is a deliberate floor rather than a limit.
+    wiki_backfill_days: int = 1095
+    #: Counts mature over 24-48h. Snapshots are first-write-wins, so fetching
+    #: closer than this would freeze an undercount permanently.
+    wiki_lag_days: int = 2
+
+    # --- google trends (shape only; no anchor — ADR-0015) ------------------
     trends_min_gap_s: float = 2.5
     trends_cache_ttl_h: int = 24
     trends_proxy: str | None = None
@@ -82,10 +91,16 @@ class Settings(BaseSettings):
             "youtube_api": (self.yt_api_key,),
             "youtube_rss": (),  # no auth
             "trends": (),  # no auth
+            "wikipedia": (),  # official API, no auth
             "reddit": (self.reddit_client_id, self.reddit_client_secret, self.reddit_user_agent),
             "keyword_planner": (self.gads_customer_id,),
         }
-        return all(required.get(source, ())) if source in required else True
+        if source not in required:
+            # Explicit rather than defaulting to True: an unknown source is a
+            # typo, and silently reporting it as configured would let it sail
+            # past `nh status --check`.
+            raise KeyError(f"unknown source {source!r}; add it to Settings.configured")
+        return all(required[source])
 
 
 @lru_cache(maxsize=1)

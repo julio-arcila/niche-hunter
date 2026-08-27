@@ -110,7 +110,7 @@ def load(cluster_id: str, day: date | None = None, engine: Engine | None = None)
         metrics=metrics,
         scorecard={
             field: getattr(card, field, None)
-            for field in ("openness", "supply", "gap", "value", "opportunity")
+            for field in ("demand", "supply", "gap", "gap_confidence", "openness", "value")
         }
         if card
         else {},

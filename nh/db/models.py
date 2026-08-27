@@ -90,6 +90,93 @@ class NicheSeed(Base):
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
 
 
+class SeedTerm(Base):
+    """Curated demand-side identifiers per seed.
+
+    The YouTube seed keywords are demand-dead elsewhere — measured, most read
+    literal zero on Trends and `aviation disasters documentary` is NaN even alone
+    — so demand needs its own mapping. Like `niche_seeds` this is hand curation
+    written by `nh seed`: edit the literal in nh/seeds.py and re-run. It carries
+    no Provenance mixin for the same reason.
+
+    One row per (seed, source, term). `wikipedia` rows hold article titles,
+    `trends` rows hold the broad proxy terms that clear Trends' volume floor, and
+    `keyword_planner` rows are the slot Gate C fills later (ADR-0016).
+    """
+
+    __tablename__ = "seed_terms"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    seed_id: Mapped[int] = mapped_column(sa.ForeignKey("niche_seeds.id"), index=True)
+    source: Mapped[str] = mapped_column(sa.String(32))  # wikipedia | trends | keyword_planner
+    term: Mapped[str] = mapped_column(sa.String(256))
+    #: Wikidata QID — the join key docs/ARCHITECTURE.md already names.
+    qid: Mapped[str | None] = mapped_column(sa.String(16))
+    #: '' means worldwide. NOT NULL on purpose: a NULL would split the unique key,
+    #: since NULL never equals NULL in SQL.
+    geo: Mapped[str] = mapped_column(sa.String(8), default="")
+    lang: Mapped[str | None] = mapped_column(sa.String(8))
+    active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
+    notes: Mapped[str | None] = mapped_column(sa.Text)
+    created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (sa.UniqueConstraint("seed_id", "source", "term", name="uq_seed_terms_term"),)
+
+
+class DemandSnapshot(Base, AppendOnly, Provenance):
+    """One absolute demand reading per *described* day.
+
+    `observed_date` is the day the value DESCRIBES, not the day we fetched it —
+    `at` records that. This is the one place the two readings diverge, and
+    `stamp()` supports it deliberately: it uses `setdefault`, so a backfilled row
+    keeps the described day it was given (ADR-0015 refines ADR-0008).
+
+    Wikipedia dailies now; Keyword Planner monthly volumes later as month-start
+    rows, which are the same shape of stable described-period fact.
+    """
+
+    __tablename__ = "demand_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    term: Mapped[str] = mapped_column(sa.String(256), index=True)
+    geo: Mapped[str] = mapped_column(sa.String(8), default="")
+    observed_date: Mapped[date] = mapped_column(sa.Date)
+    value: Mapped[float | None] = mapped_column(sa.Float)
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "term", "geo", "observed_date", "source", name="uq_demand_snapshots_day"
+        ),
+        sa.Index("ix_demand_snapshots_series", "term", "observed_date"),
+    )
+
+
+class DemandSeries(Base, AppendOnly, Provenance):
+    """One observation of a whole normalised series (Google Trends).
+
+    Points CANNOT be appended across fetches. Trends renormalises every response
+    to its own peak, so a new all-time peak silently rescales later points against
+    frozen earlier ones and corrupts the series undetectably. The honest unit of
+    observation is therefore the entire curve as seen on a date — which is also
+    exactly the leak-free replay shape Slice 6 needs (ADR-0015).
+    """
+
+    __tablename__ = "demand_series"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    term: Mapped[str] = mapped_column(sa.String(256), index=True)
+    geo: Mapped[str] = mapped_column(sa.String(8), default="")
+    timeframe: Mapped[str] = mapped_column(sa.String(24))  # e.g. "today 5-y"
+    observed_date: Mapped[date] = mapped_column(sa.Date)
+    points: Mapped[list] = mapped_column(JSONVariant)  # [["2021-09-05", 41.0], ...]
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "term", "geo", "timeframe", "observed_date", "source", name="uq_demand_series_day"
+        ),
+    )
+
+
 class RawRecord(Base, AppendOnly, Provenance):
     """Every payload as the source returned it, before any interpretation.
 
@@ -309,6 +396,11 @@ class Scorecard(Base, Provenance):
     #: Supply is an input to `gap` (= demand - supply), so it has to be stored
     #: for the gap to be reconstructible once Slice 3 brings the demand side.
     supply: Mapped[float | None] = mapped_column(sa.Float)
+    #: Percentile rank of demand.wiki_weekly_views. Stored for the same reason
+    #: `supply` is: gap must be reconstructible from the row that reports it.
+    demand: Mapped[float | None] = mapped_column(sa.Float)
+    #: min(demand confidence, supply confidence) — the weaker leg bounds the chain.
+    gap_confidence: Mapped[float | None] = mapped_column(sa.Float)
     openness: Mapped[float | None] = mapped_column(sa.Float)
     value: Mapped[float | None] = mapped_column(sa.Float)
     sustainability: Mapped[float | None] = mapped_column(sa.Float)

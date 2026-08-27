@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from nh.db.models import Cluster, FeatureDaily
 from nh.db.provenance import Stamp
 from nh.db.upsert import upsert
-from nh.features import money, openness, supply
+from nh.features import demand, money, openness, supply
 from nh.features.types import FeatureResult
 
 log = logging.getLogger(__name__)
@@ -21,6 +21,9 @@ Metric = Callable[[Session, str, date], FeatureResult]
 
 #: Order is display order in `nh niche show`, so keep groups together.
 METRICS: tuple[Metric, ...] = (
+    demand.wiki_weekly_views,
+    demand.wiki_momentum_28d,
+    demand.trends_momentum_13w,
     supply.uploads_per_week,
     supply.median_views,
     openness.breakthrough_rate_cohort,

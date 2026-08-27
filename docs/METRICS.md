@@ -153,6 +153,93 @@ Failure mode : depends entirely on the enrichment backfill. Before it runs the
 Feeds        : money composite in Slice 5; display-only in Slice 2
 ```
 
+### demand.wiki_weekly_views
+```
+Formula      : sum of daily Wikipedia pageviews over the cluster's mapped articles,
+               window (day-30d, day-2d] (28 days), divided by 4.0 -> a weekly rate.
+               project=en.wikipedia, access=all-access, AGENT=USER — bots and
+               spiders excluded at the API. ABSOLUTE units, comparable across
+               niches with no anchor and no rescaling; that is the whole reason
+               this source leads the demand side (ADR-0015). Articles are summed,
+               not averaged: a niche's attention is the total across its topics.
+Inputs       : demand_snapshots(term, observed_date, value, source='wikipedia');
+               seed_terms(source='wikipedia', active) via clusters.seed_id
+Join key     : cluster_id -> clusters.seed_id -> seed_terms.seed_id
+Confidence   : coverage x volume adequacy
+               = (points_present / (28 * n_articles)) * min(window_views/10000, 1)
+               Coverage alone pins at 1.00 for every niche once the backfill
+               completes and would prove nothing. What makes this metric lie at
+               the bottom of the range is COUNT SCARCITY: Corporate_scandal draws
+               ~3 views/day, where relative sampling noise ~1/sqrt(N) is ~10% and
+               any momentum built on it is noise. 10,000 window views puts that
+               at ~1%. inputs_n = daily points present.
+Failure mode : measures encyclopedic curiosity, NOT intent to watch a video. A
+               reference-heavy article (List_of_landmark_court_decisions) carries
+               school-calendar traffic. News events spike attention without
+               durable video demand — the January 2024 aviation incidents are
+               plainly visible in the series. The article MAPPING is curation and
+               can misrepresent the niche; nothing in the data detects a bad
+               mapping. Counts younger than 2 days are immature at the API and are
+               excluded by the window, because first-write-wins would freeze an
+               undercount forever. No mapped article, or no points -> NULL.
+Feeds        : scorecards.demand (percentile rank) -> scorecards.gap
+Measured     : 590x spread across the five seeds with agent=user. NOTE: an earlier
+               measurement using all-agents gave 295x and was wrong — bot share
+               runs 19-54% and is NOT uniform across niches (Corporate_scandal 54%,
+               Aviation 19%), so bots were inflating small niches relative to large.
+```
+
+### demand.wiki_momentum_28d
+```
+Formula      : (views over (day-30d, day-2d]) / (views over (day-58d, day-30d]) - 1,
+               pooled over the cluster's mapped articles. A ratio of adjacent
+               28-day windows, so it is scale-free and the 590x level spread does
+               not leak into it.
+Inputs       : as wiki_weekly_views; window (day-58d, day-2d]
+Join key     : as wiki_weekly_views
+Confidence   : min over the two windows of (coverage * min(window_views/10000, 1)).
+               A momentum figure is only as good as its worse window, and the
+               prior window is the one a newly mapped article's backfill may not
+               yet cover. inputs_n = daily points across both windows.
+Failure mode : a single news spike in either window swamps the ratio — detail
+               records both window sums so a spike is visible on inspection.
+               School-calendar seasonality reads as momentum: court-cases measured
+               -31% month-over-month in late August, which is plausibly term
+               structure rather than decay. Do not read this as trend until a year
+               of history supports seasonal adjustment (Slice 5). A prior-window
+               sum of 0 -> NULL, never an infinity.
+Feeds        : none yet — display in Slice 3, demand composite in Slice 5
+Measured     : -36% to +1% across the five seeds
+```
+
+### demand.trends_momentum_13w
+```
+Formula      : from the newest demand_series observation with observed_date <= day
+               for the cluster's Trends term (ONE TERM PER REQUEST, no anchor —
+               ADR-0015): mean of the last 13 weekly values / mean of the previous
+               13, minus 1. Scale-invariant, so the per-request 0-100
+               normalisation that makes Trends LEVELS incomparable across requests
+               is harmless here — this metric never compares two requests, only
+               two windows inside one.
+Inputs       : demand_series(term, geo, timeframe, points, observed_date,
+               source='trends'); seed_terms(source='trends', active). Points dated
+               after `day` are excluded even when present in the row.
+Join key     : cluster_id -> clusters.seed_id -> seed_terms.seed_id
+Confidence   : share of the 26 window values that are non-zero. Trends quantises
+               to integers on a 0-100 scale normalised to the term's own 5-year
+               peak, so a mostly-zero series sits at the quantisation floor and its
+               ratio is noise. Measured, `bridge collapse` has mean 0.1 and will
+               score near 0 here, which is the honest report. inputs_n = 26.
+Failure mode : +/-5 point sampling jitter between fetches moves the ratio; the
+               series is one observation, not ground truth. A term whose peak is a
+               single news event compresses the rest of the series toward the
+               floor, since normalisation is to peak. Fewer than 26 weekly points,
+               or an all-zero prior window -> NULL with confidence 0. A dead term
+               (aviation disasters documentary = NaN) must be replaced in
+               seed_terms, never padded here.
+Feeds        : none yet — corroboration display in Slice 3
+```
+
 ## Composite stubs (Slice 2)
 
 Explicitly stubs, replaced by real composites in Slice 5. Named here because they
@@ -163,9 +250,25 @@ render on `scorecards` and a number on screen invites being trusted.
 - `scorecards.supply` = percentile rank of `supply.median_views` among the clusters
   scored that day. Relative by design. A NULL median_views gives NULL supply, never
   a default rank.
-- `gap`, `value`, `sustainability`, `opportunity`, `ci_low`, `ci_high`, `stage`
-  stay NULL until their inputs exist. There is no demand side until Slice 3, and a
-  placeholder that looks like a score is how an uncalibrated number gets believed.
+- `scorecards.demand` = percentile rank of `demand.wiki_weekly_views` among the
+  clusters scored that day, same construction as `supply`. NULL level -> NULL rank.
+- `scorecards.gap` = demand - supply, both ranks, range [-1, 1]. A gap OF RELATIVE
+  POSITION within the day's cluster set: positive means the niche ranks higher on
+  audience attention than on incumbent content performance. Ranks rather than units
+  because pageviews and video views share no currency, and any exchange rate between
+  them would be a fabricated constant of exactly the kind data rule 6 forbids.
+  Deliberately NOT comparable across days on which the cluster set changed — it is a
+  within-day comparator, and Slice 6 backtests it as one (rank correlation with
+  90/180-day outcomes, replayed against each day's own cluster set).
+  KNOWN COMPRESSION: `supply` ranks median_views, which correlates with niche size,
+  and so does demand — so gap is a mismatch of ranks that share a driver and its
+  spread will be narrower than either input's. The Slice 5 composite, which brings
+  uploads_per_week into supply, is the fix. A narrow gap spread is expected, not a bug.
+- `scorecards.gap_confidence` = min(confidence(wiki_weekly_views),
+  confidence(median_views)) — a chain is as strong as its weaker leg.
+- `value`, `sustainability`, `opportunity`, `ci_low`, `ci_high`, `stage` stay NULL
+  until their inputs exist. A placeholder that looks like a score is how an
+  uncalibrated number gets believed.
 
 ## Defined but not implemented
 
@@ -234,7 +337,11 @@ is only the I/O around it that needs replacing.
 
 Two known definitional gaps to resolve when writing these up:
 
-- **`tier1_share` is computed twice**, from Trends region interest and from
+- **`tier1_share` — RESOLVED (ADR-0016).** Keyword Planner's `cpc_geo_spread` is
+  authoritative for anything feeding a dollar figure; the Trends region share is
+  display-only and may never feed a composite. `geo_tier1_share` is not ported until
+  its weight dict is cited. Original note follows.
+- ~~**`tier1_share` is computed twice**~~, from Trends region interest and from
   Keyword Planner geo runs, by different methods. Decide which is authoritative
   for the RPM model, or define how they combine — do not let both feed the
   scorecard silently.

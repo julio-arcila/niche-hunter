@@ -42,6 +42,8 @@ def _healthy(engine):
     stopped producing the product behind a green ping."""
     _run(engine, "youtube_api", snapshots=40, quota_used=3_000, quota_budget=9_500)
     _run(engine, "youtube_rss", snapshots=120)
+    _run(engine, "wikipedia", snapshots=450)
+    _run(engine, "trends", snapshots=5)
     for phase, _ in PHASES:
         _run(engine, phase, snapshots=None)
 
@@ -70,6 +72,8 @@ def test_a_ported_but_unconfigured_source_fails_the_check(settings, engine):
 def test_a_failed_source_fails_the_check(settings, engine):
     _run(engine, "youtube_api", status="failed", snapshots=0)
     _run(engine, "youtube_rss", snapshots=120)
+    _run(engine, "wikipedia", snapshots=450)
+    _run(engine, "trends", snapshots=5)
     result = check(engine, settings)
     assert not result.ok
     assert any("finished failed" in p for p in result.problems)
@@ -77,6 +81,8 @@ def test_a_failed_source_fails_the_check(settings, engine):
 
 def test_a_source_that_did_not_run_fails_the_check(settings, engine):
     _run(engine, "youtube_rss", snapshots=120)
+    _run(engine, "wikipedia", snapshots=450)
+    _run(engine, "trends", snapshots=5)
     result = check(engine, settings)
     assert not result.ok
     assert any("did not run" in p for p in result.problems)
@@ -85,6 +91,7 @@ def test_a_source_that_did_not_run_fails_the_check(settings, engine):
 def test_a_run_that_collected_nothing_fails_even_if_every_source_is_ok(settings, engine):
     _run(engine, "youtube_api", snapshots=0)
     _run(engine, "youtube_rss", snapshots=0)
+    _run(engine, "wikipedia", snapshots=0)
     result = check(engine, settings)
     assert not result.ok
     assert "the run wrote no snapshots" in result.problems
@@ -94,6 +101,8 @@ def test_spending_the_whole_quota_warns_but_does_not_fail(settings, engine):
     """A degraded run still collected. Worth surfacing, not worth paging over."""
     _run(engine, "youtube_api", snapshots=40, quota_used=9_500, quota_budget=9_500)
     _run(engine, "youtube_rss", snapshots=120)
+    _run(engine, "wikipedia", snapshots=450)
+    _run(engine, "trends", snapshots=5)
     for phase, _ in PHASES:
         _run(engine, phase, snapshots=None)
     result = check(engine, settings)
@@ -111,17 +120,18 @@ def test_only_the_latest_run_is_judged(settings, engine):
 
 
 def test_unported_sources_are_not_expected_to_run(settings, engine):
-    """trends, reddit and keyword_planner are absent by design until ported."""
+    """reddit and keyword_planner are absent by design until ported."""
     _healthy(engine)
     result = check(engine, settings)
-    assert not any("trends" in p for p in result.problems)
+    assert not any("reddit" in p for p in result.problems)
+    assert not any("keyword_planner" in p for p in result.problems)
 
 
 def test_recent_runs_is_newest_first(settings, engine):
     _run(engine, "youtube_rss", run_id="older", ago_days=3)
     _healthy(engine)
     lines = recent_runs(engine, days=7)
-    assert len(lines) == 2 + 1 + len(PHASES)
+    assert len(lines) == 4 + 1 + len(PHASES)
     assert lines[0].day >= lines[-1].day
 
 
