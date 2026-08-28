@@ -13,7 +13,7 @@ from functools import partial
 import sqlalchemy as sa
 
 from nh.clustering.phase import assign
-from nh.clustering.trivial import dominant_seed
+from nh.clustering.trivial import assign_channels, dominant_seed
 from nh.db.models import Cluster, ClusterMember, Discovery, NicheSeed, Video
 from nh.db.provenance import stamp
 from nh.db.session import session_scope
@@ -313,3 +313,45 @@ def test_a_deactivated_seed_keeps_its_lexicon_harmlessly(engine):
 
     assert unscorable == []
     assert "aviation-disasters" in orphaned  # this fixture defines no seeds
+
+
+def test_inactive_seed_lineage_does_not_shadow_an_active_one(engine):
+    """The freeze that kept 110 channels in a retired cluster.
+
+    Dominance used to rank over every seed's lineage and discard the winner
+    afterwards if it was inactive — so a channel whose majority history came from a
+    deactivated seed was dropped from the loop and kept its stale membership row
+    forever, however much lineage an active seed accumulated. Here the dead seed
+    out-numbers the live one five to one; the live one must still win.
+    """
+    with session_scope(engine) as s:
+        s.add(NicheSeed(id=1, slug="dead-niche", label="Dead", keywords=[], active=False))
+        s.add(NicheSeed(id=2, slug="live-niche", label="Live", keywords=[], active=True))
+    _discovered(engine, "UCa", "dead-niche", "date", n=5)
+    _discovered(engine, "UCa", "live-niche", "date", n=1)
+
+    with session_scope(engine) as s:
+        assign_channels(s, DAY, _mark())
+
+    with session_scope(engine) as s:
+        cluster_id = s.scalar(
+            sa.select(ClusterMember.cluster_id).where(ClusterMember.item_type == "channel")
+        )
+    assert cluster_id == "live-niche"
+
+
+def test_a_channel_with_only_dead_lineage_gets_no_membership(engine):
+    """The other side: no active seed claims it, so nothing is invented. It keeps
+    whatever membership it already had, and `lexicon_gaps` / `retire_empty` describe
+    that state honestly rather than a guess being written over it."""
+    with session_scope(engine) as s:
+        s.add(NicheSeed(id=1, slug="dead-niche", label="Dead", keywords=[], active=False))
+        s.add(NicheSeed(id=2, slug="live-niche", label="Live", keywords=[], active=True))
+    _discovered(engine, "UCa", "dead-niche", "date", n=3)
+
+    with session_scope(engine) as s:
+        assign_channels(s, DAY, _mark())
+
+    with session_scope(engine) as s:
+        rows = list(s.scalars(sa.select(ClusterMember.item_id)))
+    assert rows == []

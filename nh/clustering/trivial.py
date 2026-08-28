@@ -84,7 +84,17 @@ def assign_channels(session: Session, day: date, mark: Stamp) -> int:
             sa.func.count(sa.distinct(Discovery.video_id)),
         )
         .join(Video, Video.video_id == Discovery.video_id)
-        .where(Discovery.seed_id.is_not(None))
+        # Active seeds only. Dominance used to be computed over EVERY seed's lineage
+        # and the winner discarded afterwards if it was inactive — so a channel whose
+        # majority lineage came from a deactivated seed was dropped from the loop
+        # entirely and kept its stale membership row indefinitely, no matter how much
+        # lineage an active seed accumulated. Measured 2026-08-28: 110 channels sat
+        # frozen in the retired `court-cases` cluster while both its successors were
+        # collecting. Filtering here rather than after the ranking also makes
+        # `confidence` a share among the niches actually tracked, which is what it
+        # claims to be.
+        .join(NicheSeed, NicheSeed.id == Discovery.seed_id)
+        .where(NicheSeed.active)
         .group_by(Video.channel_id, Discovery.seed_id)
     ).all()
 
