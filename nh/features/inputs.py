@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from nh.clustering.relevance import RELEVANCE_HIGH as _RELEVANCE_HIGH
 from nh.db.models import (
+    Channel,
     ChannelSnapshot,
     Cluster,
     ClusterMember,
@@ -57,7 +58,19 @@ def _midnight(day: date) -> datetime:
     return datetime.combine(day, time.min, tzinfo=UTC)
 
 
-def member_join(column, cluster_id: str, item_type: str = "channel"):
+def _until(day: date) -> datetime:
+    """The exclusive upper bound for "on or before `day`".
+
+    The whole of `day` is visible everywhere in this layer: snapshots bound on
+    `observed_date <= day`, which is a date, so a timestamp bound has to include
+    the last instant of that day to agree with it. Hand-copied `time.max` did the
+    same thing in three places; naming it once means the convention can be tested
+    rather than remembered.
+    """
+    return _midnight(day + timedelta(days=1))
+
+
+def member_join(column, cluster_id: str, item_type: str = "channel", day: date | None = None):
     """The membership predicate, defined once.
 
     Every metric that resolves an item to a cluster joins on the same three
@@ -70,25 +83,42 @@ def member_join(column, cluster_id: str, item_type: str = "channel"):
 
     The module docstring already promised "one definition, so supply and openness
     cannot quietly drift apart". This is that promise made mechanical.
+
+    `day` bounds membership to channels already known then. It is a NARROWER
+    guarantee than it looks, and the gap is worth stating: `cluster_members` records
+    which cluster a channel is in *now*, and `trivial.dominant_seed` decides that by
+    counting discovery rows as of today. A channel first surfaced by aviation
+    queries in January and by maritime queries in August has a dominant seed that
+    changed, and `first_seen` cannot reconstruct which one it held at a past date.
+    Closing that needs `dominant_seed` recomputed from day-bounded lineage.
+
+    It does not affect the backtest — YouNiverse channels have no discovery lineage,
+    so their membership comes from the relevance aggregate over their own videos,
+    which IS pure — and it is registered as a deferral rather than left implicit.
     """
-    return sa.and_(
+    predicate = sa.and_(
         ClusterMember.item_id == column,
         ClusterMember.item_type == item_type,
         ClusterMember.cluster_id == cluster_id,
         ClusterMember.is_noise.is_(False),
     )
+    if day is None:
+        return predicate
+    return sa.and_(predicate, Channel.first_seen < _until(day))
 
 
-def member_channels(session: Session, cluster_id: str) -> list[str]:
+def member_channels(session: Session, cluster_id: str, day: date | None = None) -> list[str]:
     return list(
         session.scalars(
-            sa.select(ClusterMember.item_id).where(member_join(ClusterMember.item_id, cluster_id))
+            sa.select(ClusterMember.item_id)
+            .join(Channel, Channel.channel_id == ClusterMember.item_id)
+            .where(member_join(ClusterMember.item_id, cluster_id, day=day))
         )
     )
 
 
-def on_niche_join(cluster_id: str):
-    """Join predicate for a video judged on-niche.
+def on_niche_join(cluster_id: str, day: date | None = None):
+    """Join predicate for a video judged on-niche, as of `day`.
 
     Deliberately `relevance >= RELEVANCE_HIGH` and not `is_noise IS FALSE`. The
     three states are not two: `is_noise` marks only the decided off-niche case, so
@@ -96,15 +126,24 @@ def on_niche_join(cluster_id: str):
     also not on-niche. Both are excluded from numerator *and* denominator, and
     lower confidence instead of being guessed into one side.
     """
-    return sa.and_(
+    predicate = sa.and_(
         ClusterMember.item_id == Video.video_id,
         ClusterMember.item_type == "video",
         ClusterMember.cluster_id == cluster_id,
         ClusterMember.relevance >= RELEVANCE_HIGH,
     )
+    if day is None:
+        return predicate
+    # Relevance is a pure function of (title, description, lexicon_version), so a
+    # video's score never changes. Membership as of a past day is therefore
+    # membership now, restricted to videos that existed then — which is why this
+    # needs no history table (ADR-0018) and why one clause is the whole fix.
+    return sa.and_(predicate, Video.published_at < _until(day))
 
 
-def relevance_coverage(session: Session, cluster_id: str) -> tuple[int, int]:
+def relevance_coverage(
+    session: Session, cluster_id: str, day: date | None = None
+) -> tuple[int, int]:
     """`(decided, total)` videos in the cluster — the share we could judge at all.
 
     A metric restricted to on-niche videos depends on a decision we make about each
@@ -125,7 +164,14 @@ def relevance_coverage(session: Session, cluster_id: str) -> tuple[int, int]:
                 )
             ),
             sa.func.count(),
-        ).where(ClusterMember.item_type == "video", ClusterMember.cluster_id == cluster_id)
+        )
+        .select_from(ClusterMember)
+        .join(Video, Video.video_id == ClusterMember.item_id)
+        .where(
+            ClusterMember.item_type == "video",
+            ClusterMember.cluster_id == cluster_id,
+            sa.true() if day is None else Video.published_at < _until(day),
+        )
     ).one()
     return decided or 0, total or 0
 
@@ -153,11 +199,9 @@ def eligible_niche_videos(
         return {}
     on_niche = set(
         session.scalars(
-            sa.select(ClusterMember.item_id).where(
-                ClusterMember.item_type == "video",
-                ClusterMember.cluster_id == cluster_id,
-                ClusterMember.relevance >= RELEVANCE_HIGH,
-            )
+            sa.select(ClusterMember.item_id)
+            .join(Video, Video.video_id == ClusterMember.item_id)
+            .where(on_niche_join(cluster_id, day))
         )
     )
     kept = {
@@ -198,7 +242,8 @@ def eligible_videos(
             .label("rn"),
         )
         .join(latest, latest.c.video_id == Video.video_id)
-        .join(ClusterMember, member_join(Video.channel_id, cluster_id))
+        .join(Channel, Channel.channel_id == Video.channel_id)
+        .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
         .where(
             Video.is_short.is_(False),
             Video.published_at.is_not(None),
@@ -227,14 +272,17 @@ def latest_subs(session: Session, cluster_id: str, day: date) -> dict[str, int]:
             ChannelSnapshot.channel_id,
             sa.func.max(ChannelSnapshot.subs),
         )
-        .join(ClusterMember, member_join(ChannelSnapshot.channel_id, cluster_id))
+        .join(Channel, Channel.channel_id == ChannelSnapshot.channel_id)
+        .join(ClusterMember, member_join(ChannelSnapshot.channel_id, cluster_id, day=day))
         .where(ChannelSnapshot.observed_date <= day, ChannelSnapshot.subs.is_not(None))
         .group_by(ChannelSnapshot.channel_id)
     ).all()
     return {channel_id: subs for channel_id, subs in rows if subs is not None}
 
 
-def date_discovered_channels(session: Session, cluster_id: str) -> set[str]:
+def date_discovered_channels(
+    session: Session, cluster_id: str, day: date | None = None
+) -> set[str]:
     """Member channels with at least one video found under `order=date`.
 
     This is the unbiased-denominator filter, and it is the whole reason
@@ -247,8 +295,15 @@ def date_discovered_channels(session: Session, cluster_id: str) -> set[str]:
         session.scalars(
             sa.select(Video.channel_id)
             .join(Discovery, Discovery.video_id == Video.video_id)
-            .join(ClusterMember, member_join(Video.channel_id, cluster_id))
-            .where(Discovery.order_by == "date")
+            .join(Channel, Channel.channel_id == Video.channel_id)
+            .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
+            .where(
+                Discovery.order_by == "date",
+                # `discoveries` is append-only and already carries observed_date;
+                # it was simply never used. A replay without it admits every
+                # channel discovered years after the decision date.
+                sa.true() if day is None else Discovery.observed_date <= day,
+            )
             .distinct()
         )
     )
@@ -263,7 +318,7 @@ def cohort(session: Session, cluster_id: str, day: date) -> dict[str, list[int]]
     """
     videos = eligible_videos(session, cluster_id, day)
     subs = latest_subs(session, cluster_id, day)
-    dated = date_discovered_channels(session, cluster_id)
+    dated = date_discovered_channels(session, cluster_id, day)
     return {
         channel_id: [views for _, views in rows]
         for channel_id, rows in videos.items()

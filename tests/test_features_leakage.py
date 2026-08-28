@@ -25,7 +25,15 @@ from datetime import timedelta
 import pytest
 
 from nh.features.run import METRICS
-from tests.conftest_features import CLUSTER, DAY, add_channel, make_cluster, session_for
+from tests.conftest_features import (
+    CLUSTER,
+    DAY,
+    RUN,
+    _at,
+    add_channel,
+    make_cluster,
+    session_for,
+)
 
 #: Far enough back that no fixture row can legitimately be in scope.
 LONG_AGO = DAY - timedelta(days=3650)
@@ -47,6 +55,59 @@ def _set_country(engine, countries: dict[str, str]) -> None:
         s.commit()
 
 
+def _add_future_videos(engine, channel_id: str, *, n: int, views: int) -> None:
+    """Videos published after DAY, on a channel that already existed.
+
+    Not `add_channel`, which would insert the channel a second time. This is the
+    case that isolates the video-level bound from the channel-level one — with the
+    channel present in both worlds, only the videos differ.
+    """
+    from datetime import timedelta as _td
+
+    from nh.db.models import ClusterMember, Video, VideoSnapshot
+    from nh.db.session import session_scope
+    from nh.db.types import utcnow
+
+    later = DAY + _td(days=40)
+    with session_scope(engine) as s:
+        for i in range(n):
+            vid = f"{channel_id}-future-{i}"
+            s.add(
+                Video(
+                    video_id=vid,
+                    channel_id=channel_id,
+                    title=vid,
+                    published_at=_at(later),
+                    is_short=False,
+                    midroll_eligible=True,
+                    source="test",
+                    run_id=RUN,
+                    at=utcnow(),
+                )
+            )
+            s.add(
+                VideoSnapshot(
+                    video_id=vid,
+                    channel_id=channel_id,
+                    observed_date=later,
+                    views=views,
+                    source="test",
+                    run_id=RUN,
+                )
+            )
+            s.add(
+                ClusterMember(
+                    cluster_id=CLUSTER,
+                    item_type="video",
+                    item_id=vid,
+                    relevance=0.9,
+                    is_noise=False,
+                    source="clustering",
+                    run_id=RUN,
+                )
+            )
+
+
 def _world(engine, *, include_future: bool) -> None:
     """A cluster with history, optionally plus rows dated after DAY.
 
@@ -57,7 +118,10 @@ def _world(engine, *, include_future: bool) -> None:
     make_cluster(engine)
     add_channel(engine, "UCa", subs=1_000, videos=6, views=1_000, age_days=40)
     add_channel(engine, "UCb", subs=5_000, videos=6, views=9_000, age_days=40)
-    _set_country(engine, {"UCa": "US", "UCb": "IN"})
+    # Exists in BOTH worlds — it was around on DAY. Only its videos differ, which
+    # is the case that isolates the video-level bound from the channel-level one.
+    add_channel(engine, "UCold", subs=2_000, videos=0, age_days=0, day=DAY)
+    _set_country(engine, {"UCa": "US", "UCb": "IN", "UCold": "US"})
     if include_future:
         # Published after DAY, snapshotted after DAY, discovered after DAY.
         add_channel(
@@ -70,6 +134,11 @@ def _world(engine, *, include_future: bool) -> None:
             day=DAY + timedelta(days=60),
         )
         _set_country(engine, {"UCfuture": "US"})
+        # The video-level case: a channel that existed BEFORE the decision date,
+        # publishing AFTER it. Without this the channel-level bound hides the
+        # video-level one — measured, removing `on_niche_join`'s `published_at`
+        # clause caused zero failures until this was added.
+        _add_future_videos(engine, "UCold", n=6, views=4_000_000)
 
 
 @pytest.mark.parametrize("metric", METRICS, ids=lambda m: m.__name__)

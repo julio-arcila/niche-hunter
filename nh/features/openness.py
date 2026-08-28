@@ -19,6 +19,7 @@ from nh.db.models import Channel, ClusterMember, Video, VideoSnapshot
 from nh.features.inputs import (
     COHORT_MAX_SUBS,
     COHORT_MIN_VIDEOS,
+    _until,
     cohort,
     latest_subs,
     on_niche_join,
@@ -163,8 +164,8 @@ def winner_age_years(session: Session, cluster_id: str, day: date) -> FeatureRes
         sa.select(Video.channel_id, Channel.created_at, latest.c.views)
         .join(latest, latest.c.video_id == Video.video_id)
         .join(Channel, Channel.channel_id == Video.channel_id)
-        .join(ClusterMember, on_niche_join(cluster_id))
-        .where(Channel.created_at.is_not(None))
+        .join(ClusterMember, on_niche_join(cluster_id, day))
+        .where(Channel.created_at.is_not(None), Channel.created_at < _until(day))
         .order_by(latest.c.views.desc())
         .limit(TOP_N)
     ).all()

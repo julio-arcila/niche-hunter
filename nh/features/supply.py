@@ -14,6 +14,7 @@ from nh.features.inputs import (
     AGE_FLOOR_DAYS,
     FEED_DEPTH,
     RELEVANCE_HIGH,
+    _until,
     eligible_niche_videos,
     member_channels,
     member_join,
@@ -76,7 +77,7 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
     which genuinely published nothing this window reports a confident zero rather
     than a doubtful one.
     """
-    channels = member_channels(session, cluster_id)
+    channels = member_channels(session, cluster_id, day)
     if not channels:
         return FeatureResult.empty(GROUP, "uploads_per_week", "cluster has no member channels")
 
@@ -87,7 +88,8 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
             sa.func.count(Video.video_id),
             sa.func.count(sa.distinct(Video.channel_id)),
         )
-        .join(ClusterMember, member_join(Video.channel_id, cluster_id))
+        .join(Channel, Channel.channel_id == Video.channel_id)
+        .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
         .where(
             Video.is_short.is_(False),
             Video.published_at.is_not(None),
@@ -97,15 +99,19 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
             # once for channel membership, and an alias here would read as though
             # the two memberships were the same thing. They are not — one says the
             # channel belongs to the niche, the other says this video is about it.
-            sa.exists(sa.select(1).where(on_niche_join(cluster_id)).correlate(Video)),
+            sa.exists(sa.select(1).where(on_niche_join(cluster_id, day)).correlate(Video)),
         )
     ).one()
 
     known = (
         session.scalar(
-            sa.select(sa.func.count(sa.distinct(Video.channel_id))).join(
-                ClusterMember, member_join(Video.channel_id, cluster_id)
-            )
+            sa.select(sa.func.count(sa.distinct(Video.channel_id)))
+            .join(Channel, Channel.channel_id == Video.channel_id)
+            .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
+            # Bounded: unbounded, this counted every present-day channel and
+            # produced a CONFIDENT ZERO at any historical date — measured, 0.0 at
+            # confidence 0.871 for 2019 against 197 channels that did not exist.
+            .where(Video.published_at < _until(day))
         )
         or 0
     )
@@ -122,7 +128,7 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
         # `covered` here would drive its confidence to 0 and call the finding
         # missing data.
         confidence=_confidence(
-            known, known, len(channels), relevance_coverage(session, cluster_id)
+            known, known, len(channels), relevance_coverage(session, cluster_id, day)
         ),
         inputs_n=uploads,
         detail={
@@ -165,8 +171,8 @@ def median_views(session: Session, cluster_id: str, day: date) -> FeatureResult:
         confidence=_confidence(
             len(by_channel),
             len(by_channel),
-            len(member_channels(session, cluster_id)),
-            relevance_coverage(session, cluster_id),
+            len(member_channels(session, cluster_id, day)),
+            relevance_coverage(session, cluster_id, day),
         ),
         inputs_n=len(pooled),
         detail={
@@ -197,16 +203,15 @@ def on_niche_share(session: Session, cluster_id: str, day: date) -> FeatureResul
     unscorable are excluded from both sides rather than counted against, which is
     the same treatment `money.midroll_eligible_share` gives an unknown duration.
     """
-    judged, total = relevance_coverage(session, cluster_id)
+    judged, total = relevance_coverage(session, cluster_id, day)
     if not judged:
         return FeatureResult.empty(GROUP, "on_niche_share", "no video has a relevance decision yet")
     on_niche = (
         session.scalar(
-            sa.select(sa.func.count()).where(
-                ClusterMember.item_type == "video",
-                ClusterMember.cluster_id == cluster_id,
-                ClusterMember.relevance >= RELEVANCE_HIGH,
-            )
+            sa.select(sa.func.count())
+            .select_from(ClusterMember)
+            .join(Video, Video.video_id == ClusterMember.item_id)
+            .where(on_niche_join(cluster_id, day))
         )
         or 0
     )
@@ -262,7 +267,7 @@ def geo_concentration(session: Session, cluster_id: str, day: date) -> FeatureRe
         return FeatureResult.empty(
             GROUP, "geo_concentration", "seed states no geo, so there is nothing to diverge from"
         )
-    members = member_channels(session, cluster_id)
+    members = member_channels(session, cluster_id, day)
     if not members:
         return FeatureResult.empty(GROUP, "geo_concentration", "cluster has no member channel")
 
@@ -313,8 +318,8 @@ def _top_videos(session: Session, cluster_id: str, day: date) -> list[tuple[str,
     rows = session.execute(
         sa.select(Video.video_id, latest.c.views, Video.published_at)
         .join(latest, latest.c.video_id == Video.video_id)
-        .join(ClusterMember, on_niche_join(cluster_id))
-        .where(Video.published_at.is_not(None))
+        .join(ClusterMember, on_niche_join(cluster_id, day))
+        .where(Video.published_at.is_not(None), Video.published_at < _until(day))
         .order_by(latest.c.views.desc())
         .limit(TOP_N)
     ).all()

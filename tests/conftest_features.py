@@ -100,7 +100,19 @@ def add_channel(
     view_list = views if isinstance(views, list) else [views] * videos
     ids = []
     with session_scope(engine) as s:
-        s.add(Channel(channel_id=channel_id, title=channel_id, source="test", run_id=RUN))
+        # `first_seen` is set from `day`, not from the clock. DAY is a fixed date
+        # in the past, so `utcnow()` would place every fixture channel AFTER the
+        # day under test and the day-bounded membership joins would exclude it —
+        # the fixture would be building a world that could not have existed.
+        s.add(
+            Channel(
+                channel_id=channel_id,
+                title=channel_id,
+                first_seen=_at(day),
+                source="test",
+                run_id=RUN,
+            )
+        )
         if subs is not None:
             s.add(
                 ChannelSnapshot(

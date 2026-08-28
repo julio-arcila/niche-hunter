@@ -12,7 +12,7 @@ from datetime import UTC, date, datetime, time, timedelta
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from nh.db.models import ClusterMember, Video
+from nh.db.models import Channel, ClusterMember, Video
 from nh.features.inputs import member_join, on_niche_join, relevance_coverage
 from nh.features.types import FeatureResult
 
@@ -23,9 +23,9 @@ WINDOW_DAYS = 90
 CONFIDENCE_N = 100
 
 
-def _decided(session: Session, cluster_id: str) -> float:
+def _decided(session: Session, cluster_id: str, day) -> float:
     """Share of the cluster's videos we could decide on-niche or not."""
-    judged, total = relevance_coverage(session, cluster_id)
+    judged, total = relevance_coverage(session, cluster_id, day)
     return min(judged / total, 1.0) if total else 0.0
 
 
@@ -44,7 +44,8 @@ def midroll_eligible_share(session: Session, cluster_id: str, day: date) -> Feat
             sa.func.count(Video.video_id),
             sa.func.sum(sa.case((Video.midroll_eligible.is_(True), 1), else_=0)),
         )
-        .join(ClusterMember, member_join(Video.channel_id, cluster_id))
+        .join(Channel, Channel.channel_id == Video.channel_id)
+        .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
         .where(
             Video.midroll_eligible.is_not(None),
             Video.published_at.is_not(None),
@@ -53,7 +54,7 @@ def midroll_eligible_share(session: Session, cluster_id: str, day: date) -> Feat
             # Both numerator and denominator restrict to on-niche: the question is
             # what share of THIS NICHE's supply can carry a midroll, and a channel's
             # off-niche uploads answer a different question.
-            sa.exists(sa.select(1).where(on_niche_join(cluster_id)).correlate(Video)),
+            sa.exists(sa.select(1).where(on_niche_join(cluster_id, day)).correlate(Video)),
         )
     ).one()
 
@@ -72,7 +73,7 @@ def midroll_eligible_share(session: Session, cluster_id: str, day: date) -> Feat
         # Times relevance coverage, like the supply metrics: this is now computed
         # over videos we judged, and how much of the cluster we could judge is a
         # distinct way it lies. Held-out precision on that judgement is 0.781.
-        confidence=min(known / CONFIDENCE_N, 1.0) * _decided(session, cluster_id),
+        confidence=min(known / CONFIDENCE_N, 1.0) * _decided(session, cluster_id, day),
         inputs_n=known,
         detail={
             "definition": "v2-on-niche",
