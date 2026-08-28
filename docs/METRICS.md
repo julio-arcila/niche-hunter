@@ -477,6 +477,40 @@ Do not re-tune the thresholds against a metric. They were chosen against hand la
 on a held-out split, and moving them until a ranking looks right is exactly the trap
 this file already warns about for `winner_age_years`.
 
+## Outcome variables — what "it worked" means
+
+Gate E compares a score at date *t* to what happened afterwards, and until Slice 5
+nothing in this repo said what *happened* means. Defined here before any replay
+code exists, so it cannot be chosen after seeing results.
+
+### outcome.growth_180d
+```
+Formula      : log(channel subscribers at t+180d / channel subscribers at t),
+               aggregated to the niche as the MEDIAN across its member channels.
+               Log because growth is multiplicative; median because one viral
+               channel must not define a niche's outcome.
+Inputs       : YouNiverse df_timeseries_en (weekly subs per channel, 2015-01 to
+               2019-09). Not collected by this pipeline; loaded for the backtest.
+Join key     : channel_id -> cluster_id, via the relevance scorer over YouNiverse
+               video titles and descriptions.
+Window       : t from 2015-07 (first Wikipedia pageview data) to 2019-03 (last t
+               with a 180-day outcome inside the data).
+Confidence   : member channels with subs at both t and t+180d / member channels.
+Failure mode : SURVIVORSHIP, and it is not a caveat but the defining limitation.
+               YouNiverse is "all channels with >10k subscribers and >10 videos" as
+               of 2019-10-27, so every channel in it succeeded. A channel that was
+               small in 2016 and stayed small was never crawled. This therefore
+               measures RELATIVE GROWTH AMONG SUCCESSES, never emergence, and no
+               sampling recovers the missing negative class.
+               Consequence: a binary "emerging" precision on this population has a
+               base rate near 1 and is uninterpretable. Gate E must use rank
+               correlation instead -- see reports/gate_e_feasibility_2026-08-27.md.
+Why subs, not views: `delta_views` is contaminated by a channel's back catalogue,
+               and subscriber growth is closer to what a creator choosing a niche
+               is actually deciding about.
+```
+
+
 ## Composite stubs (Slice 2)
 
 Explicitly stubs, replaced by real composites in Slice 5. Named here because they
