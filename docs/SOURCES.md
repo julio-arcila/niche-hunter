@@ -225,11 +225,11 @@ Self-service registration did close in late 2025; every new OAuth client, free o
 goes through a manual approval ticket. Reported queues run two to four weeks, with a
 pattern of silent rejections for vague or trivial use cases.
 
-*Evidence quality, stated because it is weaker than the Trends measurement:* Reddit's
-own Data API wiki returns **403** to an unauthenticated fetch, so this is corroborated
-from secondary write-ups rather than the primary source, and it is a policy claim that
-cannot be tested without filing. Contrast the Trends finding, which was a direct live
-probe. Treat it as well-corroborated, not measured.
+*Evidence quality:* the **closure is measured** — the app-creation form was tried on
+2026-08-28 and refused (see the runbook below). The surrounding detail (queue lengths,
+rejection patterns, the $0.24/1k commercial rate) is still only corroborated from
+secondary write-ups: Reddit's own Data API wiki and the Responsible Builder Policy
+article both return **403** to an unauthenticated fetch. Keep the two apart.
 
 The **free tier is intact**: 100 queries/min per OAuth client, non-commercial — which
 covers this project (read-only, a few hundred queries/night). Commercial is $0.24/1k
@@ -242,15 +242,41 @@ queue position.* No application has ever been filed. The clock starts when one i
 
 Steps 1–4 cannot be done by the assistant: they create an app under a personal identity.
 
+**Approval comes before app creation.** An earlier version of this runbook had the
+order backwards. Confirmed empirically 2026-08-28: `old.reddit.com/prefs/apps/` refuses
+to create anything and returns the Responsible Builder Policy link instead. That makes
+the closure **measured**, not merely corroborated — the one claim in this section that
+is now first-hand.
+
+**`developers.reddit.com` is the wrong product.** It is Devvit, the Developer Platform,
+for apps that run *inside* the Reddit experience — interactive posts, games, mod tools.
+This project pulls data *out* into an external pipeline, which Devvit does not cover. A
+Devvit account is harmless but unlocks nothing here; do not mistake it for progress.
+
 1. Use an **established** Reddit account (verified email, some history) — new accounts
    draw rejections.
-2. `reddit.com/prefs/apps` → create app → type **`script`** (server-side, no redirect
-   flow, which is the right shape for a nightly job).
-3. Submit the Responsible Builder request. State plainly: **non-commercial**,
-   research/analytics, **no redistribution of Reddit content**, low volume. The silent
-   rejections skew toward vague use cases, and our real profile is modest.
-4. On approval collect `client_id` (the string under the app name) and `client_secret`.
-5. Fill `.env` (already scaffolded, `.env.example:44-49`):
+2. Open the **Reddit Data API Wiki** (`support.reddithelp.com/hc/en-us/articles/`
+   `16160319875092-Reddit-Data-API-Wiki`) and follow its *contact us* link. The form
+   asks for a category — **developer**, researcher, or moderator — and a use case. The
+   page 403s automated fetches, so it must be opened in a browser.
+3. **File once.** The policy prohibits registering multiple accounts or submitting
+   multiple requests for the same use case, so a retry after silence is a rejection
+   trigger rather than a nudge. State plainly: **non-commercial**, research/analytics,
+   **no redistribution of Reddit content**, low volume. Silent rejections skew toward
+   vague use cases, and our real profile genuinely is modest.
+4. **Category depends on a question only the operator can answer.** The free tier is
+   non-commercial. Applying as *developer* for a commercial use is a documented
+   rejection trigger, and the policy forbids misrepresenting why the data is accessed.
+   A personal research tool is honestly *developer*/*researcher*; anything feeding a
+   revenue-generating operation belongs on the commercial route ($0.24/1k, contract)
+   however much harder that is. Do not split the difference in the wording.
+5. **Only on approval** does `reddit.com/prefs/apps` create a **`script`** app
+   (server-side, no redirect flow — the right shape for a nightly job). Its `redirect
+   uri` field is required but inert for script apps; `http://localhost:8080` is the PRAW
+   convention and is editable later. `about url` may be blank. The `client_id` is the
+   short string under the app name, *not* the name and not the secret — confusing the
+   two surfaces later as an opaque 401.
+6. Fill `.env` (already scaffolded, `.env.example:44-49`):
 
    ```
    NH_REDDIT_CLIENT_ID=
