@@ -63,17 +63,37 @@ def test_keywords_round_trip_as_a_list(engine):
 def test_geo_states_the_market_the_niche_is_about(engine):
     """Reverses `test_geo_is_null_not_invented` (Slice 5), and the distinction is
     the whole point. That test was right that an invented geo must not become a
-    *request parameter* — `seed_terms.geo` still carries that and is still ''.
+    *request parameter* — `seed_terms.geo` still carries that rule, and stays ''
+    for every source that sends it anywhere.
     `niche_seeds.geo` is a different thing: a stated intent that nothing sends
     anywhere, and which `supply.geo_concentration` measures divergence from.
     Measured, 234 of 719 channels are Indian against 290 US. That gap is invisible
-    unless the seed says what it meant."""
+    unless the seed says what it meant.
+
+    Keyword Planner is a third case, added 2026-08-28 and deliberately outside the
+    `seed_terms.geo == ""` rule. Its collector never reads `seed_terms` — the geo
+    comes from the `--geo` argument — so nothing there can become a request
+    parameter. What its geo does is record which export a term's numbers came from,
+    because `keyword_metrics` is unique over (keyword, geo, lang, observed_date,
+    source) and a second country's export will sit beside the first. Leaving it ""
+    would claim the US numbers were worldwide, and would break the feature join
+    silently: measured, 0 of 30 rows matched until the two agreed."""
     apply_seeds(engine)
     apply_terms(engine)
     with session_scope(engine) as s:
         assert all(g for g in s.scalars(sa.select(NicheSeed.geo)))
-        # The request-driving field is untouched.
-        assert all(g == "" for g in s.scalars(sa.select(SeedTerm.geo)))
+        # The request-driving field is untouched — for the sources that actually
+        # drive requests with it. `trends.py:144` passes `geo=term.geo` straight
+        # into the API call and `wikipedia.py:118` reads the column, so an invented
+        # geo there becomes a request parameter, which is what ADR-0024 forbids.
+        driven = s.scalars(
+            sa.select(SeedTerm.geo).where(SeedTerm.source.in_(("wikipedia", "trends")))
+        )
+        assert all(g == "" for g in driven)
+        # Keyword Planner carries one, and it is a join key rather than a request:
+        # its collector never reads seed_terms at all.
+        kp = set(s.scalars(sa.select(SeedTerm.geo).where(SeedTerm.source == "keyword_planner")))
+        assert kp == {"US"}
 
 
 def test_search_budget_counts_both_sort_orders():
