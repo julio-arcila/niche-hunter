@@ -603,3 +603,91 @@ divergence from it. Measured: **57–67% of every niche's supply sits outside th
 market its seed claims**, while demand is read off English Wikipedia. The gap could
 not see that; the metric reports it beside the gap rather than being folded into
 it, because combining them would invent an exchange rate.
+
+## ADR-0025 — Wayback dropped; the leakage rule is `observed_date`, per table
+2026-08-27. Accepted. Two corrections to instructions that would have sent the next
+reader down a path returning no rows.
+
+**The Wayback CDX collector and `historical_channel_weeks` are dropped.** The
+roadmap listed both as Slice 6 deliverables: crawl `archive.org` for historical
+subscriber counts of *our* channels. YouNiverse supplies weekly subscriber history
+for its own 136,470 channels directly, which is what the backtest needs; Wayback
+would cover the ~900 channels this pipeline has collected, which is a different and
+much smaller question that nothing currently asks. Recorded here rather than
+silently deleted, so a future slice that does ask it can find the reasoning.
+
+**The leakage rule is `observed_date <= day`, applied per table — never `at < day`.**
+ROADMAP Slice 6 said "compute features from rows whose `at` precedes it". Measured
+on `demand_snapshots` for a 2024-06-01 decision date:
+
+```
+observed_date <= 2024-06-01  ->  31,971 rows
+at            <  2024-06-01  ->        0 rows
+```
+
+Wikipedia was backfilled, so three years of `observed_date` sit behind four hours of
+`at`. ADR-0015 already established that `observed_date` carries two meanings ("the
+day we looked", "the day the value describes"); either reading is the day the *value*
+belongs to, which is what a decision date must filter on. `at` is provenance — when
+the row was written — and a backfill legitimately writes old readings today. Using it
+as a time filter conflates "when we learned it" with "when it was true", and here it
+would have produced an empty backtest that looked like a null result.
+
+## ADR-0026 — The backtest reuses the production feature layer
+2026-08-27. Accepted. The alternative was a separate replay computation path, which
+would have been faster to write and would have invalidated the gate: backtesting
+code that is not the product tells you nothing about the product. So the leaks got
+fixed rather than worked around, and that audit is Slice 6's first deliverable.
+
+An audit of every function in `nh/features/` and `nh/scoring/` found time-series
+reads correctly bounded on `observed_date <= day` and **mutable entity reads not
+bounded at all** — 9 of 16 registered metrics. Two were verified against the live
+database: `on_niche_share` accepted `day` and never referenced it, and
+`geo_concentration` used it only to write `detail["as_of"]`, so a 2019 row *looked*
+replayed and was not, which is the most dangerous shape a leak can take.
+`uploads_per_week` was worse in a different way: at 2019 it returned **0.0 with
+confidence 0.871**, because its `known` denominator counted all 197 present-day
+channels. A confident zero is data rule 9 in the metric most likely to be believed.
+
+**No schema change was needed**, because relevance is a pure function of
+`(title, description, lexicon_version)` and therefore time-invariant: membership as
+of a past day is membership now, restricted to items that existed then. That is
+ADR-0018's argument for not building a `cluster_member_days` table, and it holds.
+So the fix is a `first_seen` / `published_at` bound on the join, not a history table.
+
+`tests/test_features_leakage.py` covers all registered metrics in three differential
+forms, and was confirmed to fail against the pre-fix code. `compute(metrics=...)` and
+`build(supply_from=...)` are parameters so the backtest runs a reduced set without
+forking the loop. `nh/backtest/replay.py` must never call `run_phases` — clustering
+mutates and commits, and `retire_empty` would stamp `retired_on = 2019-01-01` onto
+live clusters; a test asserts the module does not import `nh.jobs`.
+
+Two consequences that are limitations rather than fixes. **Attribute leakage is the
+residue and cannot be closed by a WHERE clause:** `videos.description`,
+`videos.is_short`, `midroll_eligible` and `channels.country` are 2026 backfill facts,
+so a 2019 replay of *our* corpus scores text we did not hold then. This does not
+affect the YouNiverse backtest, whose descriptions come from its own 2019 crawl, and
+that asymmetry goes in the report. And the **backtest lexicons are a separate family
+of 36** (`nh/backtest/niches.py`), not additions to the live five: `lexicon.weights()`
+weighs a term by `1/k` over the lexicons in its *family*, so adding niches to the live
+set would silently rescore every production membership.
+
+## ADR-0027 — YouNiverse weekly rows land on a week-ending `observed_date`
+2026-08-27. Accepted. ADR-0015 defined two readings of `observed_date`: "the day we
+looked" and "the day the value describes". A YouNiverse row describes **a week** —
+this is the third reading, and it is recorded rather than left implicit because
+`_window`'s `(lo, hi]` arithmetic downstream assumes daily readings.
+
+The value lands on the week's final day and the reader names the field `week_ending`,
+so no caller can mistake it for a daily observation. Two consequences follow and both
+are deliberate: a 28-day window holds 4 points rather than 28, which `inputs_n` and
+`confidence` report honestly; and a metric asking for "the value at `t`" gets the
+week containing or preceding `t`, never a later one.
+
+The same file forced a second decision. YouNiverse stores counts as **floats** —
+`650.2222222222222` subscribers, `202494.5555555556` views — because it smooths across
+its crawl cadence. `parse.as_int` refuses those, correctly: it exists to stop an API
+returning "3.7" where an integer was promised. Reusing it here turned every numeric
+column of an 18.9M-row file into NULL with no error anywhere, and the backtest would
+have reported "no data" rather than "bug". `youniverse._count` parses and rounds at
+the one place that knows the values are smoothed; `as_int` is unchanged.
