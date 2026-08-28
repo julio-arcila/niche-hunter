@@ -1026,6 +1026,112 @@ TERMS: tuple[dict[str, Any], ...] = (
         "term": "murder trial",
         "notes": "provisional — untested",
     },
+    # --- keyword planner: the second vocabulary source ------------------------
+    #
+    # These are the 30 keywords of the 2026-08-28 US export, mapped back to the
+    # niche each came from. They exist for two jobs. First, they are what
+    # `keyword_metrics` joins against, so without them `nh kp ingest` reports
+    # `matched a seed term: 0/30` and no money or demand metric can compute.
+    # Second, they are the second vocabulary source ADR-0018 said sub-niche
+    # clustering needed — "cluster YouTube titles alone and you have built a topic
+    # model, not a demand-supply bridge".
+    #
+    # Every term is exactly what Google returned, not what was pasted in. Measured
+    # 2026-08-28: 29 of 30 round-tripped byte-identically, and the exception is
+    # `trial law`, which is `Trial_(law)` with the parentheses removed because the
+    # Keyword Planner UI rejects them. Google's close-variant matching can reshape
+    # a keyword between export and export, so a future export may not match by
+    # exact string; the join normalises rather than relying on equality, and
+    # unmatched keywords are stored anyway and reported by the ingest command.
+    #
+    # `stratum` is left to default: these are topic-level vocabulary, not the
+    # named-event sample the wikipedia event stratum carries.
+    {"slug": "aviation-disasters", "source": "keyword_planner", "term": "air crash analysis"},
+    {"slug": "aviation-disasters", "source": "keyword_planner", "term": "air traffic control"},
+    {
+        "slug": "aviation-disasters",
+        "source": "keyword_planner",
+        "term": "aviation accidents and incidents",
+    },
+    {
+        "slug": "aviation-disasters",
+        "source": "keyword_planner",
+        "term": "aviation disasters documentary",
+    },
+    {"slug": "aviation-disasters", "source": "keyword_planner", "term": "aviation safety"},
+    {
+        "slug": "aviation-disasters",
+        "source": "keyword_planner",
+        "term": "plane crash investigation",
+    },
+    {"slug": "corporate-collapse", "source": "keyword_planner", "term": "accounting scandals"},
+    {"slug": "corporate-collapse", "source": "keyword_planner", "term": "bankruptcy"},
+    {
+        "slug": "corporate-collapse",
+        "source": "keyword_planner",
+        "term": "business failure analysis",
+    },
+    {
+        "slug": "corporate-collapse",
+        "source": "keyword_planner",
+        "term": "company collapse documentary",
+    },
+    {
+        "slug": "corporate-collapse",
+        "source": "keyword_planner",
+        "term": "corporate fraud explained",
+    },
+    {"slug": "corporate-collapse", "source": "keyword_planner", "term": "corporate scandal"},
+    {
+        "slug": "engineering-failures",
+        "source": "keyword_planner",
+        "term": "bridge collapse investigation",
+    },
+    {
+        "slug": "engineering-failures",
+        "source": "keyword_planner",
+        "term": "engineering disaster documentary",
+    },
+    {"slug": "engineering-failures", "source": "keyword_planner", "term": "engineering disasters"},
+    {
+        "slug": "engineering-failures",
+        "source": "keyword_planner",
+        "term": "list of structural failures and collapses",
+    },
+    {"slug": "engineering-failures", "source": "keyword_planner", "term": "structural failure"},
+    {
+        "slug": "engineering-failures",
+        "source": "keyword_planner",
+        "term": "structural failure analysis",
+    },
+    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "list of shipwrecks"},
+    {
+        "slug": "maritime-disasters",
+        "source": "keyword_planner",
+        "term": "maritime disaster investigation",
+    },
+    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "maritime transport"},
+    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "shipwreck"},
+    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "shipwreck documentary"},
+    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "sinking ship analysis"},
+    {
+        "slug": "true-crime-trials",
+        "source": "keyword_planner",
+        "term": "court trial testimony analysis",
+    },
+    {"slug": "true-crime-trials", "source": "keyword_planner", "term": "criminal procedure"},
+    {
+        "slug": "true-crime-trials",
+        "source": "keyword_planner",
+        "term": "criminal trial verdict explained",
+    },
+    {"slug": "true-crime-trials", "source": "keyword_planner", "term": "jury trial"},
+    {
+        "slug": "true-crime-trials",
+        "source": "keyword_planner",
+        "term": "murder trial live coverage",
+    },
+    {"slug": "true-crime-trials", "source": "keyword_planner", "term": "trial law"},
 )
 
 
