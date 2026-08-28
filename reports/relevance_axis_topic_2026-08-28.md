@@ -66,13 +66,14 @@ away: recall falls only 0.807 -> 0.736.
 1. **The precision is not comparable to the 0.62 / 0.781 figures on the disaster
    corpus.** This sample's base rate is **0.670**, inflated by stratifying toward
    high-domain-score rows; theirs was 0.286. Precision moves with base rate, so only the
-   within-corpus comparison (0.616 → 0.936, same rows, same labels) is valid.
+   within-corpus comparison (0.700 → 0.937 under v2, 0.549 → 0.866 under v4, same rows
+   and same labels each time) is valid.
 2. **Recall 0.682 means roughly a third of on-niche videos are missed.** For a tool that
    surfaces evidence for a human, that is a real cost and not obviously the right
    trade — the threshold is a product decision, not a measurement.
 3. **The negative filters are weaker than the criterion's emphasis on them suggests —
    but the first version of this claim was too strong.** Fitted on v2 they looked useless
-   (held-out precision 0.616 → 0.565 for filter-only). Under v4, whose rule actually
+   (held-out precision 0.700 baseline → 0.710 for filter-only, i.e. no real gain). Under v4, whose rule actually
    *encodes* tool tutorials, signals and comparisons as FALSE, they do real work: filter-
    only rises to 0.577 and D reaches the highest precision of any candidate at 0.901,
    winning 32/200 splits against 11/200 before. So part of the original finding was an
@@ -80,6 +81,19 @@ away: recall falls only 0.807 -> 0.736.
    survives is narrower and still worth keeping: **B beats D under both label sets**,
    because the negative markers buy precision by discarding recall (0.736 → 0.685), and
    an exposition signal already excludes most of what they catch.
+
+## Reproducing this
+
+`scripts/eval_topic_axis.py` carries the exact marker lists and the 200-split protocol.
+It was committed after the first version of this report cited figures for a list that
+existed only in a session scratchpad — a measurement whose input is not in the repo
+cannot be checked, which is what these reports are for.
+
+Two numbers moved when the harness was committed and re-run, and the corrected ones are
+above. The v2 baseline was quoted as 0.616; that was candidate A's precision **on the
+splits where A won**, a biased subset, since A won only 5 of 200. Scored independently
+on all 200 splits it is 0.700. The v4 figures were already computed the independent way
+and did not move. The winner and the ordering are unaffected under either protocol.
 
 ## What follows
 
