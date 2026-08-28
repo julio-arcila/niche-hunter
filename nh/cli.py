@@ -452,11 +452,16 @@ def _provenance(m) -> str:
 
 
 @app.command()
-def doctor() -> None:
+def doctor(
+    repair: bool = typer.Option(
+        False, "--repair", help="Clear leftovers from an interrupted batch migration."
+    ),
+) -> None:
     """Check that the database is reachable and the schema is present."""
     import sqlalchemy as sa
 
     from nh.db.models import Base
+    from nh.db.repair import drop_batch_leftover, find_batch_leftovers
     from nh.db.session import get_engine
 
     settings = get_settings()
@@ -472,6 +477,19 @@ def doctor() -> None:
         typer.echo(f"missing      : {', '.join(missing)}")
         typer.echo("run: uv run alembic upgrade head")
         raise typer.Exit(1)
+
+    # An interrupted batch migration leaves `_alembic_tmp_*` behind. Everything
+    # keeps working until the next schema change to that table, which then fails
+    # with "already exists" — so it is worth saying out loud while it is harmless.
+    if leftovers := find_batch_leftovers(engine):
+        typer.secho(f"batch leftovers : {', '.join(leftovers)}", fg=typer.colors.YELLOW)
+        if not repair:
+            typer.echo("  these will break the next batch migration on those tables")
+            typer.echo("  run: uv run nh doctor --repair")
+            raise typer.Exit(1)
+        for name in leftovers:
+            held = drop_batch_leftover(name, engine)
+            typer.echo(f"  dropped {name} ({held} row(s))")
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -40,10 +40,37 @@ interleaved across niches in randomised order, and the criterion was fixed in
 advance. Mitigation that does not: the question "is this about the niche" cannot be
 asked with the niche hidden, so the labelling was never blind to *that*.
 
-**Outstanding: an independent spot-check of 50 rows**, to be labelled by the
-operator without seeing these labels. The agreement rate on those 50 is what will
-make — or break — the 0.781 figure. Until it exists, treat every number here as
-provisional.
+**Spot-check, done — and read what it says carefully.** 50 rows were re-labelled
+by a *different model* (claude-sonnet-5), given the criterion and the rows, with
+these labels withheld and no access to this report.
+
+| | |
+|---|---|
+| n | 48 (2 left null as undecidable) |
+| raw agreement | **97.9%** (47/48) |
+| Cohen's kappa | **0.943** |
+| positive rate | 22.9% mine, 25.0% theirs |
+| disagreements | 1 |
+
+The single disagreement is a real edge case, not a systematic difference: the 1904
+General Slocum steamboat fire, filed under engineering-failures. I judged it a
+maritime disaster and therefore off-niche for that seed; the other labeller judged
+it on-niche because the video is centred on the equipment failures that caused it.
+Both readings are defensible under the criterion.
+
+**What this establishes:** the criterion is unambiguous enough that two labellers
+applying it independently reach near-identical conclusions. That rules out a real
+failure mode — that the labels encoded idiosyncratic or arbitrary judgements — and
+it is why the 0.781 is not withdrawn.
+
+**What it does not establish, and this still stands:** both labellers are language
+models. Agreement between them cannot detect a bias they share, and similar
+training makes shared bias likely rather than unlikely. A human might disagree
+with both of us in the same direction, and this number would not notice. So the
+caveat has changed shape rather than gone: the labels are *consistent* and
+*criterion-driven*, and they are still not independently *validated*. A human pass
+over the same 50 rows remains the check that would settle it, and Gate E's own
+outcome is the other.
 
 ## Threshold discipline
 

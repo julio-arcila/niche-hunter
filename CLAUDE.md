@@ -79,8 +79,10 @@ reviewer. Summarize exploration briefly.
   markers, geometric mean. Calibrated on 298 hand labels, held-out **precision
   0.781, recall 0.694, base rate 28.6%**. That is below the 0.90 the plan asked
   for; it ships because no filter is precision 0.286. reports/relevance_2026-08-27.md.
-  **Outstanding: an independent 50-row spot-check** — the labeller was the same
-  system that wrote the lexicon.
+  Spot-checked: a different model re-labelled 50 rows blind, kappa **0.943**,
+  47/48. That shows the criterion is unambiguous, NOT that the labels are right —
+  two language models can share a bias neither can see. A human pass is still the
+  check that would settle it.
 - `videos.description` rescued from `raw_records` before the prune took it
   (13,855 rows, 93.0% coverage). `nh prune` now refuses to delete the last copy
   of a description (ADR-0017).
