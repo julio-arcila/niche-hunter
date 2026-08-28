@@ -469,6 +469,53 @@ why the `seed_terms.geo == ""` rule is now scoped to request-driving sources.
 (the twelve monthly columns are 0/360, entirely empty) and `tier1_cpc_ratio` (needs ≥2
 geos); any FX conversion; anything ranked — ADR-0029's prohibition stands.
 
+### Slice 11 — The eleven-domain pivot · size L · **PLANNED, not started**
+
+*Recorded 2026-08-28. The operator's intended niche set, replacing the five live
+disaster/true-crime niches. Not yet in `nh/seeds.py`, deliberately — see the cost below.*
+
+| Domain | Subreddits (verified to exist, 2026-08-28) |
+|---|---|
+| Philosophy of science | r/PhilosophyofScience, r/philosophy, r/epistemology, r/askphilosophy |
+| Esoterism & spirituality | r/occult, r/EsotericOccult, r/mysticism, r/esotericart |
+| Metaphysical battles (clashes between worldviews) | r/Metaphysics, r/PhilosophyofMind, r/PhilosophyofReligion |
+| Logic, linguistics, gnoseology | r/linguistics, r/epistemology, r/askphilosophy |
+| History of ideas | r/HistoryofIdeas, r/philosophy |
+| Anthropocene / anthropology | r/Anthropology, r/AskAnthropology, r/CulturalAnthro |
+| Macro economy | r/Economics, r/economy, r/EmergingMarket |
+| Trading | r/Daytrading, r/algotrading, r/optionstrading, r/FuturesTrading |
+| AI & software | r/MachineLearning, r/artificial, r/agi, r/learnmachinelearning |
+| Biohacking | r/Biohackers, r/Biohacking, r/LongevityBiohacking |
+| Geopolitics | r/geopolitics, r/ProfessorGeopolitics, r/GeopoliticsIndia |
+
+`r/logic` does not exist; r/askphilosophy and r/linguistics are the substitutes.
+"Metaphysical battles" has no direct community, which is itself a reachability signal.
+
+**Why this is a slice and not a seed edit.** Three costs, none of them optional:
+
+1. **Seeds without lexicons are inert.** ADR-0028 established it: the court-cases
+   successors have seeds and demand terms but no lexicon, so they can never gain
+   members and stay retired. Eleven seeds means eleven lexicons.
+2. **Lexicons re-weight their whole family.** `lexicon.weights()` scores a term `1/k`
+   across the family; its own docstring measures `crash` going 1.00 → 0.032 when 30
+   niches were added. Adding eleven dilutes the live five, moves every stored
+   `supply.*` number, and needs a `LEXICON_VERSION` bump plus an ADR saying
+   pre-pivot relevance scores are not comparable to post-pivot ones.
+3. **Nine test files** reference the current slugs, including `test_lexicon_families.py`,
+   which pins golden weights precisely so this cannot happen silently.
+
+**A design risk to measure first, not discover later.** Five of the eleven are
+philosophy-adjacent and share vocabulary heavily. Under `1/k`, their discriminating
+terms are exactly the ones that dilute — the `crash` failure again, but structural
+rather than incidental. Before writing eleven lexicons, compute `weights()` over a
+draft family and check whether the philosophy cluster still separates. If it does not,
+the fix is the niche boundaries, not the lexicon.
+
+**Quota is not the constraint:** 11 niches x 3 keywords x 2 sort orders x 100 =
+6,600 units, inside the 9,500 budget. But 11 active *plus* the current 5 would be
+9,600 and would break it, so the pivot must retire the five rather than add alongside.
+
+
 ### Slice 10 — Trends seed expansion · size S–M · **PLANNED, not started**
 
 *Recorded 2026-08-28 on ADR-0032, which reversed the "technical wall" premise ADR-0029
