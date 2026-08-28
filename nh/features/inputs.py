@@ -58,6 +58,27 @@ def _midnight(day: date) -> datetime:
     return datetime.combine(day, time.min, tzinfo=UTC)
 
 
+def window_start(day: date, window_days: int) -> datetime:
+    """Midnight at the first civil day of a `window_days`-long window ending on `day`.
+
+    `day - window_days` is the off-by-one this exists to prevent: paired with a
+    `time.max` upper bound it spans `window_days + 1` civil days, because both
+    endpoints are then whole days. Measured on the live corpus 2026-08-28 —
+    `uploads_per_week` counted 69 and 80 videos for corporate-collapse and
+    court-cases where the documented 28-day window gives 67 and 76, inflating every
+    published "per week" figure by ~3.6% while dividing by 4.0 weeks.
+
+    Use with `>= window_start(...)` and `<= _day_end(...)`: inclusive at both ends,
+    exactly `window_days` civil days.
+    """
+    return _midnight(day - timedelta(days=window_days - 1))
+
+
+def _day_end(day: date) -> datetime:
+    """The last instant of `day`, so a same-day publish is inside the window."""
+    return datetime.combine(day, time.max, tzinfo=UTC)
+
+
 def _until(day: date) -> datetime:
     """The exclusive upper bound for "on or before `day`".
 

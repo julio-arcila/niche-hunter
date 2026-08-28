@@ -7,13 +7,19 @@ and because, once durations exist, it costs one query.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from nh.db.models import Channel, ClusterMember, Video
-from nh.features.inputs import member_join, on_niche_join, relevance_coverage
+from nh.features.inputs import (
+    _day_end,
+    member_join,
+    on_niche_join,
+    relevance_coverage,
+    window_start,
+)
 from nh.features.types import FeatureResult
 
 GROUP = "money"
@@ -37,8 +43,8 @@ def midroll_eligible_share(session: Session, cluster_id: str, day: date) -> Feat
     runs, 91% of videos have no duration, and treating those as "no mid-roll" would
     report a confident near-zero for every niche.
     """
-    since = datetime.combine(day - timedelta(days=WINDOW_DAYS), time.min, tzinfo=UTC)
-    until = datetime.combine(day, time.max, tzinfo=UTC)
+    since = window_start(day, WINDOW_DAYS)
+    until = _day_end(day)
     known, eligible = session.execute(
         sa.select(
             sa.func.count(Video.video_id),
@@ -49,7 +55,7 @@ def midroll_eligible_share(session: Session, cluster_id: str, day: date) -> Feat
         .where(
             Video.midroll_eligible.is_not(None),
             Video.published_at.is_not(None),
-            Video.published_at > since,
+            Video.published_at >= since,
             Video.published_at <= until,
             # Both numerator and denominator restrict to on-niche: the question is
             # what share of THIS NICHE's supply can carry a midroll, and a channel's

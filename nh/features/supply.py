@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import statistics
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -22,12 +22,14 @@ from nh.features.inputs import (
     AGE_FLOOR_DAYS,
     FEED_DEPTH,
     RELEVANCE_HIGH,
+    _day_end,
     _until,
     eligible_niche_videos,
     member_channels,
     member_join,
     on_niche_join,
     relevance_coverage,
+    window_start,
 )
 from nh.features.types import FeatureResult
 
@@ -89,8 +91,8 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
     if not channels:
         return FeatureResult.empty(GROUP, "uploads_per_week", "cluster has no member channels")
 
-    since = datetime.combine(day - timedelta(days=WINDOW_DAYS), time.min, tzinfo=UTC)
-    until = datetime.combine(day, time.max, tzinfo=UTC)
+    since = window_start(day, WINDOW_DAYS)
+    until = _day_end(day)
     uploads, covered = session.execute(
         sa.select(
             sa.func.count(Video.video_id),
@@ -101,7 +103,7 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
         .where(
             Video.is_short.is_(False),
             Video.published_at.is_not(None),
-            Video.published_at > since,
+            Video.published_at >= since,
             Video.published_at <= until,
             # EXISTS rather than a second join: `cluster_members` is already joined
             # once for channel membership, and an alias here would read as though
