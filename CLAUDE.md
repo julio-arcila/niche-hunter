@@ -6,7 +6,7 @@ asset is snapshot history; never break the collectors.
 
 ## Read first
 - docs/ROADMAP.md — the slices, the gates, and what ships next
-- docs/RUNBOOK.md — cron, alerting, the drills, day-1 procedure
+- docs/RUNBOOK.md — cron, alerting, the drills, day-1 procedure, known defects
 - docs/ARCHITECTURE.md — layers: collectors → raw → normalized → clusters → features → scorecard → views
 - docs/SOURCES.md — every source's auth, quota, fields, caveats (update when you learn something)
 - docs/METRICS.md — every metric's formula, inputs, join key, confidence (define BEFORE implementing)

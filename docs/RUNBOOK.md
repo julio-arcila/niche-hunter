@@ -298,7 +298,7 @@ rather than computed.
 ### Running it unattended
 
 Steps 3–5 are one chain with two long waits in it, so it is worth driving rather than
-babysitting. `scratchpad/gate_e.sh` (2026-08-28) waits for the download, verifies it,
+babysitting. `scripts/gate_e.sh` (2026-08-28) waits for the download, verifies it,
 then runs scan → load → replay → score, and **aborts the chain on any failure**: a
 backtest built on a truncated corpus or a half-loaded database still produces a
 number, and a number is worse than nothing here because it will be believed.
@@ -319,7 +319,7 @@ Three things in it are worth keeping in any re-run:
 Check on it:
 
 ```bash
-tail -f scratchpad/gate_e.log            # the driver's own progress
+tail -f scratchpad/gate_e.log            # the driver's own progress (log path)
 tail -5 scratchpad/gate_e_scan.log       # or _load / _replay / _score
 pgrep -f gate_e.sh || echo "driver finished or died"
 ```
@@ -352,3 +352,67 @@ later slice with a fresh validation window. It is **not** this gate's verdict, a
   without it — but the two strata invert the demand ranking end to end (ADR-0022), and
   the stratum comparison is a pre-registered secondary that stays uncomputed until
   this lands.
+
+
+## Known defects
+
+Real, reproduced, and unfixed. Distinct from `nh deferrals`, which lists work *blocked
+on a trigger* — everything here is unblocked and simply not done. Ordered by what would
+mislead someone soonest.
+
+### A test's verdict depends on live collection state
+
+`tests/test_deferrals.py::test_no_deferral_is_silently_unblocked_today` evaluates
+`fires()`, and `fires()` with `kind="query"` runs against **the live database** when no
+engine is passed. Reproduced 2026-08-28: the nightly fired mid-suite, added 1,317 RSS
+videos whose format is unknown until enrichment, moved `is_short` coverage from 0.7685
+to 0.7209, and flipped `supply.format_mix` — a red suite from collection, not from code.
+It passed again minutes later.
+
+This is nondeterministic by construction and will recur whenever the suite overlaps a
+nightly. It also violates the spirit of the no-network rule: the test reads mutable
+outside state that no fixture controls. The fix is to give the test a seeded fixture
+database and assert against known counts, keeping a *separate* operator check —
+`nh deferrals` already is one — for the live question.
+
+### `relevance_labels` cannot hold an inter-rater study
+
+`relevance_labels.video_id` carries a UNIQUE constraint, so the table stores exactly one
+label per video. The project's own documented top risk is single-labeller bias, and the
+`labeller` column exists to distinguish raters — but the key makes a second rater
+impossible. Hit on 2026-08-28 trying to store a cross-family pass; the insert was
+refused and the labels live in `reports/spotcheck_50_fable.jsonl` instead. Fix: an
+Alembic migration moving the unique key to `(video_id, labeller)`.
+
+### Snapshots are append-only against the ORM only
+
+A Core-level `session.execute(sa.update(VideoSnapshot)...)` bypasses the `before_flush`
+listener and mutates a snapshot silently. Confirmed by probe 2026-08-28; ADR-0010
+predicts it for the retention prune's own mechanism. The guarantee is therefore against
+*ORM misuse*, not against all writes, and any future Core write path re-opens it. Fix:
+an engine-level `before_execute` listener refusing UPDATE/DELETE on `AppendOnly` tables,
+with a greppable escape hatch so an override is a visible decision.
+
+### Two backtest metrics could never compute
+
+`replay.BACKTEST_METRICS` lists `winner_age_years` and `top10_concentration`, both of
+which need `video_snapshots` — which `load.py` deliberately leaves empty, as its own
+docstring states. Both returned NULL for all 5,568 cluster-days of the Gate E run, so
+openness never entered the backtest, and roughly a fifth of the replay's compute
+produced nothing. Neither feeds `gap`, so the verdict stands. Fix: drop them from the
+list, or load a view-count source if openness is ever wanted in a replay.
+
+### `_bootstrap_ci` percentile indices are asymmetric
+
+`nh/backtest/stats.py` uses `int(tail·n) − 1` for the low bound and `int((1−tail)·n)`
+for the high one — about one rank of extra width at 10,000 draws. Cosmetic, and not a
+verdict input, but the interval is published in `reports/backtest_*.md`.
+
+### The recorded RSS fixture is not wired into the collector tests
+
+`tests/test_youtube_rss.py` runs on a hand-built `feed.xml` while a real capture
+(`feed_real.xml`) sits beside it, used only by `test_backfill.py`. The standing rule is
+that fixtures are recorded from real responses. Fix: parametrize the collector tests
+over both — the real one proves the documented shape is the served shape, the synthetic
+one keeps encoding edge cases a single feed may not exhibit. Budget for the real capture
+failing an assertion written to the synthetic shape; that failure is the finding.
