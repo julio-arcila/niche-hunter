@@ -95,39 +95,47 @@ def _stamp(run_id: str, at: datetime) -> dict[str, object]:
     return {"source": SOURCE, "run_id": run_id, "at": at}
 
 
-def _clusters(engine: Engine, selection: Selection, run_id: str, at: datetime) -> int:
-    """One seed and one cluster per surviving niche.
+def seed(engine: Engine, slugs: list[str] | None = None) -> int:
+    """Write `niche_seeds` and their Wikipedia topic terms. Returns niches seeded.
 
-    `clusters.cluster_id` is the slug itself rather than a generated id, so a row in
-    `features_daily` names its niche and the replay's output is readable without a
-    join.
+    Separated from the load so the **Wikipedia backfill can run before the scan
+    does**. The backfill is a ~1.6-hour quota-free network job and the scan is a
+    multi-hour pass over 13.6 GB; they depend on nothing of each other's, and running
+    them in sequence for no reason costs an afternoon.
+
+    Defaults to all 36 committed niches rather than the surviving ones, deliberately:
+    which niches survive selection is not known until the scan finishes, and
+    backfilling a niche that is later dropped costs nothing while missing one costs
+    another 1.6 hours.
+
+    Only the **topic** stratum. It is the pre-registered primary; the event stratum
+    needs `scripts/select_demand_articles.py` to resolve each pool against Wikidata
+    first, which is separate network work.
     """
+    refuse_live(engine)
     catalogue = by_slug()
+    chosen = sorted(slugs if slugs is not None else catalogue)
     with session_scope(engine) as session:
-        for slug in selection.kept:
-            niche = catalogue[slug]
-            upsert(
-                session,
-                NicheSeed,
-                [
-                    {
-                        "slug": slug,
-                        "label": niche["label"],
-                        "keywords": list(niche["lexicon"])[:20],
-                        "geo": niche.get("geo"),
-                        "lang": "en",
-                        "active": True,
-                        "notes": "backtest niche (YouNiverse), not a production seed",
-                    }
-                ],
-                conflict_on=["slug"],
-            )
+        upsert(
+            session,
+            NicheSeed,
+            [
+                {
+                    "slug": slug,
+                    "label": catalogue[slug]["label"],
+                    "keywords": list(catalogue[slug]["lexicon"])[:20],
+                    "geo": catalogue[slug].get("geo"),
+                    "lang": "en",
+                    "active": True,
+                    "notes": "backtest niche (YouNiverse), not a production seed",
+                }
+                for slug in chosen
+            ],
+            conflict_on=["slug"],
+        )
         seeds = dict(session.execute(sa.select(NicheSeed.slug, NicheSeed.id)).all())
-        # Demand terms, without which every demand metric returns empty and `gap`
-        # is NULL for every niche — a backtest that computes nothing while running
-        # cleanly. The topic stratum only: it is the pre-registered primary, and the
-        # event stratum needs `scripts/select_demand_articles.py` to resolve each
-        # pool against Wikidata first, which is network work and a separate commit.
+        # Without these every demand metric returns empty and `gap` is NULL for every
+        # niche — a backtest that computes nothing while running cleanly.
         upsert(
             session,
             SeedTerm,
@@ -141,11 +149,25 @@ def _clusters(engine: Engine, selection: Selection, run_id: str, at: datetime) -
                     "lang": "en",
                     "active": True,
                 }
-                for slug in selection.kept
+                for slug in chosen
                 for article in catalogue[slug]["wiki_topic"]
             ],
             conflict_on=["seed_id", "source", "term", "stratum"],
         )
+    return len(chosen)
+
+
+def _clusters(engine: Engine, selection: Selection, run_id: str, at: datetime) -> int:
+    """One cluster per surviving niche, over seeds `seed()` has already written.
+
+    `clusters.cluster_id` is the slug itself rather than a generated id, so a row in
+    `features_daily` names its niche and the replay's output is readable without a
+    join.
+    """
+    catalogue = by_slug()
+    seed(engine, selection.kept)
+    with session_scope(engine) as session:
+        seeds = dict(session.execute(sa.select(NicheSeed.slug, NicheSeed.id)).all())
         upsert(
             session,
             Cluster,

@@ -577,6 +577,27 @@ def backtest_scan(
         typer.echo(f"  dropped {slug}: {n} member channels")
 
 
+@backtest_app.command("seed")
+def backtest_seed(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
+    """Write the 36 backtest niches and their Wikipedia articles into the backtest DB.
+
+    Run this BEFORE the scan. The Wikipedia backfill that follows it is a ~1.6-hour
+    quota-free network job and the scan is a multi-hour pass over 13.6 GB; they need
+    nothing from each other, so running them in sequence costs an afternoon for no
+    reason.
+
+        NH_DATABASE_URL=sqlite:///data/backtest.db uv run alembic upgrade head
+        NH_DATABASE_URL=sqlite:///data/backtest.db uv run nh backtest seed
+        NH_DATABASE_URL=sqlite:///data/backtest.db NH_WIKI_BACKFILL_DAYS=4100 \
+            uv run nh nightly --only wikipedia
+    """
+    _setup_logging(verbose)
+    from nh.backtest.load import seed
+
+    engine = _backtest_engine()
+    typer.echo(f"seeded {seed(engine)} backtest niches with their topic articles")
+
+
 @backtest_app.command("load")
 def backtest_load(
     hits: Path = typer.Option(Path("data/backtest/hits.jsonl.gz")),
