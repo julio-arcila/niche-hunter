@@ -504,12 +504,34 @@ disaster/true-crime niches. Not yet in `nh/seeds.py`, deliberately — see the c
 3. **Nine test files** reference the current slugs, including `test_lexicon_families.py`,
    which pins golden weights precisely so this cannot happen silently.
 
-**A design risk to measure first, not discover later.** Five of the eleven are
-philosophy-adjacent and share vocabulary heavily. Under `1/k`, their discriminating
-terms are exactly the ones that dilute — the `crash` failure again, but structural
-rather than incidental. Before writing eleven lexicons, compute `weights()` over a
-draft family and check whether the philosophy cluster still separates. If it does not,
-the fix is the niche boundaries, not the lexicon.
+**The design risk was measured on 2026-08-28, and it is not real.** The concern was
+that five philosophy-adjacent domains would share vocabulary heavily, so `1/k` would
+dilute exactly the terms meant to separate them. A draft family of eleven lexicons
+(~33 terms each) was written and scored. It does not happen:
+
+| family | unique terms (weight 1.0) | mean weight | worst collision |
+|---|---|---|---|
+| live five (baseline) | min 38, median 40 | 0.975–1.000 | `collapse` = 0.500 |
+| draft eleven | min 30, median 32 | 0.956–1.000 | `consciousness` = 0.500 |
+
+The philosophy domains separate as cleanly as the disaster domains, because their
+discriminating vocabulary is *technical* — `falsifiability`, `gettier`, `hermeticism`,
+`panpsychism`, `incommensurability` — and technical terms do not collide. Only eight
+terms collide anywhere in the family, each between exactly two lexicons.
+
+**Nor does the pivot have to disturb the live five.** Scoring the combined 16-lexicon
+family moved **zero of six** golden weights, and across *every* live term only two
+moved at all: `pipeline` (engineering-failures vs geopolitics) and `evidence`
+(true-crime-trials vs philosophy-of-science). Substituting `energy pipeline` and
+`empirical evidence` in the draft makes coexistence **exactly lossless** — measured, 0
+live weights move. So the eleven lexicons can be added without a `LEXICON_VERSION`
+break and without invalidating a single stored `supply.*` number.
+
+That removes the largest cost this slice was thought to carry. What remains is real but
+ordinary: eleven lexicons and eleven seeds to write, wikipedia demand terms per niche
+(article titles must be verified to exist, or the collector 404s), and the golden test
+plus eight other test files to update. The draft family lives in the session scratchpad
+and should be re-derived rather than trusted, since it was never committed.
 
 **Quota is not the constraint:** 11 niches x 3 keywords x 2 sort orders x 100 =
 6,600 units, inside the 9,500 budget. But 11 active *plus* the current 5 would be
