@@ -41,7 +41,15 @@ from sqlalchemy.engine import Engine
 from nh.backtest.niches import by_slug
 from nh.backtest.select import Selection
 from nh.backtest.youniverse import CRAWL_DATE, channels, weeks
-from nh.db.models import Channel, ChannelSnapshot, Cluster, ClusterMember, NicheSeed, Video
+from nh.db.models import (
+    Channel,
+    ChannelSnapshot,
+    Cluster,
+    ClusterMember,
+    NicheSeed,
+    SeedTerm,
+    Video,
+)
 from nh.db.session import session_scope
 from nh.db.upsert import insert_ignore, upsert
 
@@ -115,6 +123,29 @@ def _clusters(engine: Engine, selection: Selection, run_id: str, at: datetime) -
                 conflict_on=["slug"],
             )
         seeds = dict(session.execute(sa.select(NicheSeed.slug, NicheSeed.id)).all())
+        # Demand terms, without which every demand metric returns empty and `gap`
+        # is NULL for every niche — a backtest that computes nothing while running
+        # cleanly. The topic stratum only: it is the pre-registered primary, and the
+        # event stratum needs `scripts/select_demand_articles.py` to resolve each
+        # pool against Wikidata first, which is network work and a separate commit.
+        upsert(
+            session,
+            SeedTerm,
+            [
+                {
+                    "seed_id": seeds[slug],
+                    "source": "wikipedia",
+                    "term": article,
+                    "geo": "",
+                    "stratum": "topic",
+                    "lang": "en",
+                    "active": True,
+                }
+                for slug in selection.kept
+                for article in catalogue[slug]["wiki_topic"]
+            ],
+            conflict_on=["seed_id", "source", "term", "stratum"],
+        )
         upsert(
             session,
             Cluster,

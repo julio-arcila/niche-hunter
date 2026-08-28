@@ -317,3 +317,28 @@ def test_a_saved_selection_is_diffable(tmp_path):
     assert text.index('"a"') < text.index('"b"')
     assert text.index('"UCa"') < text.index('"UCz"')
     assert "\n" in text
+
+
+def test_demand_terms_are_written_or_the_gap_is_null_for_every_niche(backtest_engine, tmp_path):
+    """The failure this catches runs cleanly and computes nothing: every demand
+    metric reads `seed_terms`, so without them `gap` is NULL for all 36 niches and
+    the backtest correlates an empty column against an outcome."""
+    from nh.backtest.niches import by_slug
+    from nh.db.models import SeedTerm
+
+    _load(backtest_engine, tmp_path)
+
+    with session_scope(backtest_engine) as session:
+        terms = sorted(session.scalars(sa.select(SeedTerm.term).where(SeedTerm.stratum == "topic")))
+    assert terms == sorted(by_slug()[SLUG]["wiki_topic"])
+
+
+def test_demand_terms_join_back_to_their_cluster(backtest_engine, tmp_path):
+    """`inputs.demand_terms` joins through `clusters.seed_id`, so a seed written
+    without that link is invisible to every demand metric."""
+    from nh.features.inputs import demand_terms
+
+    _load(backtest_engine, tmp_path)
+
+    with session_scope(backtest_engine) as session:
+        assert demand_terms(session, SLUG, "wikipedia", "topic")
