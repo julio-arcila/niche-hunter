@@ -69,18 +69,25 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
-- Phase: Slice 6 in flight — the calibration instrument is built and green, the
-  Gate E verdict is not in. Branch `slice-6-calibration`.
-- `nh/backtest/`: 36 niches in 6 families (committed before the data landed), an
-  exact prefilter, YouNiverse readers, loader, `outcome.growth_180d`, the replay,
-  the statistics and the report writer. CLI: `nh backtest seed|scan|load|replay|score`.
-- The primary result, verdict rule and permutation scheme are pre-registered in
-  `reports/backtest_preregistration_2026-08-27.md`, with an amendment log.
-- 625 tests, zero network. The whole feature layer is day-*bounded* now, not just
-  day-parameterised; `tests/test_features_leakage.py` is the standing guard.
-- Blocking, and both are operator time not design: `yt_metadata_en.jsonl.gz` is
-  still downloading (~8 of 13.64 GB), and the scan cannot run until it lands. The
-  Wikipedia backfill for the 36 backtest niches runs against `data/backtest.db`
-  independently and does not wait for it.
+- Phase: **Gate E returned FAIL on 2026-08-28** — rho 0.091, permutation p 0.4988,
+  29 of 36 niches, detectable rho 0.378. A null, not an underpowered run. Branch
+  `slice-6-calibration`. `reports/backtest_2026-08-28.md` carries the verdict and a
+  hand-written failure analysis.
+- The instrument was checked before the null was accepted: `gap` is not flat (sd
+  0.402), the outcome is not flat (within-date sd 0.079, 6.5x range), and nothing
+  hides under niche size (rho -0.019). Demand alone +0.049, supply alone -0.073 —
+  neither input carries signal, so the failure is not in how they are combined.
+- **Do not build the dashboard.** Of the roadmap's two pre-committed branches, the
+  evidence points to narrowing the claim to "surfaces evidence for a human to judge":
+  zero of 4,517 niche-dates show negative growth, so the corpus tested relative growth
+  among channels that had already succeeded and cannot express emergence at all.
+- Known defect from this run: `winner_age_years` and `top10_concentration` were in
+  `replay.BACKTEST_METRICS` but `video_snapshots` is empty in `data/backtest.db` by
+  design, so both were 100% NULL and openness never entered the backtest.
+- Outstanding from the 2026-08-28 audit (`reports/relevance_interrater_2026-08-28.md`,
+  fix plan in the session artifact): the human relevance check — sample from ABOVE the
+  0.55 threshold, 60-100 rows, not the uniform 50; `uploads_per_week`'s 29-day window
+  and its spec-divergent confidence; the court-cases successors, which have seeds and
+  demand terms but **no lexicon**, so they can never gain members and will stay retired.
 - Never point a backtest command at the live corpus. `load.refuse_live` requires
   "backtest" in the database URL; `NH_DATABASE_URL=sqlite:///data/backtest.db`.
