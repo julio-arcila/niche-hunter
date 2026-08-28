@@ -16,6 +16,7 @@ from nh.db.models import (
     Cluster,
     ClusterMember,
     Discovery,
+    NicheSeed,
     Video,
     VideoSnapshot,
 )
@@ -45,9 +46,30 @@ def _video_member(cluster_id: str, video_id: str, relevant: bool | None) -> Clus
     )
 
 
-def make_cluster(engine, cluster_id: str = CLUSTER) -> None:
+def make_cluster(engine, cluster_id: str = CLUSTER, *, seed_id: int | None = None) -> None:
+    """A cluster, and by default the seed behind it.
+
+    The seed matters: `supply.geo_concentration` returns `empty()` when the seed
+    states no geo, so a fixture without one lets that metric pass every leakage
+    test vacuously — which is how a day-blind metric shipped in the first place.
+    """
     with session_scope(engine) as s:
-        s.add(Cluster(cluster_id=cluster_id, label="Aviation", source="clustering", run_id=RUN))
+        if seed_id is None:
+            seed_id = 1
+            if s.get(NicheSeed, seed_id) is None:
+                s.add(
+                    NicheSeed(id=seed_id, slug=cluster_id, label="Aviation", keywords=[], geo="US")
+                )
+                s.flush()
+        s.add(
+            Cluster(
+                cluster_id=cluster_id,
+                seed_id=seed_id,
+                label="Aviation",
+                source="clustering",
+                run_id=RUN,
+            )
+        )
 
 
 def add_channel(

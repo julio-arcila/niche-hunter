@@ -45,3 +45,17 @@ def engine(settings: Settings) -> Iterator[Engine]:
     Base.metadata.create_all(eng)
     yield eng
     eng.dispose()
+
+
+@pytest.fixture
+def engine_b(tmp_path) -> Iterator[Engine]:
+    """A second, independent database.
+
+    For differential tests: build the same world twice, differing in one thing, and
+    assert a metric answers identically. One engine cannot do that — the difference
+    has to be a difference between databases, not a mutation of one.
+    """
+    eng = make_engine(Settings(database_url=f"sqlite:///{tmp_path / 'test_b.db'}"))
+    Base.metadata.create_all(eng)
+    yield eng
+    eng.dispose()
