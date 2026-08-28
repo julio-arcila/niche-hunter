@@ -381,9 +381,44 @@ def event_weights() -> dict[str, float]:
     return dict.fromkeys(EVENT, 1.0)
 
 
-def weights() -> dict[str, dict[str, float]]:
-    """`cluster_id -> {term: weight}`. Pure, and derived only from this file."""
-    lexicons = {slug: set(terms) | set(_COMMON) for slug, terms in LEXICONS.items()}
+def weights(
+    lexicons: dict[str, tuple[str, ...]] | None = None,
+    common: tuple[str, ...] | None = None,
+) -> dict[str, dict[str, float]]:
+    """`cluster_id -> {term: weight}`, computed WITHIN one family of lexicons.
+
+    A term's weight is `1/k` where k counts how many lexicons in the family contain
+    it, and 0 when every one does. That arithmetic is why the family is a parameter
+    rather than a global read of `LEXICONS`.
+
+    **Adding lexicons to the family silently re-weights the existing ones.** Slice 6
+    needs ~30 backtest niches, and putting them in `LEXICONS` would have done this,
+    measured:
+
+        term     five lexicons    with 30 more
+        crash    1.00             0.032
+        runway   1.00             1.00
+
+    `crash` is a core aviation term; dividing its weight by 31 guts that niche's
+    relevance scores. Every live `supply.*` number would move, and `LEXICON_VERSION`
+    would not necessarily be bumped, because nobody edited a live lexicon. Note it
+    is the shared DOMAIN terms that dilute — `_COMMON` stays at 0.0, because
+    `weights()` unions it into every lexicon so `shared[term] == total` still holds.
+
+    So backtest families pass their own dict and never touch the live one.
+    """
+    lexicons = LEXICONS if lexicons is None else lexicons
+    common = _COMMON if common is None else common
+    if len(lexicons) < 2:
+        # Every term would be in every lexicon, so `shared == total` for all of
+        # them and the whole family scores 0.0 — the domain axis collapses and
+        # every relevance score becomes 0, silently. There is nothing for a
+        # discriminative weight to discriminate against with one lexicon.
+        raise ValueError(
+            f"a lexicon family needs at least two members to weigh terms against "
+            f"each other; got {len(lexicons)}"
+        )
+    lexicons = {slug: set(terms) | set(common) for slug, terms in lexicons.items()}
     total = len(lexicons)
     shared: dict[str, int] = {}
     for terms in lexicons.values():
