@@ -53,7 +53,10 @@ DEFERRALS: tuple[Deferral, ...] = (
             "bias two language models share. A cross-FAMILY pass (fable-5, blind) "
             "on 2026-08-28 held precision at 0.875 and agreed at kappa 0.883 — so "
             "the figure is not visibly a same-family artifact — but it is still a "
-            "model judging a model and does NOT discharge this deferral"
+            "model judging a model and does NOT discharge this deferral. ADR-0028 "
+            "added `true-crime-trials` to the family on 2026-08-28 with NO measured "
+            "precision at all — 0.781 belongs to the old five — so its rows must be "
+            "part of whatever sample is drawn"
         ),
         kind="manual",
         trigger=(
