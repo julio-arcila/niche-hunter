@@ -48,13 +48,24 @@ Inputs       : videos(published_at, is_short, channel_id); cluster_members
                (item_type='channel'); window (day-28d, day].
 Join key     : cluster_id, via videos.channel_id -> cluster_members.item_id, AND
                videos.video_id -> cluster_members(item_type='video').relevance
-Confidence   : min(known_n / 30, 1) * (publishing_n / member_n) -- sample adequacy
-               TIMES coverage. Adequacy alone saturates: 74 contributing channels
-               of 197 scores 1.00 while the metric sees 38% of the niche, and
-               those 74 are the enriched, discovery-biased ones. Coverage alone
-               would under-report a small but fully observed cluster. Measured
-               live: adequacy-only gave 1.00 for every niche; the product gives
-               0.38 for aviation-disasters, which is the true picture.
+Confidence   : min(known_n / 30, 1) * (known_n / member_n) * relevance_coverage
+               -- sample adequacy TIMES coverage TIMES how much of the niche could
+               be scored at all. Adequacy alone saturates: 74 contributing channels
+               of 197 scores 1.00 while the metric sees 38% of the niche, and those
+               74 are the enriched, discovery-biased ones. Coverage alone would
+               under-report a small but fully observed cluster.
+               CORRECTED 2026-08-28: this block previously specified
+               `publishing_n / member_n` -- channels that published IN THE WINDOW --
+               and claimed "the product gives 0.38 for aviation-disasters, which is
+               the true picture". The shipped code has always used `known_n`,
+               channels we can see at all, and the audit that found the divergence
+               concluded the CODE is right: a channel we observe publishing nothing
+               is a MEASUREMENT, not missing data, and dividing by publishers would
+               mark a genuinely quiet niche as unknown -- collapsing rule 7's
+               absent-is-not-zero from the other side. Measured 2026-08-28 on
+               aviation-disasters: known=197, publishing=63, members=197, so the old
+               spec computes 0.278 against the shipped 0.871. The spec was changed
+               to the code, not the reverse, and no stored value moved.
 CHANGED 2026-08-27 (Slice 4, definition "v2-on-niche"): the numerator counts only
                videos judged on-niche, and confidence gained a relevance_coverage
                leg. Values fell 15-30% for every cluster. Not comparable across

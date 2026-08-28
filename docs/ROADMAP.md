@@ -349,11 +349,50 @@ apart.
 Building a dashboard on an uncalibrated score is how this project fails while
 appearing to succeed.
 
+### Gate E FIRED, 2026-08-28 — **FAIL**
+
+```
+rho = 0.091   permutation p = 0.4988   95% CI -0.167 to 0.327
+29 of 36 niches   detectable rho at that N = 0.378
+```
+
+A **null, not an underpowered run**: 29 niches clears the pre-registered floor of 20,
+so the pre-registration's own rule says this verdict may be acted on. Full result and
+failure analysis in `reports/backtest_2026-08-28.md`.
+
+The consolations were checked before the null was accepted and none survived. `gap`
+is not flat (sd 0.402 over 4,558 scorecards, 2.6% at exactly zero). The outcome is
+not flat (median within-date sd 0.079, range 0.379; a representative date spans
+0.082–0.530 across 29 niches) — there was ample variance to rank. Nothing hides under
+size (size-vs-growth −0.019; partialling it out moves 0.091 → 0.085). And neither
+input predicts alone: demand +0.049 (p 0.73), supply −0.073 (p 0.56), so the failure
+is not in how the two are combined.
+
+**The branch taken: narrow the claim**, not return to Slice 5's feature work. The
+reason is in the data — **zero of 4,517 niche-dates show negative growth.** YouNiverse
+holds only channels that had already crossed 10k subscribers, so what was tested is
+relative growth *among successes*, and the corpus cannot express emergence at all. A
+better feature computed against it would be a better answer to the wrong question.
+Reviving the predictive claim needs a corpus containing channels that failed — a
+different instrument, not a different threshold.
+
+This does not license re-running the primary with another stratum, threshold, horizon
+or supply proxy; `reports/backtest_preregistration_2026-08-27.md` voids on exactly
+that.
+
 ---
 
-### Slice 7 — Product surface · size L
+### Slice 7 — Product surface · size L · **BLOCKED by Gate E's FAIL, and rescoped**
 
 **Goal:** three clicks from radar to a source document.
+
+**2026-08-28:** Gate E returned FAIL, so the "radar that predicts emerging niches"
+framing is retired. What survives the null is the evidence layer — the demand series,
+the cohort and channel views, the source feed, the per-metric `detail` and
+`confidence` that make a number traceable — because none of that claims to predict.
+What does not survive is any ranked "opportunity" surface presented as a forecast:
+`scorecards.opportunity`'s weights were to be a Gate E *output* and there is no
+calibration to derive them from. Rescope before building, not during.
 
 Ships:
 - FastAPI read layer (so the front end is replaceable)
