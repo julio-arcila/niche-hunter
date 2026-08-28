@@ -272,12 +272,28 @@ def test_no_active_seeds_is_a_clean_empty_run(settings, engine):
 # -- the quota is per day, not per run --------------------------------------
 
 
-def _prior_run(engine, units, hours_ago=1, source="youtube_api"):
-    from datetime import timedelta
+def _prior_run(engine, units, *, same_quota_day=True, source="youtube_api"):
+    """An earlier run, placed relative to the **quota day** rather than to now.
 
+    An earlier version wrote the row at `utcnow() - 1 hour` as a stand-in for
+    "earlier today". That is true for 23 hours a day and false for the one that
+    matters: YouTube's quota resets at midnight America/Los_Angeles, so between
+    00:00 and 01:00 Pacific a run "an hour ago" belongs to the *previous* quota day
+    and is correctly not deducted. The suite went red at 00:50 Pacific on
+    2026-08-28 — the code was right and the test was wrong, in the window where the
+    behaviour it covers is most consequential.
+
+    So the row is anchored to Pacific midnight explicitly, which is what
+    `_spent_today` computes and therefore what these tests are really about.
+    """
+    from datetime import UTC, timedelta
+
+    from nh.collectors.youtube_api import PACIFIC
     from nh.db.models import JobRun
     from nh.db.types import utcnow
 
+    midnight = utcnow().astimezone(PACIFIC).replace(hour=0, minute=0, second=0, microsecond=0)
+    started = midnight + timedelta(minutes=1) if same_quota_day else midnight - timedelta(hours=1)
     with session_scope(engine) as s:
         s.add(
             JobRun(
@@ -285,7 +301,7 @@ def _prior_run(engine, units, hours_ago=1, source="youtube_api"):
                 job="nightly",
                 source=source,
                 status="ok",
-                started_at=utcnow() - timedelta(hours=hours_ago),
+                started_at=started.astimezone(UTC),
                 quota_used=units,
             )
         )
@@ -316,7 +332,7 @@ def test_another_sources_spend_does_not_count(settings, engine):
 
 def test_spend_before_midnight_pacific_does_not_count(settings, engine):
     """The window is the Pacific quota day, not UTC and not local midnight."""
-    _prior_run(engine, 9_000, hours_ago=48)
+    _prior_run(engine, 9_000, same_quota_day=False)
     assert _collector(settings, engine).quota.budget == settings.yt_quota_budget
 
 

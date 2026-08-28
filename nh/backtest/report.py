@@ -71,6 +71,11 @@ class Findings:
     #: it. A score that ranks by size is not a finding.
     size_rho: float | None = None
     size_controlled_rho: float | None = None
+    #: Permutation p-value for the size-controlled correlation, under the same
+    #: global label-permutation null as the primary. Amended in 2026-08-28 before
+    #: any result existed: survival used to be a bare sign check, and +0.03 is not
+    #: survival. See the pre-registration's amendment log.
+    size_controlled_p: float | None = None
     failure_analysis: str = ""
 
 
@@ -108,10 +113,18 @@ def verdict(findings: Findings) -> tuple[str, str]:
             "the correlation does not survive controlling for niche size, so the "
             "scorecard ranks niches by how big they are",
         )
+    if findings.size_controlled_p is None or findings.size_controlled_p >= 0.05:
+        return (
+            "FAIL",
+            f"the size-controlled correlation is {_num(findings.size_controlled_rho)} "
+            f"but p = {_num(findings.size_controlled_p, 4)}: it is a positive residual, "
+            "not a surviving one",
+        )
     return (
         "PASS",
         f"rho = {_num(primary.rho)}, p = {_num(primary.p_value, 4)}, and "
-        f"{_num(findings.size_controlled_rho)} after controlling for size",
+        f"{_num(findings.size_controlled_rho)} (p = {_num(findings.size_controlled_p, 4)}) "
+        "after controlling for size",
     )
 
 

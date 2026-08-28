@@ -234,6 +234,78 @@ def _relabelled(
     return spearman(xs, ys)
 
 
+def evaluate_partial(
+    per_date: list[tuple[str, list[str], list[float], list[float], list[float]]],
+    *,
+    spacing_days: int = 7,
+    horizon_days: int = 180,
+    seed: int = SEED,
+    draws: int = DRAWS,
+) -> tuple[Aggregate, list[DateResult]]:
+    """The size control, tested rather than eyeballed.
+
+    `per_date` is `(date, cluster_ids, scores, outcomes, controls)`. Computes the
+    per-date partial Spearman of score against outcome with `controls` held constant,
+    aggregates across dates exactly as `evaluate` does, and tests it against the same
+    global label-permutation null.
+
+    Why a test and not a sign check: the pre-registration requires the primary to
+    "survive controlling for niche size" and defines failure as the correlation
+    *disappearing* under the control. A partial rho of +0.03 has disappeared by any
+    ordinary reading, and a bare `> 0` would pass it. Reading a residual sign as
+    survival is how a scorecard that ranks niches by how big they are gets called a
+    finding — which the roadmap names as the way this project fails while appearing
+    to succeed.
+
+    The null relabels **outcomes only**, keeping each niche's score and its size
+    together. Size is a property of the niche whose score is on trial, so it belongs
+    on the score side of the permutation; breaking that pairing would test a
+    different and weaker null.
+    """
+    results = [
+        DateResult(date=day, rho=partial_spearman(scores, outcomes, controls), n=len(scores))
+        for day, _clusters, scores, outcomes, controls in per_date
+    ]
+    observed = _aggregate_rho([r.rho for r in results])
+    counts = [r.n for r in results if r.rho is not None]
+    n_median = sorted(counts)[len(counts) // 2] if counts else 0
+    windows = independent_windows(len(results), spacing_days, horizon_days)
+    if observed is None:
+        return (
+            Aggregate(None, None, None, None, len(results), windows, n_median, draws),
+            results,
+        )
+
+    rng = random.Random(seed)
+    labels = sorted({c for _d, clusters, _s, _o, _z in per_date for c in clusters})
+    null: list[float] = []
+    for _ in range(draws):
+        shuffled = list(labels)
+        rng.shuffle(shuffled)
+        mapping = dict(zip(labels, shuffled, strict=True))
+        per_draw = []
+        for _day, clusters, scores, outcomes, controls in per_date:
+            by_cluster = dict(zip(clusters, outcomes, strict=True))
+            xs, ys, zs = [], [], []
+            for cluster, x, z in zip(clusters, scores, controls, strict=True):
+                partner = by_cluster.get(mapping[cluster])
+                if partner is not None:
+                    xs.append(x)
+                    ys.append(partner)
+                    zs.append(z)
+            per_draw.append(partial_spearman(xs, ys, zs))
+        value = _aggregate_rho(per_draw)
+        if value is not None:
+            null.append(value)
+
+    extreme = sum(1 for value in null if abs(value) >= abs(observed))
+    p_value = (extreme + 1) / (len(null) + 1) if null else None
+    return (
+        Aggregate(observed, p_value, None, None, len(results), windows, n_median, draws),
+        results,
+    )
+
+
 def _bootstrap_ci(
     per_date: list[tuple[str, list[str], list[float], list[float]]],
     labels: list[str],

@@ -40,7 +40,7 @@ def _variant(rho, p, *, label="gap", n_median=30):
     )
 
 
-def _findings(rho, p, *, selected=30, size_controlled=0.3, **kw):
+def _findings(rho, p, *, selected=30, size_controlled=0.3, size_p=0.01, **kw):
     return Findings(
         day=DAY,
         primary=_variant(rho, p, n_median=selected),
@@ -48,6 +48,7 @@ def _findings(rho, p, *, selected=30, size_controlled=0.3, **kw):
         niches_committed=36,
         size_rho=0.1,
         size_controlled_rho=size_controlled,
+        size_controlled_p=size_p,
         **kw,
     )
 
@@ -76,6 +77,21 @@ def test_a_correlation_that_vanishes_under_the_size_control_fails():
 
     assert label == "FAIL"
     assert "size" in reason
+
+
+def test_a_positive_but_insignificant_residual_is_not_survival():
+    """Amended 2026-08-28, pre-data. A size-controlled rho of +0.03 is a positive
+    residual, not a surviving correlation, and the old sign-only rule passed it."""
+    label, reason = verdict(_findings(0.42, 0.002, size_controlled=0.03, size_p=0.61))
+
+    assert label == "FAIL"
+    assert "not a surviving one" in reason
+
+
+def test_the_size_control_p_value_is_reported_beside_its_rho():
+    body = render(_findings(0.42, 0.002))
+
+    assert "permutation p" in body
 
 
 def test_a_negative_correlation_is_a_failure_not_a_pass():

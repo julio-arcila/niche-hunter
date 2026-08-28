@@ -668,7 +668,7 @@ def backtest_score(
     from nh.backtest.niches import by_slug
     from nh.backtest.replay import as_series, decision_dates, pair
     from nh.backtest.report import Findings, Variant, render, verdict
-    from nh.backtest.stats import evaluate, partial_spearman, spearman
+    from nh.backtest.stats import evaluate, evaluate_partial, spearman
 
     engine = _backtest_engine()
     pairings = pair(engine, decision_dates(start.date(), end.date()), horizon_days=horizon)
@@ -677,9 +677,18 @@ def backtest_score(
         raise typer.Exit(1)
 
     aggregate, per_date = evaluate(as_series(pairings))
-    # The size baseline, pooled across dates: a score that ranks niches by how big
-    # they are needs no pipeline to reproduce.
-    scores = [s for p in pairings for s in p.scores]
+    # The size baseline. A score that ranks niches by how big they are needs no
+    # pipeline to reproduce, so the primary is tested against that alternative rather
+    # than merely reported beside it: `evaluate_partial` runs the same global
+    # label-permutation null on the size-partialled statistic. Amended 2026-08-28,
+    # before any result existed — survival used to be a bare sign check, and a
+    # residual of +0.03 is not survival.
+    controlled, _ = evaluate_partial(
+        [
+            (p.day.isoformat(), p.clusters, p.scores, p.outcomes, [float(n) for n in p.sizes])
+            for p in pairings
+        ]
+    )
     outcomes = [o for p in pairings for o in p.outcomes]
     sizes = [float(n) for p in pairings for n in p.sizes]
 
@@ -697,7 +706,8 @@ def backtest_score(
         niches_committed=len(by_slug()),
         per_date=per_date,
         size_rho=spearman(sizes, outcomes),
-        size_controlled_rho=partial_spearman(scores, outcomes, sizes),
+        size_controlled_rho=controlled.rho,
+        size_controlled_p=controlled.p_value,
     )
     label, reason = verdict(findings)
     path = out or Path(f"reports/backtest_{date.today().isoformat()}.md")

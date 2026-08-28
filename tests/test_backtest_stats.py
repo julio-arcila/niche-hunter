@@ -16,6 +16,7 @@ import pytest
 from nh.backtest.stats import (
     Aggregate,
     evaluate,
+    evaluate_partial,
     independent_windows,
     partial_spearman,
     pearson,
@@ -249,3 +250,86 @@ def test_an_empty_run_returns_no_verdict():
     assert aggregate.rho is None
     assert aggregate.p_value is None
     assert per_date == []
+
+
+# --------------------------------------------------------------------------
+# The size control (amended 2026-08-28, pre-data)
+# --------------------------------------------------------------------------
+
+
+def _panel(scores, outcomes, sizes, dates=4):
+    clusters = [f"n{i}" for i in range(len(scores))]
+    return [
+        (f"d{d}", list(clusters), list(scores), list(outcomes), list(sizes)) for d in range(dates)
+    ]
+
+
+def test_a_ranking_that_is_really_size_fails_the_control():
+    """The falsification this amendment exists for.
+
+    Score is very nearly size, and the outcome is driven by size — so the primary
+    correlates beautifully and carries no information of its own. Under the old rule
+    the leftover residual was positive and that counted as survival; the amended rule
+    asks whether the residual survives the permutation null, and it does not.
+
+    The confound is deliberately imperfect (two ranks swapped). Making score *exactly*
+    size is the easier test and the less useful one: the partial is then undefined and
+    caught by the NULL branch, which never exercises the p-value at all."""
+    sizes = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+    scores = [1.0, 3.0, 2.0, 4.0, 6.0, 5.0, 7.0, 8.0]
+    outcomes = [1.0, 3.0, 2.0, 5.0, 4.0, 6.0, 7.0, 8.0]
+
+    primary, _ = evaluate(
+        [(d, c, sc, o) for d, c, sc, o, _ in _panel(scores, outcomes, sizes)], draws=300
+    )
+    controlled, _ = evaluate_partial(_panel(scores, outcomes, sizes), draws=300)
+
+    assert primary.rho > 0.9  # the ranking looks excellent
+    # The residual is POSITIVE (~0.23) and would have passed the old `> 0` check.
+    assert controlled.rho > 0
+    assert controlled.p_value >= 0.05  # ...and does not survive the control
+
+
+def test_a_score_that_is_exactly_size_leaves_nothing_to_partial():
+    """Perfect collinearity makes the partial undefined, not zero — and `verdict`
+    already reads an uncomputable control as FAIL."""
+    sizes = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+
+    controlled, _ = evaluate_partial(_panel(sizes, sizes, sizes), draws=100)
+
+    assert controlled.rho is None
+
+
+def test_a_genuine_ranking_survives_the_control():
+    """The other side: a score unrelated to size that still predicts the outcome
+    keeps both its residual and its significance."""
+    sizes = [5.0, 1.0, 8.0, 3.0, 7.0, 2.0, 6.0, 4.0]
+    scores = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+    outcomes = list(scores)
+
+    controlled, _ = evaluate_partial(_panel(scores, outcomes, sizes), draws=300)
+
+    assert controlled.rho > 0.9
+    assert controlled.p_value < 0.05
+
+
+def test_the_control_permutes_outcomes_and_keeps_score_with_size():
+    """Size is a property of the niche whose score is on trial, so it stays on the
+    score side of the permutation. Determinism is asserted too: a verdict that moves
+    between runs cannot be cited."""
+    panel = _panel([1.0, 2, 3, 4, 5, 6], [2.0, 1, 4, 3, 6, 5], [3.0, 1, 6, 2, 5, 4])
+
+    first, per_date = evaluate_partial(panel, draws=200)
+    second, _ = evaluate_partial(panel, draws=200)
+
+    assert first.p_value == second.p_value
+    assert all(r.n == 6 for r in per_date)
+
+
+def test_an_uncomputable_control_yields_no_verdict():
+    panel = _panel([1.0, 1.0, 1.0], [1.0, 2.0, 3.0], [1.0, 2.0, 3.0])
+
+    controlled, _ = evaluate_partial(panel, draws=100)
+
+    assert controlled.rho is None
+    assert controlled.p_value is None

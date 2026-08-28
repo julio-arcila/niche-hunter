@@ -43,7 +43,9 @@ including any result that is more favourable than the primary.
   p-value is below 0.05, **and** it survives controlling for niche size (partial
   Spearman with member-channel count held constant). A correlation that disappears
   under that control means the scorecard ranks niches by how big they are, which
-  needs no pipeline.
+  needs no pipeline. **"Survives" means the size-partialled correlation is positive
+  *and* its permutation p-value is below 0.05 under the same global label-permutation
+  null** — amended 2026-08-28 before any result existed; see the amendment log.
 - **Gate E fails** if the primary is indistinguishable from zero, or is
   distinguishable only before the size control. The consequence is written into
   `docs/ROADMAP.md` and is not renegotiable here: do not build the dashboard; either
@@ -174,3 +176,45 @@ the same honesty the global permutation gets for free.
 **What did not change.** The primary result, the score, the outcome, the stratum, the
 supply proxy, the relevance threshold, the window split, the verdict rule, and the
 power table are all as first committed.
+
+
+### 2026-08-28 — "survives the size control" given a test instead of a sign check
+
+**State of the data: no result exists.** The scan started 01:31:22 and is still
+streaming; `data/backtest/selection.json` has not been written, no load, no replay and
+no correlation has been run, and no selection has been reviewed. Nothing about any
+result influenced this.
+
+**What changed.** The PASS branch's third condition. The text required the primary to
+"survive controlling for niche size" and defined failure as the correlation
+*disappearing* under it; `nh/backtest/report.py::verdict` implemented survival as
+`size_controlled_rho > 0` — sign only. A primary of rho = 0.45, p = 0.01 whose
+size-partialled rho was +0.03 would have returned PASS, and +0.03 has disappeared by
+any ordinary reading of the registered text. Survival now means the size-partialled
+correlation is positive **and** its permutation p-value is below 0.05, computed by
+`stats.evaluate_partial` under the same global label-permutation null, same fixed
+seed, same draw count.
+
+**Why this was a defect and not a preference.** The two pre-data artifacts disagreed
+with each other — the prose and the code — and the code took the lenient reading on
+the single branch that decides whether Slice 7 gets built. Leaving it would have
+risked a false PASS on a size artifact, which `docs/ROADMAP.md` names as the way this
+project fails while appearing to succeed.
+
+**Direction: strictly more conservative.** The added condition can only turn a PASS
+into a FAIL, never the reverse. It introduces **no new constant**: both "positive" and
+"0.05" were already registered above, and the null is the one already in use.
+
+**The null.** Outcomes are relabelled; each niche's score and its size stay together,
+because size is a property of the niche whose score is on trial. Breaking that pairing
+would test a weaker null.
+
+**Guarded by a falsification test.** `tests/test_backtest_stats.py::
+test_a_ranking_that_is_really_size_fails_the_control` builds a panel whose score is
+nearly size and whose outcome is driven by size: the primary reaches rho = 0.93, the
+size-partialled residual is **+0.23 — positive, and therefore a PASS under the old
+rule** — and its permutation p is above 0.05, so the amended rule returns FAIL.
+
+**What did not change.** The primary result, the score, the outcome, the stratum, the
+supply proxy, the relevance threshold, the tune/validate split, the permutation scheme,
+the power table, the three caveats, and both the FAIL and INCONCLUSIVE branches.
