@@ -824,6 +824,59 @@ a demonstrated fetch moves a source into the proven table, and the six named des
 errors. `../niche-hunter-2/docs/` is retained as the record; nothing there is
 deleted on resumption.
 
+## ADR-0030 — A collector may be manual: Keyword Planner arrives as a CSV a human downloads
+2026-08-28. Accepted. **Refines ADR-0016** on where the data lands. Written 2026-08-28,
+after nine call sites in `nh/` and `tests/` had already cited it — the citations were
+correct, the entry was simply owed.
+
+Keyword Planner's UI CSV export needs no API, no developer token and no application,
+which is why ADR-0029 could restore sub-niche discovery at all. But it has no network
+fetch a cron can run: its credential is *a human with a browser*. Rather than fake a
+schedulable collector, `CollectorSpec` gains `manual: bool` and `manual_cmd: str`.
+`nightly.plan()` reports such a source as `manual import — <cmd>` and never runs it;
+`status.check()` excludes it from the ported-sources gate, because its absence from a
+night says nothing about that night's health — conflating that with a schedulable
+source silently collecting nothing would let a real regression hide behind the same
+green. The import still goes through `Collector.run()` and still records a `job_runs`
+row under its own job name, so provenance, raw-before-normalized and quota accounting
+are unchanged. `Settings.configured("keyword_planner")` is `()` — no secret exists to
+check.
+
+**Where the rows land refines ADR-0016**, which anticipated "a `keyword_metrics` entity
+table for bids and competition", upserted on the keyword. A bid is a *described-period
+fact*, not a property of the keyword: every monthly re-export carries a new twelve-month
+window, and an upsert would overwrite the previous period's price with the current one,
+destroying the history the table exists to accumulate. So `keyword_metrics` is
+`AppendOnly` and written with `insert_ignore` — re-ingesting an export is a no-op and
+the first reading of a period survives. Using `Upsert` here would have reached the table
+by Core `ON CONFLICT DO UPDATE` and bypassed the ORM append-only guard entirely; that
+was tried and caught, and is why the model carries the reasoning in its docstring.
+This collector writes no `demand_snapshots` at all.
+
+## ADR-0031 — Bids keep the account's currency; no exchange rate may be invented
+2026-08-28. Accepted. **Amends `CLAUDE.md`'s "Money in USD floats with 2 decimals."**
+An earlier design pass claimed no such convention existed in the repo; it does, and
+this ADR narrows it rather than pretending otherwise.
+
+The export prices bids in the **Google Ads account's** currency, which on the account
+we have is COP — measured, every row. Converting to USD would require an exchange rate
+for the *period the numbers describe*, and no source in this project supplies one. A
+constant would be a fabricated number silently multiplying every money metric, and the
+result would be indistinguishable from a real one after the fact.
+
+So bid columns are stored verbatim with `currency` beside them, and `median_bid_high`
+and `vw_cpc` are account-currency figures. The convention now reads: money is USD with
+2 decimals **except** where a source prices in its own currency, in which case the
+currency is stored alongside and never converted.
+
+That makes the renderer load-bearing. `nh/cli.py::_provenance` builds each metric's
+detail line from a fixed list of named keys, and `currency` is not among them — so a
+COP figure of 7,468.00 would print under a heading called **money** in a repo whose
+convention says USD, a four-orders-of-magnitude misreading (the true figure is about
+US$1.80) available at a glance, which a confidence of 0.23 does not prevent. Surfacing
+`currency` in `_provenance` is therefore part of shipping these metrics, not a polish
+item.
+
 ## ADR-0032 — Trends `related_*` is reachable; it buys vocabulary, not sub-niche level
 2026-08-28. Accepted. **Supersedes the endpoint-availability bullets in ADR-0015 and
 ADR-0029** — their decisions stand, only the measurement under them was wrong.

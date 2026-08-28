@@ -424,6 +424,78 @@ Ships:
 
 ---
 
+### Slice 9 — Keyword Planner consumption · size M · **PLANNED, not started**
+
+*Recorded 2026-08-28. The collector shipped (ADR-0030); nothing consumes it yet.
+`nh kp ingest` writes 30 append-only `keyword_metrics` rows and matches 30/30 seed
+terms on `(keyword, geo, lang)`. No feature reads the table.*
+
+**Ships five metrics**, registered in `nh/features/run.py::METRICS` (16 → 21):
+`demand.total_monthly_searches`, `money.priced_share`, `money.competition_index_mean`,
+`money.vw_cpc`, `money.median_bid_high` — behind a shared
+`inputs.keyword_planner_rows(session, cluster_id, day)` returning mapped terms and the
+latest reading per term as of `day`. It must select `(term, geo, lang)` tuples, not
+bare terms: the unique key is `(keyword, geo, lang, observed_date, source)` and a second
+geo's export will coexist. Seed terms carry `geo="US"` for exactly this reason, which is
+why the `seed_terms.geo == ""` rule is now scoped to request-driving sources.
+
+**Constraints that decide the implementation:**
+
+- `tests/test_features_leakage.py` parametrises over `METRICS`, so five metrics add
+  **fifteen cases that must pass with no new test written**: bound on
+  `keyword_metrics.observed_date <= day`; NULL ten years before the data; never a
+  confident zero. `priced_share` and `competition_index_mean` are the risky pair — a
+  share whose denominator is "keywords we have rows for" happily returns `0.0` before
+  any export existed. The denominator must be day-bounded, and an empty bounded set must
+  return `empty()`.
+- **The leakage fixture holds no `keyword_metrics` rows**, so all five would hit
+  `empty()` and pass vacuously. It must gain rows. This trap has bitten twice already
+  (`geo_concentration`, `on_niche_join`).
+- **Do not reuse `money.CONFIDENCE_N = 100`** — it is documented as per-video, and the
+  export had 30 keywords, so reusing it pins confidence near 0.30 forever. Use
+  `KP_ADEQUATE_KEYWORDS = 30`. `money.WINDOW_DAYS = 90` is a video-publication window
+  and is irrelevant to a twelve-month keyword period.
+- **`_provenance` must surface `currency`** before these ship — see ADR-0031; this is a
+  renderer bug, not a caveat.
+- `nh/jobs/status.py` gains `KP_STALE_DAYS = 70` on `MAX(KeywordMetric.observed_date)`,
+  into `warnings`, not `problems` — the export is refreshed by hand, monthly.
+- Both KP deferrals claim a blocker (`NH_GADS_CUSTOMER_ID empty`) that stopped being the
+  blocker when the CSV path shipped, and a superseded `2026-09-24` date trigger. Replace
+  with evidence-shaped triggers: populated monthly columns; exports from ≥2 geos.
+- Doc rot to fix in the same PR: `docs/METRICS.md:44` "Eighteen metrics",
+  `tests/test_features_leakage.py:16` "all sixteen", plus five METRICS.md entries.
+
+**Explicitly not in this slice:** the eleven-domain expansion; `kp_trend_last3_vs_first3`
+(the twelve monthly columns are 0/360, entirely empty) and `tier1_cpc_ratio` (needs ≥2
+geos); any FX conversion; anything ranked — ADR-0029's prohibition stands.
+
+### Slice 10 — Trends seed expansion · size S–M · **PLANNED, not started**
+
+*Recorded 2026-08-28 on ADR-0032, which reversed the "technical wall" premise ADR-0029
+had written against.*
+
+`related_topics` is reachable via the referer header and supplies **sub-niche
+vocabulary**. Wire `expand_seeds()` to feed candidate terms into clustering:
+
+- **Prefer `related_topics` over `related_queries`** — its `type` column drops the
+  `Online game` homonyms that dominate `shipwreck`'s rising list. Filter to `Topic`.
+- **`TRENDS_RELATED_GAP = 6.0` seconds minimum**, not the 2.5s in
+  `.claude/rules/sources.md` — that figure was set for `interest_over_time`, and at 3s
+  the third consecutive `related_*` call failed. Update the rules table when this lands.
+- **Cache aggressively.** The whole expansion is ~66 calls for 11 domains × ~6 terms,
+  ≈7 minutes, and the vocabulary does not churn daily.
+- **The referer header is a workaround, not a contract.** Drop it when a bare
+  `related_queries("shipwreck")` returns rows; treat its disappearance as a source
+  outage, not a crash — the collection-boundary `except` already covers this.
+- **It may not produce a level.** Trends normalises against the term's own peak, so a
+  narrow term's baseline quantises away (`bridge collapse`: median 0, p90 1, 201/262
+  zeros). Candidate terms get priced by the Keyword Planner export, which is itself
+  bucketed to 50/500/5000/50000 — order-of-magnitude is the best level any current
+  source gives a sub-niche, and nothing may present it as finer.
+- Untested and worth one measurement first: whether a **narrow** term's topic mid beats
+  its string. The two tested are mid-breadth and disagreed; `bridge collapse` hit the
+  rate limit before it could be tested.
+
 ## Timeline
 
 Rough, one person part-time. S1→S3 is predictable; S4 onward is not.
