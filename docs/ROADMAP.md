@@ -18,7 +18,7 @@ future. It is production grade when all eight hold:
 | 1 | **Unattended** — 30 consecutive nights, no manual intervention | `job_runs` query |
 | 2 | **Alarmed** — a dead cron or failed source reaches a human within 24h | killing the cron on purpose |
 | 3 | **Recoverable** — restore from backup, replay features from `raw_records` | a drill, performed, twice |
-| 4 | **Calibrated** — a published precision figure with its base rate and known failure modes | `reports/backtest_*.md` |
+| 4 | **Calibrated** — a published rank correlation with its null distribution, its universe, and known failure modes | `reports/backtest_*.md` |
 | 5 | **Traceable** — every displayed number reaches its input rows in ≤3 clicks | the UI itself |
 | 6 | **Bounded** — quota headroom and monthly cost are known and monitored | quota dashboard |
 | 7 | **Lawful** — every source's ToS reviewed, rate limits respected, review dated | `docs/SOURCES.md` |
@@ -246,16 +246,37 @@ swap (ADR-0019), and `value`/`sustainability`/`opportunity`/`ci_*`.
 **Goal:** find out whether any of this predicts anything.
 
 Ships:
-- YouNiverse loader → `historical_channel_weeks`
-- Wayback CDX collector → historical subscriber counts for current top channels
-- `replay.py` — for each historical date, compute features from rows whose `at`
-  precedes it, run the lifecycle classifier, compare to what happened at 90 and
-  180 days
+- YouNiverse loader → the existing `channels` / `channel_snapshots` / `videos`
+  tables in a **separate database file**, so no backtest row can reach the live
+  corpus (ADR-0025)
+- ~30 backtest niches, curated before the data arrives, because at N=6 the smallest
+  detectable correlation is 0.89 and a null result would mean nothing
+- `replay.py` — for each historical date, compute features bounded at that date,
+  run the lifecycle classifier, compare to `outcome.growth_180d`
+- `supply.views_per_new_video`, because `median_views` is NULL at every historical
+  date and would otherwise take `gap` and `stage` with it
 - threshold tuning on one window, validation on a window you did not tune against
 - `reports/backtest_<date>.md`
 
-**Leakage is the failure mode.** If any feature reads a snapshot from after the
-decision date, every number downstream is meaningless and will look excellent.
+**Dropped from this list (ADR-0025):** the Wayback CDX collector and
+`historical_channel_weeks`. YouNiverse supplies historical subscriber counts for
+its own channels directly; Wayback would only cover *our* channels, which is a
+different and much smaller question that nothing currently asks.
+
+**Leakage is the failure mode.** If any feature reads a row from after the decision
+date, every number downstream is meaningless and will look excellent.
+
+The rule is `observed_date <= day`, per table, **not** `at < day` as this document
+said until Slice 6. Measured on `demand_snapshots`: bounding on `observed_date`
+gives 31,971 rows for a 2024 decision date and bounding on `at` gives **zero**,
+because Wikipedia was backfilled and three years of described days sit behind four
+hours of fetch time. ADR-0015 already established that `observed_date` carries two
+meanings; `at` is provenance, not a filter.
+
+Slice 6 also found the feature layer was day-*parameterised* but not day-*bounded*:
+time-series reads were bounded, mutable entity reads were not, and two metrics
+accepted `day` and never read it. `tests/test_features_leakage.py` is the standing
+guard, parametrised over the metric registry so it covers every metric added later.
 Budget real time for auditing this, not for building it.
 
 **Exit — AMENDED by the Slice 5 feasibility spike
@@ -295,7 +316,7 @@ rule**, so a null result is not over-read: "the thesis is dead" and "the feature
 were wrong" look identical from the outside, and only that sentence keeps them
 apart.
 
-**Gate E — the real one.** If precision is at or near the base rate:
+**Gate E — the real one.** If the rank correlation is indistinguishable from zero — or is distinguishable only before controlling for niche size:
 **do not build the dashboard.** Choose one:
 - return to Slice 5 with what the failure analysis taught you, or
 - narrow the product claim from "predicts emerging niches" to "surfaces evidence
