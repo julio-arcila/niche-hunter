@@ -60,26 +60,27 @@ def _adequacy(points: int, expected: int, views: float) -> float:
     return coverage * min(views / ADEQUATE_VIEWS, 1.0)
 
 
-def wiki_weekly_views(session: Session, cluster_id: str, day: date) -> FeatureResult:
+def wiki_weekly_views(
+    session: Session, cluster_id: str, day: date, stratum: str = "topic"
+) -> FeatureResult:
     """Absolute audience attention, as a weekly rate."""
-    terms = demand_terms(session, cluster_id, "wikipedia")
+    name = _named("wiki_weekly_views", stratum)
+    terms = demand_terms(session, cluster_id, "wikipedia", stratum)
     if not terms:
-        return FeatureResult.empty(
-            GROUP, "wiki_weekly_views", "no wikipedia article mapped to this cluster"
-        )
+        return FeatureResult.empty(GROUP, name, "no wikipedia article mapped to this cluster")
     hi = day - timedelta(days=LAG_DAYS)
     lo = hi - timedelta(days=WINDOW_DAYS)
     points, views = _window(session, terms, lo, hi)
     if not points:
         return FeatureResult.empty(
             GROUP,
-            "wiki_weekly_views",
+            name,
             "no pageview points in window — has the wikipedia collector run?",
             window=[lo.isoformat(), hi.isoformat()],
         )
     return FeatureResult(
         group=GROUP,
-        name="wiki_weekly_views",
+        name=name,
         value=views / (WINDOW_DAYS / 7),
         confidence=_adequacy(points, WINDOW_DAYS * len(terms), views),
         inputs_n=points,
@@ -179,6 +180,16 @@ def trends_momentum_13w(session: Session, cluster_id: str, day: date) -> Feature
             "inputs": {"tables": ["demand_series", "seed_terms"]},
         },
     )
+
+
+def _named(base: str, stratum: str) -> str:
+    """`wiki_weekly_views` for the topic stratum, `wiki_weekly_views_event` otherwise.
+
+    The default stratum keeps the bare name so the series stored since Slice 3 stays
+    one continuous, comparable thing. A renamed metric would look like a gap in the
+    history rather than a second measurement beside it.
+    """
+    return base if stratum == "topic" else f"{base}_{stratum}"
 
 
 def _daily_series(session: Session, terms: list[str], lo: date, hi: date) -> list[float]:

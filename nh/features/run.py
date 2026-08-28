@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import date
+from functools import partial
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -22,6 +23,10 @@ Metric = Callable[[Session, str, date], FeatureResult]
 #: Order is display order in `nh niche show`, so keep groups together.
 METRICS: tuple[Metric, ...] = (
     demand.wiki_weekly_views,
+    # The event stratum, carried in parallel rather than replacing the topic one.
+    # Measured, the two invert the demand ranking end to end; which is right is a
+    # question for Gate E, not for an argument (ADR-0022).
+    partial(demand.wiki_weekly_views, stratum="event"),
     demand.wiki_momentum_28d,
     demand.wiki_yoy,
     demand.wiki_volatility_365d,

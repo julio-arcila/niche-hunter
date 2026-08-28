@@ -362,3 +362,35 @@ def test_seasonality_finds_the_peak_month(engine):
 
     assert result.detail["peak_month"] == 7
     assert result.value > 0.1
+
+
+def test_the_event_stratum_does_not_change_the_topic_series(engine):
+    """A regression pin. `wiki_weekly_views` keeps its name and its topic articles
+    so the series stored since Slice 3 stays one comparable thing; the event
+    stratum runs beside it under a suffixed name."""
+    _cluster(engine, terms=(("wikipedia", "Topic_A"),))
+    with session_scope(engine) as s:
+        s.add(SeedTerm(seed_id=1, source="wikipedia", term="Event_A", stratum="event", geo=""))
+        s.commit()
+    _views(engine, "Topic_A", start_days_ago=2, n=28, per_day=100)
+    _views(engine, "Event_A", start_days_ago=2, n=28, per_day=9_000)
+
+    with session_scope(engine) as s:
+        topic = wiki_weekly_views(s, CLUSTER, DAY)
+        event = wiki_weekly_views(s, CLUSTER, DAY, stratum="event")
+
+    assert topic.name == "wiki_weekly_views"
+    assert event.name == "wiki_weekly_views_event"
+    assert topic.value == pytest.approx(700.0)  # 100/day x 7, topic articles only
+    assert event.value > topic.value
+
+
+def test_demand_terms_respects_the_stratum(engine):
+    from nh.features.inputs import demand_terms
+
+    _cluster(engine, terms=(("wikipedia", "Topic_A"),))
+    with session_scope(engine) as s:
+        s.add(SeedTerm(seed_id=1, source="wikipedia", term="Event_A", stratum="event", geo=""))
+        s.commit()
+        assert demand_terms(s, CLUSTER, "wikipedia") == ["Topic_A"]
+        assert demand_terms(s, CLUSTER, "wikipedia", "event") == ["Event_A"]
