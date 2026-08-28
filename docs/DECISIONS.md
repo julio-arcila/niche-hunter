@@ -763,3 +763,63 @@ Two things this ADR does not settle, carried forward. The new lexicon's precisio
 until the spot-check. And whether the topic demand stratum means anything for *any*
 niche — Gate E's failure analysis leaves that open, and `landmark-court-cases` is
 parked on exactly that question rather than deleted over it.
+
+## ADR-0029 — Resumed: sub-niche discovery is restored, the dashboard is not
+2026-08-28. Accepted. **Supersedes the archival banner of the same day**, and
+partially supersedes ADR-0018. This repo is the primary project again;
+`../niche-hunter-2` is paused, its documents retained.
+
+**What ADR-0018 actually said, and what has changed.** It did not judge sub-niche
+discovery unworkable. It judged its *premise* void: the roadmap's own argument was
+that "clustering earns its keep only when there are multiple sources to cluster
+together — cluster YouTube titles alone and you have built a topic model, not a
+demand–supply bridge", and Slice 3 had removed three of the four sources. Only
+YouTube titles remained, so the argument said not to build.
+
+Re-examined 2026-08-28, those three are in three different states, and conflating
+them is what made the premise look permanently dead:
+
+- **Keyword Planner is available today.** The original prototype
+  (`legacy/niche_hunter_kp.py`) documents two access paths, and path B — the UI
+  CSV export — needs no API, no developer token and no application. `parse_ui_csv()`
+  is already written. ADR-0016 recorded this fallback and nobody used it. This alone
+  restores "multiple sources": KP keywords + YouTube titles is two.
+- **Reddit is obtainable but gated.** Approval under the Responsible Builder Policy;
+  self-service registration closed late 2025. An application was never filed
+  (ADR-0021). Cost is a form and a wait, not a blocker to starting.
+- **Trends `related_queries`/`related_topics` remain blocked, and no credential
+  opens them.** Measured: `TrendsQuotaExceededError`, and the documented referer
+  workaround fails too. This one is a genuine technical wall; a proxy pool might
+  clear it and might not. Sub-niche discovery must be designed to work *without* it.
+
+So the premise is restored at two of four sources, three if Reddit approval lands.
+That is enough to build against, and it is why this ADR exists rather than a
+re-reading of ADR-0018.
+
+**Why resume here rather than continue in the successor.** The N=5 live portfolio
+is the root of every power failure this project hit, and sub-niche discovery is a
+direct fix: seven niches yielding ten to thirty sub-niches each puts N in the
+70–200 range. The successor pursues the same cure in the open field, from zero
+code, against a corpus that does not exist yet. This repo has the corpus (21,238
+videos, 1,244 channels, 47,482 view snapshots), working collectors, and 649 green
+tests. Same cure, far shorter path.
+
+**What resuming does NOT do — and this is the operative constraint.** Gate E's null
+stands. It was a *powered* null: 29 of 36 niches, detectable rho 0.378, and the
+size control clean at −0.019. Sub-niches do not repeal it. They raise N for future
+tests and make the product more useful; they do not retroactively give `gap`
+predictive validity, and no quantity of sub-niches converts a measured null into a
+signal.
+
+Therefore the roadmap resumes at **Slice 4 (sub-niche discovery)**, not at Slice 7.
+`scorecards.opportunity` stays NULL, the ranked dashboard stays unbuilt, and the
+prohibition in the Gate E section stands until a *new* pre-registered test passes
+on the new grain. Anything ranked that ships before that is the failure the gate
+exists to prevent, arriving through a side door.
+
+**Inherited unchanged from the successor's founding work**, because it was paid for
+and is unit-independent: the tested/never-attempted/descoped split in
+`docs/SOURCES.md` (a source nobody applied for is not a finding), the rule that only
+a demonstrated fetch moves a source into the proven table, and the six named design
+errors. `../niche-hunter-2/docs/` is retained as the record; nothing there is
+deleted on resumption.

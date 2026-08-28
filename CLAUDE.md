@@ -1,22 +1,20 @@
-> **ARCHIVED 2026-08-28 — code-frozen, data-live. Successor:
-> `/Users/mac/Projects/youtube/niche-hunter-2`.**
+> **RESUMED 2026-08-28 as the primary project** (ADR-0029), reversing the archival
+> banner of the same morning. `../niche-hunter-2` is **paused**, its documents kept.
 >
-> Gate E returned FAIL on 2026-08-28 (rho 0.091, p 0.4988, N=29 — a powered null).
-> `reports/backtest_2026-08-28.md` carries the verdict and the failure analysis.
-> Development moved to the successor repo, which keeps this project's *discipline*
-> and its *data* and none of its code; the reasoning is in that repo's ADR-0001 and
-> ADR-0003.
+> **What resumed:** the original roadmap at **Slice 4 — sub-niche discovery**. Its
+> premise (ADR-0018: "multiple sources to cluster together") is restored, because
+> Keyword Planner turns out to be available today with no approval at all via the UI
+> CSV export, whose parser already exists in `legacy/niche_hunter_kp.py`.
 >
-> **Do not develop here. Do not stop the cron.** The 09:10 nightly still runs and
-> this corpus still grows, deliberately: live view snapshots and RSS velocity
-> history cannot be re-collected at any price, and the successor's Slice 3 depends
-> on them. A day not collected is lost permanently. Read this repo read-only;
-> commit nothing.
+> **What did NOT resume: the dashboard.** Gate E's null was *powered* — 29 of 36
+> niches, detectable rho 0.378, size control clean at −0.019 — and sub-niches do not
+> repeal it. `scorecards.opportunity` stays NULL and nothing ranked ships until a new
+> pre-registered test passes on the new grain. See `reports/backtest_2026-08-28.md`.
 >
-> Kept alive and untouched: `data/` (the corpus and YouNiverse), `legacy/` (the
-> five original prototypes, also copied to the successor's `reference/`), and
-> `docs/` as the record of what was measured — including
-> `docs/SOURCES.md`'s negative results and `docs/RUNBOOK.md § Known defects`.
+> **Source states, which are three different things:** Keyword Planner = available
+> now (CSV, no approval). Reddit = obtainable, needs an application filed, never was.
+> Trends `related_queries` = measured blocked, no credential opens it — sub-niche
+> discovery must work without it.
 
 # Niche Hunter
 
