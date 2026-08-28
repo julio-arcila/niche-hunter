@@ -1046,92 +1046,175 @@ TERMS: tuple[dict[str, Any], ...] = (
     #
     # `stratum` is left to default: these are topic-level vocabulary, not the
     # named-event sample the wikipedia event stratum carries.
-    {"slug": "aviation-disasters", "source": "keyword_planner", "term": "air crash analysis"},
-    {"slug": "aviation-disasters", "source": "keyword_planner", "term": "air traffic control"},
+    #
+    # `geo` is "US" and must stay in step with how the export was ingested. The
+    # `keyword_metrics` unique key is (keyword, geo, lang, observed_date, source),
+    # so a feature joining on (keyword, geo, lang) sees nothing when the two
+    # disagree. Measured 2026-08-28: seed terms defaulted to geo="" while the rows
+    # carried geo="US", and the join returned 0 of 30 while `nh kp ingest` still
+    # reported "matched a seed term: 30/30" -- because that check compared keyword
+    # strings alone. An empty geo also means WORLDWIDE in this schema, which would
+    # be a false claim about a US export.
+    {
+        "slug": "aviation-disasters",
+        "source": "keyword_planner",
+        "term": "air crash analysis",
+        "geo": "US",
+    },
+    {
+        "slug": "aviation-disasters",
+        "source": "keyword_planner",
+        "term": "air traffic control",
+        "geo": "US",
+    },
     {
         "slug": "aviation-disasters",
         "source": "keyword_planner",
         "term": "aviation accidents and incidents",
+        "geo": "US",
     },
     {
         "slug": "aviation-disasters",
         "source": "keyword_planner",
         "term": "aviation disasters documentary",
+        "geo": "US",
     },
-    {"slug": "aviation-disasters", "source": "keyword_planner", "term": "aviation safety"},
+    {
+        "slug": "aviation-disasters",
+        "source": "keyword_planner",
+        "term": "aviation safety",
+        "geo": "US",
+    },
     {
         "slug": "aviation-disasters",
         "source": "keyword_planner",
         "term": "plane crash investigation",
+        "geo": "US",
     },
-    {"slug": "corporate-collapse", "source": "keyword_planner", "term": "accounting scandals"},
-    {"slug": "corporate-collapse", "source": "keyword_planner", "term": "bankruptcy"},
+    {
+        "slug": "corporate-collapse",
+        "source": "keyword_planner",
+        "term": "accounting scandals",
+        "geo": "US",
+    },
+    {"slug": "corporate-collapse", "source": "keyword_planner", "term": "bankruptcy", "geo": "US"},
     {
         "slug": "corporate-collapse",
         "source": "keyword_planner",
         "term": "business failure analysis",
+        "geo": "US",
     },
     {
         "slug": "corporate-collapse",
         "source": "keyword_planner",
         "term": "company collapse documentary",
+        "geo": "US",
     },
     {
         "slug": "corporate-collapse",
         "source": "keyword_planner",
         "term": "corporate fraud explained",
+        "geo": "US",
     },
-    {"slug": "corporate-collapse", "source": "keyword_planner", "term": "corporate scandal"},
+    {
+        "slug": "corporate-collapse",
+        "source": "keyword_planner",
+        "term": "corporate scandal",
+        "geo": "US",
+    },
     {
         "slug": "engineering-failures",
         "source": "keyword_planner",
         "term": "bridge collapse investigation",
+        "geo": "US",
     },
     {
         "slug": "engineering-failures",
         "source": "keyword_planner",
         "term": "engineering disaster documentary",
+        "geo": "US",
     },
-    {"slug": "engineering-failures", "source": "keyword_planner", "term": "engineering disasters"},
+    {
+        "slug": "engineering-failures",
+        "source": "keyword_planner",
+        "term": "engineering disasters",
+        "geo": "US",
+    },
     {
         "slug": "engineering-failures",
         "source": "keyword_planner",
         "term": "list of structural failures and collapses",
+        "geo": "US",
     },
-    {"slug": "engineering-failures", "source": "keyword_planner", "term": "structural failure"},
+    {
+        "slug": "engineering-failures",
+        "source": "keyword_planner",
+        "term": "structural failure",
+        "geo": "US",
+    },
     {
         "slug": "engineering-failures",
         "source": "keyword_planner",
         "term": "structural failure analysis",
+        "geo": "US",
     },
-    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "list of shipwrecks"},
+    {
+        "slug": "maritime-disasters",
+        "source": "keyword_planner",
+        "term": "list of shipwrecks",
+        "geo": "US",
+    },
     {
         "slug": "maritime-disasters",
         "source": "keyword_planner",
         "term": "maritime disaster investigation",
+        "geo": "US",
     },
-    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "maritime transport"},
-    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "shipwreck"},
-    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "shipwreck documentary"},
-    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "sinking ship analysis"},
+    {
+        "slug": "maritime-disasters",
+        "source": "keyword_planner",
+        "term": "maritime transport",
+        "geo": "US",
+    },
+    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "shipwreck", "geo": "US"},
+    {
+        "slug": "maritime-disasters",
+        "source": "keyword_planner",
+        "term": "shipwreck documentary",
+        "geo": "US",
+    },
+    {
+        "slug": "maritime-disasters",
+        "source": "keyword_planner",
+        "term": "sinking ship analysis",
+        "geo": "US",
+    },
     {
         "slug": "true-crime-trials",
         "source": "keyword_planner",
         "term": "court trial testimony analysis",
+        "geo": "US",
     },
-    {"slug": "true-crime-trials", "source": "keyword_planner", "term": "criminal procedure"},
+    {
+        "slug": "true-crime-trials",
+        "source": "keyword_planner",
+        "term": "criminal procedure",
+        "geo": "US",
+    },
     {
         "slug": "true-crime-trials",
         "source": "keyword_planner",
         "term": "criminal trial verdict explained",
+        "geo": "US",
     },
-    {"slug": "true-crime-trials", "source": "keyword_planner", "term": "jury trial"},
+    {"slug": "true-crime-trials", "source": "keyword_planner", "term": "jury trial", "geo": "US"},
     {
         "slug": "true-crime-trials",
         "source": "keyword_planner",
         "term": "murder trial live coverage",
+        "geo": "US",
     },
-    {"slug": "true-crime-trials", "source": "keyword_planner", "term": "trial law"},
+    {"slug": "true-crime-trials", "source": "keyword_planner", "term": "trial law", "geo": "US"},
 )
 
 
