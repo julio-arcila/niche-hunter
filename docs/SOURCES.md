@@ -68,20 +68,127 @@ start the snapshot clock.*
 
 ## trends — ported ✅ (partially) `nh/collectors/trends.py`
 
-*Reviewed 2026-08-27. **Shape only** — one term per request, no anchor (ADR-0015).*
+*Collector reviewed 2026-08-27. **Source re-probed live 2026-08-28, and two of the
+2026-08-27 findings below no longer hold.** Still shape-only: one term per request,
+no anchor (ADR-0015).*
 
-**Measured, live:** `interest_over_time`, `interest_by_region` and `trending_now`
-work. `related_queries` and `related_topics` return `TrendsQuotaExceededError`,
-and the documented referer workaround also fails — so `expand_seeds()` and
-topic-mid resolution are unavailable, which removes the prototype's own
-prescribed fix for low-volume terms. `trendspy` was last released 2024-12-25.
+### Endpoint status, re-measured 2026-08-28
 
-Our niche phrases mostly read literal **zero**: Trends normalises 0–100 per
-request against the batch maximum, so a small term beside a large one rounds
-away. `aviation disasters documentary` is NaN even queried alone. Hence broad
-proxy terms in `seed_terms`, and level coming from Wikipedia instead.
+| Endpoint | State | Note |
+|---|---|---|
+| `interest_over_time` | works | the collector's only call |
+| `interest_by_region`, `trending_now` | works | 2026-08-27, unchanged |
+| `related_queries`, `related_topics` | **works via the referer header** | rate-limited, not blocked |
+
+The bare call still raises `TrendsQuotaExceededError`. Passing the library's own
+documented header — `headers={"referer": "https://www.google.com/"}` — **succeeds**.
+That reverses the previous note in this file and the matching bullet in ADR-0015,
+both of which recorded the referer workaround as failing.
+`related_queries("shipwreck")` returns 25 top and 25 rising; `related_topics`
+returns 17 top and 12 rising, each row carrying `mid`, `title`, `type`, `value`. So
+**topic mids resolve** and `expand_seeds()` is reachable.
+
+It is **rate-limited, not quota-blocked**: at a 3 s gap the third consecutive call
+failed; at 6–8 s gaps every call succeeded. `interest_over_time` keeps working from
+the same address in the same session while `related_*` is refused, so the limit is
+per-endpoint, not our IP's reputation. Budget **≥6 s between `related_*` calls** —
+well above the 2.5 s in `.claude/rules/sources.md`, which was set for
+`interest_over_time`. The proxy suggestion in the error text is untested, and the
+per-endpoint evidence argues against needing it. `trendspy` is 0.1.6 (2024-12-25).
+
+### Can Trends resolve sub-niches? Vocabulary yes, level no
+
+Now that `related_*` is reachable this is a live question. The three capabilities
+give three different answers, and only one of them is good news.
+
+**Level — no, and it is structural.** Measured 2026-08-28 over the seven live
+`seed_terms`, 5-year weekly, each queried alone, so each is normalised against **its
+own peak** rather than a sibling's:
+
+| term | median | p90 | zeros | max ÷ median |
+|---|---|---|---|---|
+| court case | 48 | 82 | 0/262 | 2.1x |
+| shipwreck | 28 | 49 | 0/262 | 3.6x |
+| supreme court | 23 | 54 | 0/262 | 4.3x |
+| murder trial | 20 | 44 | 0/262 | 5.0x |
+| corporate fraud | 11 | 52 | 0/262 | 9.1x |
+| plane crash | 3 | 5 | 0/262 | 33.3x |
+| bridge collapse | **0** | **1** | **201/262** | ∞ |
+
+`bridge collapse` is not *small* — its max is 100, like every row here. It is
+**spiky**: one event owns the scale and the whole baseline quantises to 0, leaving a
+series with two distinct values that cannot express momentum at all.
+
+That is the mechanism that decides the sub-niche question. Normalisation is against
+the term's own peak, so narrowing a term never lowers its ceiling — it concentrates
+the term's traffic into the events that define it, lifting the peak against a
+baseline that then rounds away. **Sub-niches are narrower by construction, so
+resolution degrades in exactly the direction sub-niche work travels.** Ordered by
+that last column the table is also ordered by breadth.
+
+Strength of the claim: breadth here is a judgement, not a measured quantity, and
+only `shipwreck` appears in both this set and the Keyword Planner export, so
+absolute volume cannot be regressed against the ratio (n=1).
+
+**Topic mids do not rescue it.** The prototype named mid resolution as *the* fix for
+low-volume terms. Measured both ways:
+
+| query | mean | median | max ÷ median |
+|---|---|---|---|
+| string `shipwreck` | 32.71 | 28.0 | 3.6x |
+| mid `/m/01nzyt` *Shipwreck* | 8.25 | 7.0 | **14.3x — worse** |
+| string `murder trial` | 24.13 | 19.5 | 5.1x |
+| mid `/m/051_y` *Murder* | 52.45 | 51.0 | **2.0x — better** |
+
+Opposite results, one explanation: `/m/051_y` is *Murder*, far broader than "murder
+trial", whereas `/m/01nzyt` is *Shipwreck*, no broader than its own string — and
+that string's apparent advantage is contamination, since `related_topics` shows part
+of its traffic is *Old School RuneScape*. A mid helps when it **broadens** and hurts
+when it disambiguates steady off-topic traffic away. Mids are a breadth knob on the
+same axis, not an escape from it: buying resolution with a mid means measuring
+something broader than the sub-niche you asked about.
+
+**Vocabulary — yes, with two defects.** `related_*` is the only Trends capability
+that actually *discovers* sub-niches, and it returns real material. But `top` mixes
+broadenings in with narrowings (`ship`, `the trial`), and `rising` is dominated by
+news-cycle ephemera (`murder trial` → named current trials) and by homonym drift
+(`shipwreck` → the first six rising queries are all RuneScape). `related_topics.type`
+is the disambiguator — filter to `Topic` and `Online game` drops out — which is the
+reason to prefer `related_topics` over `related_queries` for seed expansion.
+
+**Shape — unchanged, and still the right use.** ADR-0015's *decision* does not move:
+level from Wikipedia, shape from Trends. Nothing above touches the normalisation and
+anchor-chain argument the ADR rests on; `related_*` availability was cited there as
+supporting evidence, not as the reason. What is now settled is that its loss cost us
+nothing measurable — the fix it removed is not a fix.
+
+### Enabling `related_*` — what it buys, what it costs
+
+Cheap: at a 6 s gap, seed expansion for 11 domains × ~6 terms is ~66 calls ≈ 7
+minutes, once, cached. It needs no auth and no approval.
+
+Scope it to **vocabulary for clustering** — candidate sub-niche terms, then priced
+against absolute volume by the Keyword Planner export. It must not be sold as
+sub-niche demand measurement: per the table above, Trends cannot supply a level for
+a narrow term, and the Keyword Planner export quantises volume to four buckets
+(50 / 500 / 5000 / 50000), so order-of-magnitude is the best level any current
+source gives a sub-niche.
+
+Re-check triggers are evidence-shaped, not dated:
+
+- **Drop the referer workaround** when a bare `related_queries("shipwreck")` returns
+  rows — the header is a workaround, not a contract.
+- **Revisit the ≥6 s gap** if `TrendsQuotaExceededError` appears at that spacing.
+- **Revisit mids-as-fix** only with a measurement on a *narrow* term; the two above
+  are mid-breadth, and `bridge collapse` — the case that matters — hit the rate
+  limit before it could be tested.
 
 ## trends — original notes
+
+*Kept as the prototype's own record. Two claims here are superseded by the
+2026-08-28 measurements above: "low-volume terms return all zeros" attributes to
+volume what is actually spikiness, and "prefer topic mids" is not supported —
+mids helped one term and hurt another, tracking breadth rather than representation.*
 
 - **Library**: `trendspy`. **Auth**: none. Unofficial endpoint.
 - **Gives**: interest over time, interest by region, related/rising queries and

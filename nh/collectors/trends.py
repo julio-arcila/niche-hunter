@@ -4,8 +4,11 @@ Ported from `legacy/niche_hunter_trends.py`, but deliberately a partial port
 (ADR-0015). What the prototype was built around does not survive contact with
 the live endpoint:
 
-  * `related_queries` and `related_topics` return `TrendsQuotaExceededError`, so
-    `expand_seeds()` and topic-mid resolution are gone.
+  * `related_queries` and `related_topics` are reachable after all, via the
+    library's documented referer header — a per-endpoint rate limit, not a wall
+    (ADR-0032 supersedes ADR-0015 on this). They are still not called here:
+    they give sub-niche *vocabulary*, which this collector does not produce,
+    and no level, which is what the normalisation below denies them.
   * Our niche phrases mostly read literal zero: Trends normalises 0-100 per
     request against the batch maximum, so a small term beside a large one rounds
     away. Measured, `aviation disasters documentary` is NaN even queried alone.

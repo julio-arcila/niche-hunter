@@ -73,7 +73,7 @@ REGISTRY: tuple[CollectorSpec, ...] = (
         cadence="nightly",
         prototype="legacy/niche_hunter_trends.py",
         ported=True,
-        notes="Shape only — one term per request, no anchor (ADR-0015). related_queries/topics are quota-blocked upstream.",
+        notes="Shape only — one term per request, no anchor (ADR-0015). related_queries/topics are reachable via the referer header but unused: vocabulary, not level (ADR-0032).",
     ),
     CollectorSpec(
         source="reddit",

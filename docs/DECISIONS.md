@@ -823,3 +823,46 @@ and is unit-independent: the tested/never-attempted/descoped split in
 a demonstrated fetch moves a source into the proven table, and the six named design
 errors. `../niche-hunter-2/docs/` is retained as the record; nothing there is
 deleted on resumption.
+
+## ADR-0032 — Trends `related_*` is reachable; it buys vocabulary, not sub-niche level
+2026-08-28. Accepted. **Supersedes the endpoint-availability bullets in ADR-0015 and
+ADR-0029** — their decisions stand, only the measurement under them was wrong.
+
+Re-probed live before writing this, because ADR-0029 rests a design constraint on the
+claim. `related_queries` and `related_topics` **work**, via the library's own
+documented header (`headers={"referer": "https://www.google.com/"}`). ADR-0015 recorded
+that workaround as failing and ADR-0029 called it *"a genuine technical wall"* that
+sub-niche discovery *"must be designed to work without"*. It is not a wall: it is a
+per-endpoint rate limit. At a 3 s gap the third call failed; at 6–8 s every call
+succeeded, while `interest_over_time` kept working from the same address throughout.
+
+**This does not give sub-niches a demand level, and that is structural.** Trends
+normalises 0–100 against *the term's own peak* (one term per request, no anchor), so
+narrowing a term never lowers its ceiling — it concentrates traffic into the defining
+events and lifts the peak against a baseline that rounds away. Measured across the
+seven live seed terms, `max ÷ median` runs 2.1x for `court case` to ∞ for
+`bridge collapse`, whose median is 0, whose p90 is 1 and which is 201/262 zeros — two
+distinct values, no momentum expressible. Ordered by that ratio the list is ordered by
+breadth, so resolution degrades in exactly the direction sub-niche work travels.
+
+**Topic mids are not the fix the prototype claimed.** Measured both ways: the mid beat
+its string for `murder trial` (2.0x vs 5.1x) and lost badly for `shipwreck` (14.3x vs
+3.6x). One explanation — `/m/051_y` is *Murder*, far broader than the phrase, while
+`/m/01nzyt` is *Shipwreck*, no broader than its string whose apparent advantage was
+*Old School RuneScape* traffic flattening it. A mid helps when it **broadens** and
+hurts when it disambiguates steady off-topic traffic away. Mids are a breadth knob on
+the same axis, not an escape from it: buying resolution with one means measuring
+something broader than the sub-niche in question.
+
+So the enablement is **scoped to vocabulary**: `related_topics` (preferred over
+`related_queries` — its `type` column drops the `Online game` homonyms that dominate
+`shipwreck`'s rising list) may feed candidate sub-niche terms into clustering, priced
+against absolute volume by the Keyword Planner export. Trends may **not** supply a
+sub-niche level, and no ranking may rest on one. Note the ceiling this leaves: KP
+quantises volume to four buckets (50/500/5000/50000), so order-of-magnitude is the
+best level any current source gives a sub-niche.
+
+Wiring `expand_seeds()` is not in this change — it needs the ≥6 s etiquette constant,
+a cache, and `type` filtering, and it belongs to the slice that consumes it. What this
+ADR settles is that the door is open and what is behind it. Full measurements and the
+re-check triggers are in `docs/SOURCES.md`.
