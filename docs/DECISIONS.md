@@ -919,3 +919,54 @@ Wiring `expand_seeds()` is not in this change — it needs the ≥6 s etiquette 
 a cache, and `type` filtering, and it belongs to the slice that consumes it. What this
 ADR settles is that the door is open and what is behind it. Full measurements and the
 re-check triggers are in `docs/SOURCES.md`.
+
+## ADR-0033 — The eleven domains are defined but cannot be activated: the relevance second axis asks "did something fail"
+2026-08-28. Accepted. Lands the eleven-domain pivot as **definitions only** and records
+the blocker that stops activation, found by measurement rather than by reasoning.
+
+**What shipped.** Eleven lexicons in `LEXICONS`, eleven seeds in `SEEDS` with
+`active=False`, and their terms: 89 Wikipedia articles, 11 Trends proxies, 66 Keyword
+Planner keywords. Every Wikipedia title was verified against the live API before being
+written — 88 of 88 candidates exist. Two were redirects and were replaced with their
+canonical targets, because the pageviews API counts by requested title and a redirect
+undercounts: `History_of_ideas` → `Intellectual history` (which also collided with an
+existing entry, so `History_of_philosophy` and `Zeitgeist` were added instead), and
+`Transformer_(deep_learning_architecture)` → `Transformer (deep learning)`.
+
+**The lexicon cost that was feared is not real.** Adding eleven lexicons to the live
+family moves **zero** live weights, measured over every term rather than the golden
+handful. Two collisions existed and were designed out by word choice: `pipeline`
+(engineering-failures vs geopolitics) became `energy pipeline`, and `evidence`
+(true-crime-trials vs philosophy-of-science) became `empirical evidence`. A third,
+`settlement`, collides only with the *retired* court-cases lexicon that
+`test_lexicon_families` re-introduces, and became `urbanization`. The eleven separate as
+cleanly as the live five — min 30 unique terms against the baseline's 38 — because their
+discriminating vocabulary is technical (`falsifiability`, `gettier`, `panpsychism`) and
+technical terms do not collide. `LEXICON_VERSION` is bumped to `2026-08-28.2` anyway,
+because the family changed even though no weight did.
+
+**The blocker.** `relevance.score()` is two axes, and the second one is
+`lexicon.EVENT` — 82 terms of failure vocabulary (`accident`, `bankruptcy`, `collapse`,
+`crash`, `deadly`, `explosion`, `fatal`). Its own docstring states the question it asks:
+*"did something fail"*. That axis was added because a domain-only scorer topped out at
+precision 0.62 against 298 hand labels, so it is load-bearing, not decorative.
+
+None of the eleven domains are about things failing. Measured: a title packed with
+philosophy-of-science terms scores **0.0**, because the domain axis matches
+(`falsifiability` 1.0, `scientific method` 1.0) and the event axis matches nothing, and
+the score is their geometric mean. Every video in all eleven niches would be marked
+noise, and every one of the eleven clusters would then retire for holding no on-niche
+video. Activating them today would collect nothing and look like a working pipeline
+doing it.
+
+**So the eleven stay `active=False`,** which costs no quota and leaves the five live
+niches collecting. This is deliberately not fixed here: the second axis is part of the
+scorer whose precision was measured against hand labels, and inventing a replacement
+axis silently would put an unmeasured scorer under the same name. The fix wants its own
+slice and its own labels — most likely a per-niche second axis, since "did something
+fail" is right for disasters and wrong for topics, or a topic-domain axis of
+explainer/analysis markers scored against fresh hand labels.
+
+**A note on how this was found.** The dilution risk recorded in ROADMAP Slice 11 was
+reasoned and wrong; this blocker was invisible until eleven real lexicons were scored
+against real titles. Both facts argue the same thing: the cheap measurement goes first.
