@@ -39,9 +39,14 @@ no source serves history. These rules exist to protect that.
    censors at the cap: measured, 708 of 892 channels hold every video they have
    inside 90 days, and a 90-day upload count lands on 1.17/wk for *every* niche
    (1.1x spread) against 2.2x for the same quantity computed as a rate over the
-   observed span. Rate-from-observed-span is the pattern. More generally: a
-   metric that normalises away the dimension you are comparing on comes out
-   flat, and flat reads as a finding rather than as a bug.
+   observed span. Rate-from-observed-span is the pattern **for any new count over
+   a window the feed cannot fill.** Note what ships today: `uploads_per_week` is
+   still a fixed-window count, with the censoring documented in its own failure
+   mode rather than fixed -- an earlier version of this rule and of
+   `median_top_video_age`'s docstring both said the metric "was redefined as a
+   rate over an observed span", which was never true of the shipped code. More
+   generally: a metric that normalises away the dimension you are comparing on
+   comes out flat, and flat reads as a finding rather than as a bug.
 10. **No destructive SQL.** `DROP` / `TRUNCATE` / unscoped `DELETE FROM` are
    blocked by `scripts/hooks/block_dangerous_sql.sh`. Schema changes go through
    an Alembic migration with a working `downgrade()`.

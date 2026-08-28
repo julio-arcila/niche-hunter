@@ -1,5 +1,11 @@
 # Metrics
 
+**Every `Measured:` line carries a date.** A measured number is a fact about a
+corpus on a day, not a property of the metric, and this file is read as if its
+numbers are current. Two undated claims here went stale unnoticed and were caught
+only by an audit re-running them (2026-08-28); every dated claim in the same sample
+verified. A number without a date cannot be told from a number that is wrong.
+
 **A metric starts as an entry here — formula, inputs, join key, confidence —
 then code, then a test.** A definition that lives only inside a Python function
 cannot be reviewed, backtested, or compared across a schema change.
@@ -110,7 +116,12 @@ Stopgap      : replaces the prototype's 30-180 day age window, which the RSS 15-
                deep. Until then these levels drift upward as today's very young video
                population (10,853 of 13,725 under 30 days) ages in; do not trend them.
 Feeds        : scorecards.supply; gap from Slice 3
-Measured     : 33x spread (330 to 10,832 views)
+Measured     : 2026-08-28 -- 417x spread (979.5 to 408,594 views) across the five
+               clusters, or 214x (979.5 to 209,845) across the four that are not
+               retired. An earlier undated line here read "33x spread (330 to
+               10,832)"; it is superseded, and the reason it went stale unnoticed
+               is that it carried no date -- see the dating rule at the head of
+               this file.
 ```
 
 ### openness.breakthrough_rate_cohort
@@ -344,8 +355,13 @@ Join key     : cluster_id -> clusters.seed_id -> seed_terms.seed_id
 Confidence   : share of the 26 window values that are non-zero. Trends quantises
                to integers on a 0-100 scale normalised to the term's own 5-year
                peak, so a mostly-zero series sits at the quantisation floor and its
-               ratio is noise. Measured, `bridge collapse` has mean 0.1 and will
-               score near 0 here, which is the honest report. inputs_n = 26.
+               ratio is noise. Measured 2026-08-28 on the single stored series
+               (id 1, observed 2026-08-27): `bridge collapse` has mean 0.828 with
+               86 of 262 points non-zero -- low against `court case` (52.97, all
+               non-zero) and `shipwreck` (32.60), so it does sit near the
+               quantisation floor and scores low here, which is the honest report.
+               An earlier line claimed "mean 0.1"; that number is not reproducible
+               from any held series and is withdrawn. inputs_n = 26.
 Failure mode : +/-5 point sampling jitter between fetches moves the ratio; the
                series is one observation, not ground truth. A term whose peak is a
                single news event compresses the rest of the series toward the
