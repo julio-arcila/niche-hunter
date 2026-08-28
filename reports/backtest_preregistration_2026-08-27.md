@@ -77,16 +77,27 @@ of them licenses abandoning the thesis.
 
 ## Permutation scheme
 
-The null shuffles niche labels **within each decision date**, preserving the
-temporal structure and breaking only the score↔outcome link. Computed per date, then
-aggregated across dates, and compared against the same aggregation of the shuffled
-series.
+**Amended 2026-08-27, before any data was seen — see the amendment log at the foot of
+this document. The original text specified a within-date permutation; this is the
+stricter scheme that replaced it.**
 
-Roughly 195 weekly decision dates exist in the window, and they are heavily
-autocorrelated: consecutive 180-day outcome windows overlap by 179 days. **The report
-quotes the number of quasi-independent windows (~8), never 195.** Treating 195
-overlapping dates as independent observations would shrink every interval by a factor
-of about five and manufacture significance out of autocorrelation.
+The null permutes niche labels **globally: one permutation per replication, applied
+to every decision date.** It preserves each niche's score trajectory and each niche's
+outcome trajectory, and mismatches only which trajectory goes with which — so the
+serial structure of both series survives into the null, and the effective sample size
+is the number of *niches*, which is what the power table above is computed on.
+
+Roughly 195 weekly decision dates exist in the window and they are heavily
+autocorrelated: consecutive 180-day outcome windows overlap by 179 days. A within-date
+permutation implicitly asserts they are independent replicates, so the mean of D
+per-date correlations gets a standard error shrunk by `sqrt(D)` — about a fivefold
+overstatement here. **The report quotes the number of quasi-independent windows (~8)
+as a diagnostic, never as a sample size.**
+
+The bootstrap resamples **niches**, the same set at every date, for the same reason.
+
+The primary p-value is computed once, by `nh.backtest.stats.evaluate`, with a fixed
+seed. A verdict that changes between runs cannot be cited.
 
 ## Tune / validate split
 
@@ -127,3 +138,39 @@ instead of stating a verdict:
 - A niche is added, edited or removed after the scan runs.
 - The relevance threshold, the supply proxy or the stratum is changed after seeing
   any correlation.
+
+
+---
+
+## Amendment log
+
+Every change to this document after its first commit, with the date and the state of
+the data at the time. An amendment made after seeing a result voids the
+pre-registration; these did not.
+
+### 2026-08-27 — permutation scheme changed from within-date to global
+
+**State of the data: unchanged from first commit.** No scan, no load, no replay, no
+correlation had been run; `yt_metadata_en.jsonl.gz` was still downloading. Nothing
+about any result influenced this, because no result existed.
+
+**What changed.** The original text specified shuffling niche labels within each
+decision date. It now specifies one global permutation per replication, applied to
+every date.
+
+**Why.** The two disagreed across the project's own documents — the Slice 6 plan
+specified within-date, `.claude/skills/run-backtest/SKILL.md` specified globally — and
+the skill is right. A within-date null treats each date as an independent replicate,
+which the dates are not: consecutive 180-day outcome windows overlap by 179 days.
+Measured on the test suite, four weekly copies of a *single* date with rho = 0.486
+return **p = 0.034** under a within-date null — a significant result derived from one
+observation — and stay non-significant under a global one.
+
+**Direction.** The change is strictly more conservative: it makes the gate harder to
+pass, not easier. An intermediate fix (thinning the dates to non-overlapping windows)
+was implemented first and then removed, because it discards ~96% of the data to buy
+the same honesty the global permutation gets for free.
+
+**What did not change.** The primary result, the score, the outcome, the stratum, the
+supply proxy, the relevance threshold, the window split, the verdict rule, and the
+power table are all as first committed.

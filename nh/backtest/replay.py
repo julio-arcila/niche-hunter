@@ -183,9 +183,16 @@ def pair(
     return pairings
 
 
-def as_series(pairings: list[Pairing]) -> list[tuple[str, list[float], list[float]]]:
-    """The shape `stats.evaluate` takes."""
-    return [(p.day.isoformat(), p.scores, p.outcomes) for p in pairings]
+def as_series(
+    pairings: list[Pairing],
+) -> list[tuple[str, list[str], list[float], list[float]]]:
+    """The shape `stats.evaluate` takes.
+
+    The cluster ids travel with the numbers because the permutation null relabels
+    niches *globally* — one permutation per replication, applied at every date — and
+    that is only expressible if each date knows which niche each number belongs to.
+    """
+    return [(p.day.isoformat(), p.clusters, p.scores, p.outcomes) for p in pairings]
 
 
 __all__ = [

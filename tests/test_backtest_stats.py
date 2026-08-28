@@ -21,7 +21,6 @@ from nh.backtest.stats import (
     pearson,
     ranks,
     spearman,
-    thin,
 )
 
 
@@ -133,10 +132,9 @@ def test_independent_windows_is_always_at_most_the_date_count():
 
 
 def _dates(n: int, scores: list[float], outcomes: list[float]):
-    """`n` decision dates. Callers pass `spacing_days=200` so every date exceeds the
-    180-day horizon and is therefore an independent observation — otherwise thinning
-    would silently reduce the sample and the test would not say what it means."""
-    return [(f"date-{i:03d}", list(scores), list(outcomes)) for i in range(n)]
+    """`n` decision dates over the same niche set."""
+    clusters = [f"niche-{i}" for i in range(len(scores))]
+    return [(f"date-{i:03d}", list(clusters), list(scores), list(outcomes)) for i in range(n)]
 
 
 def test_a_real_signal_beats_the_permutation_null():
@@ -149,44 +147,55 @@ def test_a_real_signal_beats_the_permutation_null():
 
 def test_noise_does_not():
     """Six niches whose outcome ranks are unrelated to their scores."""
-    aggregate, _ = evaluate(
-        _dates(4, [1, 2, 3, 4, 5, 6], [4, 6, 1, 5, 2, 3]), draws=500, spacing_days=200
-    )
+    aggregate, _ = evaluate(_dates(4, [1, 2, 3, 4, 5, 6], [4, 6, 1, 5, 2, 3]), draws=500)
 
     assert aggregate.p_value > 0.05
 
 
-def test_overlapping_dates_do_not_each_count_as_an_observation():
-    """The defect this thinning exists for. Four weekly copies of one date carry one
-    date's worth of evidence; without thinning the permutation null treats them as
-    four draws and a rho of 0.486 comes back at p=0.034 -- a significant result
-    derived from a single observation."""
+def test_repeating_one_date_does_not_multiply_the_evidence():
+    """The defect the global permutation exists for. Four weekly copies of a single
+    date carry one date's worth of evidence, but a within-date null treats them as
+    four independent draws: rho=0.486 comes back at p=0.034, a significant result
+    derived from one observation. Permuting niche labels globally preserves each
+    niche's trajectory on both sides, so repetition adds no significance."""
+    clusters = [f"n{i}" for i in range(6)]
     weekly = [
-        (f"2018-01-{i * 7 + 1:02d}", [1, 2, 3, 4, 5, 6], [3, 1, 5, 2, 6, 4]) for i in range(4)
+        (f"2018-01-{i * 7 + 1:02d}", list(clusters), [1, 2, 3, 4, 5, 6], [3, 1, 5, 2, 6, 4])
+        for i in range(4)
     ]
 
     aggregate, _ = evaluate(weekly, spacing_days=7, horizon_days=180, draws=500)
 
-    assert aggregate.independent_windows == 1
     assert aggregate.dates == 4
+    assert aggregate.independent_windows == 1
     assert aggregate.p_value > 0.05
 
 
-def test_thinning_keeps_one_date_per_outcome_window():
-    weekly = [(f"d{i}", [1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) for i in range(60)]
+def test_the_null_permutes_the_same_labels_at_every_date():
+    """One permutation per replication, not one per date. If each date were permuted
+    independently the null would assert the dates are independent replicates and
+    shrink the standard error by sqrt(D)."""
+    clusters = ["a", "b", "c", "d", "e", "f"]
+    scores = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    # Two dates whose outcomes invert each other: any single global relabelling helps
+    # one date exactly as much as it hurts the other, so the aggregate sits at zero
+    # and neither date can lend the other significance.
+    data = [
+        ("d0", list(clusters), list(scores), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
+        ("d1", list(clusters), list(scores), [6.0, 5.0, 4.0, 3.0, 2.0, 1.0]),
+    ]
 
-    kept = thin(weekly, spacing_days=7, horizon_days=180)
+    aggregate, per_date = evaluate(data, draws=300)
 
-    assert [day for day, _, _ in kept] == ["d0", "d26", "d52"]
-    assert len(kept) == independent_windows(60, 7, 180)
+    assert per_date[0].rho == pytest.approx(1.0)
+    assert per_date[1].rho == pytest.approx(-1.0)
+    assert aggregate.rho == pytest.approx(0.0)
 
 
 def test_the_p_value_never_reports_zero():
     """A p-value of exactly 0 claims more resolution than the draw count supports.
     With `draws` samples the floor is 1/(draws+1)."""
-    aggregate, _ = evaluate(
-        _dates(4, [1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6]), draws=200, spacing_days=200
-    )
+    aggregate, _ = evaluate(_dates(4, [1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6]), draws=200)
 
     assert aggregate.p_value >= 1 / 201
 
@@ -195,20 +204,21 @@ def test_the_same_input_gives_the_same_p_value_twice():
     """A verdict that changes between runs cannot be cited in a report."""
     data = _dates(3, [1, 2, 3, 4, 5], [2, 1, 4, 3, 5])
 
-    first, _ = evaluate(data, draws=300, spacing_days=200)
-    second, _ = evaluate(data, draws=300, spacing_days=200)
+    first, _ = evaluate(data, draws=300)
+    second, _ = evaluate(data, draws=300)
 
     assert first.p_value == second.p_value
     assert (first.ci_low, first.ci_high) == (second.ci_low, second.ci_high)
 
 
 def test_a_date_whose_correlation_is_undefined_is_skipped_not_zeroed():
+    clusters = ["a", "b", "c", "d"]
     data = [
-        ("2018-01-01", [1, 2, 3, 4], [1, 2, 3, 4]),
-        ("2018-01-08", [5, 5, 5, 5], [1, 2, 3, 4]),  # constant scores
+        ("2018-01-01", clusters, [1, 2, 3, 4], [1, 2, 3, 4]),
+        ("2018-01-08", clusters, [5, 5, 5, 5], [1, 2, 3, 4]),  # constant scores
     ]
 
-    aggregate, per_date = evaluate(data, draws=200, spacing_days=200)
+    aggregate, per_date = evaluate(data, draws=200)
 
     assert per_date[1].rho is None
     assert aggregate.rho == pytest.approx(1.0)  # not 0.5
@@ -216,9 +226,7 @@ def test_a_date_whose_correlation_is_undefined_is_skipped_not_zeroed():
 
 
 def test_the_confidence_interval_brackets_the_estimate():
-    aggregate, _ = evaluate(
-        _dates(3, [1, 2, 3, 4, 5, 6], [1, 3, 2, 5, 4, 6]), draws=500, spacing_days=200
-    )
+    aggregate, _ = evaluate(_dates(3, [1, 2, 3, 4, 5, 6], [1, 3, 2, 5, 4, 6]), draws=500)
 
     assert aggregate.ci_low <= aggregate.rho <= aggregate.ci_high
 

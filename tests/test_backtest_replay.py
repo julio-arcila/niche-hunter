@@ -195,7 +195,9 @@ def test_a_date_with_fewer_than_three_pairs_carries_no_correlation(backtest_engi
     assert pair(backtest_engine, [day]) == []
 
 
-def test_as_series_aligns_scores_and_outcomes_by_niche():
+def test_as_series_carries_the_niche_ids_the_global_null_needs():
+    """The permutation relabels niches globally, which is only expressible if each
+    date knows which niche each number belongs to."""
     pairing = Pairing(
         day=date(2018, 1, 1),
         clusters=["a", "b", "c"],
@@ -206,7 +208,7 @@ def test_as_series_aligns_scores_and_outcomes_by_niche():
 
     series = as_series([pairing])
 
-    assert series == [("2018-01-01", [0.1, 0.2, 0.3], [1.0, 2.0, 3.0])]
+    assert series == [("2018-01-01", ["a", "b", "c"], [0.1, 0.2, 0.3], [1.0, 2.0, 3.0])]
 
 
 def test_sizes_are_carried_for_the_partial_correlation():
