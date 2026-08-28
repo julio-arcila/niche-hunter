@@ -48,6 +48,20 @@ def engine(settings: Settings) -> Iterator[Engine]:
 
 
 @pytest.fixture
+def backtest_engine(tmp_path) -> Iterator[Engine]:
+    """A database whose *name* marks it as the backtest corpus.
+
+    `nh.backtest.load._refuse_live` requires "backtest" in the URL, so this fixture
+    is not cosmetic: without it every loader test would hit the guard, and with it
+    the guard stays testable against the ordinary `engine` fixture.
+    """
+    eng = make_engine(Settings(database_url=f"sqlite:///{tmp_path / 'backtest.db'}"))
+    Base.metadata.create_all(eng)
+    yield eng
+    eng.dispose()
+
+
+@pytest.fixture
 def engine_b(tmp_path) -> Iterator[Engine]:
     """A second, independent database.
 
