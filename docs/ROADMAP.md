@@ -205,26 +205,41 @@ embeddings, and the review UI. The blockers to clear first are `demand_terms`
 resolving per seed rather than per cluster (pinned by a test), openness cohorts
 already starving at seed size, and more than one day of collection.
 
-### Slice 5 — Full feature set · size L
+### Slice 5 — Decision layer and Gate E readiness · size M · **AMENDED, shipped 2026-08-27**
 
-**Goal:** every metric in METRICS.md is implemented or explicitly deferred.
+**Planned:** Reddit + `voice.*`, remaining `supply.*`/`openness.*`, all of
+`cost_risk.*`, the Postgres swap. Exit: every metric implemented or explicitly
+deferred.
+
+**Shipped instead:** the decision layer. See **ADR-0020**. The planned list
+contradicts this roadmap's own risk #9 — *"calibration precedes breadth by
+construction. New sources wait"* — and every group in it terminates in a NULL
+scorecard column that Gate E could not backtest anyway. Two of its four sources do
+not exist to be collected: nobody had ever applied for Reddit access (ADR-0021),
+and primary sources resolve for 2 of 6 seeds.
 
 Ships:
-- `reddit` collector **if approved** — `voice.*` features
-- remaining `supply.*` (top-10 concentration, median top-video age, format mix)
-- remaining `openness.*` (newcomer share, RSS acceleration)
-- `cost_risk.*` — primary-source density and cadence, PD asset density,
-  evergreen score, brand-safety lexicon, enforcement trend
-- Postgres swap (ADR-0002 trigger reached)
+- `scorecards.stage` — a **demand-trajectory** classifier, pure and
+  threshold-parameterised, with zero tuned constants (ADR-0023). It is what Slice 6
+  replays, and it did not exist.
+- Both demand strata carried in parallel; they rank the niches near-inverted at
+  Spearman −0.70 and Gate E arbitrates (ADR-0022).
+- Seed coherence: `court-cases` split, `geo` stated, `supply.geo_concentration`
+  measuring the 57–67% divergence between a seed's market and its supply (ADR-0024).
+- `openness.winner_age_years`; `supply.top10_concentration`;
+  `supply.pressure_index`, the long-named fix for gap compression; `demand.wiki_yoy`,
+  `wiki_volatility_365d`, `wiki_seasonality` — all from history already on disk.
+- `nh deferrals`, which makes the exit criterion executable rather than prose.
 
-**Exit:** `features_daily` carries every defined metric with `confidence` and
-`inputs_n`; any deferral is written down with its reason.
+**Exit, as met:** `nh niche show` prints a stage with its basis; two strata each
+carry three years of history with a pre-registered criterion; `nh deferrals` lists
+eight deferrals each with a checkable trigger; `reports/gate_e_feasibility_*.md`
+answers whether Slice 6 is runnable.
 
-**Risk:** Reddit approval may never arrive. Design `voice.*` as optional inputs
-that lower a scorecard's confidence when absent — never as required inputs that
-block a score.
-
----
+**Deferred with triggers, not prose:** `voice.*` (nobody has applied), all KP money
+metrics (clock expires 2026-09-24), `cost_risk.*` (2 of 6 sources),
+`supply.format_mix` and `openness.rss_acceleration` (need history), the Postgres
+swap (ADR-0019), and `value`/`sustainability`/`opportunity`/`ci_*`.
 
 ### Slice 6 — Calibration · size L · **GO / NO-GO**
 
@@ -243,10 +258,21 @@ Ships:
 decision date, every number downstream is meaningless and will look excellent.
 Budget real time for auditing this, not for building it.
 
-**Exit:** precision and recall for "emerging" at 90 and 180 days, **stated
-alongside the base rate** — precision without the base rate is uninterpretable —
-plus a written analysis of the false positives. What they have in common is
-usually the next feature.
+**Exit — AMENDED by the Slice 5 feasibility spike
+(`reports/gate_e_feasibility_2026-08-27.md`):** rank correlation between the score
+at date *t* and realised growth over the next 90/180 days, with a permutation-test
+p-value, over a population described as survivorship-limited — plus a written
+analysis of where the ranking goes wrong.
+
+Precision and recall for a binary "emerging" is **not obtainable**. YouNiverse is
+"all channels with >10k subscribers and >10 videos" as of 2019-10-27, so every
+channel in it succeeded and a channel that stayed small was never crawled. The base
+rate of "emerged" on that population is ~1 by construction, and no sampling
+recovers absent rows. `docs/METRICS.md` already specifies rank correlation for
+`gap`; that framing wins.
+
+`outcome.growth_180d` is defined in METRICS.md, written before any replay code
+exists so it cannot be chosen after seeing results.
 
 **Gate E — the real one.** If precision is at or near the base rate:
 **do not build the dashboard.** Choose one:

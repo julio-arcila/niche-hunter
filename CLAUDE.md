@@ -69,30 +69,33 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
-- Phase: Slice 4 complete (amended — see ADR-0018). Gate D invoked: sub-niche
-  discovery deferred, per-video relevance shipped instead.
-- Membership is now two questions: channel identity (ADR-0013, unchanged) and
-  per-video topicality (`nh/clustering/relevance.py`). Before this, videos
-  inherited their channel's cluster and **only 20% were about their niche**;
-  every `supply.*` and `money.*` number was computed over the rest.
-- Relevance is a two-axis lexical rule — domain vocabulary AND failure/case
-  markers, geometric mean. Calibrated on 298 hand labels, held-out **precision
-  0.781, recall 0.694, base rate 28.6%**. That is below the 0.90 the plan asked
-  for; it ships because no filter is precision 0.286. reports/relevance_2026-08-27.md.
-  Spot-checked: a different model re-labelled 50 rows blind, kappa **0.943**,
-  47/48. That shows the criterion is unambiguous, NOT that the labels are right —
-  two language models can share a bias neither can see. A human pass is still the
-  check that would settle it.
-- `videos.description` rescued from `raw_records` before the prune took it
-  (13,855 rows, 93.0% coverage). `nh prune` now refuses to delete the last copy
-  of a description (ADR-0017).
-- 315 tests, zero network. Supply/money values all moved; supply RANKS and `gap`
-  did not, so the ranking was not an artifact of contamination. Confidence fell
-  everywhere, which is the honest half.
-- Still blocked: openness needs the enrichment backfill (274 units, ~2.9% of
-  budget) — `is_short` is NULL for 92% of videos, so `eligible_videos` sees 8.3%
-  of the corpus and 4 of 5 cohorts are empty. Expected at the next 09:10 cron.
-- Next: Slice 5 (full feature set) per docs/ROADMAP.md. Carried forward from
-  Slice 4 as a Slice 5 candidate: event-level Wikipedia articles dwarf the
-  topic-level baskets demand currently uses (Chernobyl_disaster alone is 4.59M
-  views/12mo against the entire aviation basket's 719K).
+- Phase: Slice 5 complete (amended — ADR-0020). Built the decision layer rather
+  than breadth, because every deferred group ends in a NULL scorecard column and
+  the roadmap's own risk #9 says calibration precedes breadth.
+- `scorecards.stage` exists — a **demand-trajectory** classifier, pure (no Session,
+  no clock), zero tuned constants, ADR-0023. It is what Slice 6 replays.
+- **Gate E cannot run as specified.** YouNiverse contains only channels that
+  crossed 10k subs by 2019, so "will this emerge?" has a base rate near 1 and no
+  sampling fixes it. Slice 6 must use rank correlation instead —
+  `reports/gate_e_feasibility_2026-08-27.md`, and `outcome.growth_180d` is now
+  defined in METRICS.md.
+- **The demand strata rank the niches near-inverted (Spearman −0.70).** Both are
+  carried; Gate E arbitrates against a pre-registered criterion (ADR-0022).
+- Seeds: 6 (court-cases split — its demand measured civics while its supply was
+  true-crime trials, ADR-0024). 57–67% of every niche's supply sits outside the
+  market its seed states; `supply.geo_concentration` reports it beside `gap`.
+- 376 tests, zero network. 17 metrics registered.
+- **Outstanding, and it gates Slice 6:** a *human* pass over
+  `reports/spotcheck_50.jsonl`. A second model agreed with my relevance labels at
+  kappa 0.943, which shows the criterion is unambiguous but cannot detect a bias two
+  language models share.
+- Still blocked: openness needs the enrichment backfill (274 units) — `is_short` is
+  NULL for 92% of videos, so 4 of 5 cohorts are empty. `nh deferrals` lists this and
+  seven others, each with a checkable trigger.
+- Next: Slice 6, redesigned per the feasibility report.
+
+## Commands added since the list above
+- `nh deferrals` — unimplemented metrics and what would unblock each
+- `nh cluster inspect|sample|import|calibrate` — relevance decisions and labels
+- `nh doctor --repair` — clear leftovers from an interrupted batch migration
+- `nh backfill descriptions` — re-derive `videos.description` from `raw_records`

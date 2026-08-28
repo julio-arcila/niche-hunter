@@ -414,3 +414,192 @@ day-over-day stability metric would read ~1.0 by construction and prove nothing.
 **Any scorer whose output depends on the corpus makes this false.** That is the real
 reason corpus IDF is banned in `nh/clustering/lexicon.py`: it would drift with the
 corpus, break Slice 6's replay, and make the history table mandatory.
+
+## ADR-0019 — Postgres deferred; the trigger restated in checkable terms
+2026-08-27. Accepted. **Refines ADR-0002.** Its trigger read "move when clustering
+starts (Phase 2) and JSONB queries and concurrent writers begin to matter."
+Clustering shipped in Slice 4 and neither condition followed, which means the
+trigger was a *prediction about what clustering would require* and the prediction
+was wrong. Measured: no query anywhere in `nh/` indexes into a JSON column —
+`JSONVariant` columns are read whole as Python objects — phases run sequentially in
+one process, and the only concurrency is eight RSS fetch workers writing through a
+single session.
+
+Replacement trigger, any one of which fires the swap, all checkable by a person or
+a script rather than by judgement:
+
+1. a query filters or indexes *inside* a JSON payload (`payload ->> 'x'` in a
+   `WHERE` or an index) — checkable by grep, which is how the current trigger was
+   disproved;
+2. more than one OS process writes concurrently — `nh/api` or `nh/web` writing
+   (Slice 7), a second cron, or parallel phases;
+3. the nightly backup copy stops fitting inside its cron window — measured, not a
+   guessed byte threshold;
+4. deploy leaves the laptop (Slice 8), where PITR is the driver and JSONB is
+   incidental.
+
+**ADR-0002's claim that "the swap is `NH_DATABASE_URL` and nothing else" is false**,
+and is recorded as false here so nobody re-inherits it. Four specific things:
+
+- `nh/db/retention.py::storage_report` called `length()` on `RawRecord.payload`,
+  which is JSONB on Postgres. **`length(jsonb)` does not exist** — it raises
+  `UndefinedFunction` at runtime, not a wrong number — and no test could catch it
+  because `tests/conftest.py` is SQLite-only. Fixed in Slice 5 with a cast.
+- **There is no data-migration path.** `alembic upgrade head` creates an empty
+  Postgres schema; it does not move rows. Snapshots cannot be re-fetched (rule 4),
+  so the swap needs a tested copy job with row-count and checksum verification.
+- Integer primary keys become sequences that must be `setval`'d after a bulk copy,
+  or the first insert collides.
+- Zero tests have ever executed against Postgres.
+
+`tests/test_migrations.py` (Slice 5) is the closest rehearsal available: it builds
+the schema from empty and asserts it equals `Base.metadata.tables`, which is exactly
+what the swap will do for the first time.
+
+## ADR-0020 — Slice 5 is the decision layer; breadth waits behind Gate E
+2026-08-27. Accepted. **Amends the Slice 5 ships list in docs/ROADMAP.md.** That
+list is Reddit + `voice.*`, remaining `supply.*`/`openness.*`, all of `cost_risk.*`,
+and the Postgres swap. It contradicts the roadmap's own risk register, #9:
+*"Scope creep into more sources before calibration → Calibration (S6) precedes
+breadth by construction. New sources wait."*
+
+Every deferred group terminates in a NULL scorecard column: `voice.*` feeds Rule 7
+(unimplemented) and `value`; `cost_risk.*` feeds `sustainability` and `value`; the
+KP money metrics feed `value`. Building them would populate `features_daily` columns
+nothing reads, none of which Gate E could backtest for lack of history.
+
+Two of the four sources also do not exist to be collected (ADR-0021 for Reddit;
+`niche_seeds.primary_sources` for the rest, where a live test found CourtListener
+and EDGAR open, NTSB's CAROL API rejecting documented payloads, USCG 403, NIST no
+API — 2 of 6 seeds).
+
+Shipped instead: `scorecards.stage` (ADR-0023), both demand strata (ADR-0022), the
+seed-coherence fixes (ADR-0024), `openness.winner_age_years`,
+`supply.on_niche_share`'s companions, and an executable deferral register.
+
+**`scorecards.opportunity` is a Slice 6 OUTPUT, not a Slice 5 input.** Its weight
+vector is precisely what the backtest exists to choose; picking weights and then
+calibrating them is circular. The roadmap has it in the wrong slice. `value`,
+`sustainability`, `ci_low` and `ci_high` stay NULL behind checkable triggers.
+
+This is the second consecutive slice amended by ADR after Slice 4/ADR-0018, and
+that pattern is worth naming rather than repeating silently: the slice contents were
+written before any data existed, and both amendments were forced by measurement.
+The correction is to stop specifying slice contents more than one gate ahead — not
+to stop amending.
+
+## ADR-0021 — `voice.*` is unstarted, not pending
+2026-08-27. Accepted. Every mention of Reddit in this repo is conditional — "if
+approved", "may never arrive", "until credentials exist", "blocked on approval" —
+and an exhaustive search found no ticket, no application id, no date, no submitter,
+and no ADR. Contrast ADR-0016, which recorded "no application in flight" for Google
+Ads **and started a dated clock**. Reddit got the phrasing and no clock, and has
+been carried as a plan dependency across three slices on that basis.
+
+It is therefore removed from every slice's ships list. `voice.*` is registered in
+the deferral table with the trigger `NH_REDDIT_CLIENT_ID is set`, which is honest:
+nothing happens until someone applies. Roadmap risk #4 already prescribes the
+design — optional inputs with a confidence penalty, never required inputs — and
+that shape is what a future port must fit.
+
+Recorded so the distinction survives: "blocked on approval" describes a policy, not
+a queue position.
+
+## ADR-0022 — Two demand strata, arbitrated by Gate E
+2026-08-27. Accepted. Slice 3 curated three topic-level Wikipedia articles per
+niche. Slice 5 added twenty event-level articles per niche and found the two rank
+the niches **almost exactly in reverse: Spearman rho = −0.70**. Under the topic
+stratum `landmark-court-cases` is the portfolio's highest-demand niche; under the
+event stratum it is the lowest, by 26x.
+
+They are not two estimates of one quantity. Topic articles are reference pages and
+carry standing, navigational, school-calendar interest; event articles are
+occurrences and carry episodic attention. `demand.event_topic_ratio` therefore
+becomes a metric in its own right — a news-drivenness proxy, and one of the
+`cost_risk` measures that otherwise has no source.
+
+**Neither is promoted.** `wiki_weekly_views` keeps its name and its topic articles
+so the series stored since Slice 3 stays comparable; `wiki_weekly_views_event` runs
+beside it. Choosing on the strength of a five-unit table would be deciding by
+argument which of two things better proxies a quantity neither directly measures —
+which is how the topic basket was chosen in the first place.
+
+Carrying both is affordable because `wikipedia._resume_from` returns `None` for an
+unseen term and falls back to `wiki_backfill_days`, so adding a `seed_terms` row
+triggers a multi-year backfill on the next nightly, quota-free. 120 articles took
+one run and 132,859 rows. Demand history is not the unbackfillable asset.
+
+Selection is a **fixed-K uniform random sample from a class or category pool with
+the RNG seed recorded**, not the largest articles. Ranking by pageviews selects for
+fame, and that is not hypothetical: a hand-picked comparison in the planning notes
+put aviation's event stratum at 4.9x its topic basket; the unbiased sample says
+0.37x. Hand-picking inflated it roughly thirteenfold.
+
+The pool generator differs per niche — three Wikidata classes, three category
+fallbacks — and that heterogeneity is recorded per niche rather than smoothed over.
+Gate E decides, against the criterion pre-registered in
+`reports/demand_stratum_2026-08-27.md`.
+
+## ADR-0023 — `stage` v1 is a demand-trajectory classifier with zero tuned constants
+2026-08-27. Accepted. `scorecards.stage` is what Slice 6 replays for its go/no-go,
+and it did not exist and had no definition anywhere.
+
+`nh/scoring/lifecycle.py::classify` is **pure** — no `Session`, no clock, no
+queries — and tests assert both the signature and that the module never imports
+`nh.db` or `sqlalchemy`. That purity *is* the anti-leakage guarantee: a function
+that cannot read anything cannot read a snapshot from after the decision date, so
+Slice 6's audit is one call site rather than six feature modules.
+
+It is named a **demand-trajectory** stage, not a lifecycle stage. A lifecycle
+classifier would read supply momentum, and supply momentum does not exist:
+`video_snapshots` holds one day against `demand_snapshots`' 1,096. Naming it
+honestly narrows what Gate E can conclude, and the narrowing is the strongest
+sequencing argument available — if demand trajectory alone predicts nothing, the
+thesis is dead regardless of supply, and that is learnable from data already held.
+
+Both cutoffs are **0**, because zero *is* the definition of growing and of a
+positive gap — not a number chosen because the output looked right, which
+docs/METRICS.md warns about three separate times. There is no confidence floor
+either: that would be a fourth constant and would hide a weak call behind `unknown`
+instead of reporting it, which `stage_confidence` does without discarding the stage.
+
+The momentum axis is `demand.wiki_yoy`, not `wiki_momentum_28d`. Measured this
+slice, **three of four niches peak in September**, so a late-August
+month-over-month reading measures the school calendar — exactly what that metric's
+own entry warned it might. The 28-day figure is carried into `detail` as evidence
+and a test proves it cannot decide a stage.
+
+Recorded as a known limitation: all four active niches have negative `wiki_yoy`
+(−13.5% to −24.8%), so the momentum axis does not currently discriminate. That is a
+fact about this portfolio, not a defect in the metric.
+
+## ADR-0024 — A seed's label, keywords and articles must name the same subject
+2026-08-27. Accepted. `gap` subtracts a supply rank from a demand rank, which is
+only meaningful when both describe the same thing. For `court-cases` they did not.
+Its label and demand articles were about landmark constitutional decisions; its
+supply was contemporary true-crime trial streaming — measured, *Lindsay Clancy* in
+59 of 520 on-niche titles, then Mario Fernandez Saldana, the Bridegan murder,
+Karmelo Anthony. The gap it reported was a category error, and Slice 3's own note
+predicted it ("may be measuring civics rather than the niche; revisit once
+inspectable").
+
+Split into `landmark-court-cases`, which keeps the demand articles and gets
+keywords that ask for them, and `true-crime-trials`, which is what the supply was.
+600 quota units a night.
+
+**Seed coherence becomes a stated property with a validation rule.** The test is
+*not* "does demand cover what supply names" — a niche with demand and no supply is
+precisely the signal the product exists to find, so scoring baskets on supply
+coverage would launder the signal into the selection. The test is that a seed's
+**keywords and its articles refer to the same domain**; selection stays independent
+of supply and only coherence is checked.
+
+`niche_seeds.geo` now states the market a niche is *about*. This reverses the
+earlier `test_geo_is_null_not_invented`, and the distinction matters: that test was
+right that an invented geo must not become a *request parameter*, and
+`seed_terms.geo` still carries that and is still `''`. `niche_seeds.geo` is a stated
+intent that nothing sends anywhere, and `supply.geo_concentration` measures
+divergence from it. Measured: **57–67% of every niche's supply sits outside the
+market its seed claims**, while demand is read off English Wikipedia. The gap could
+not see that; the metric reports it beside the gap rather than being folded into
+it, because combining them would invent an exchange rate.
