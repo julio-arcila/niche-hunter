@@ -76,3 +76,14 @@ def test_no_deferral_is_silently_unblocked_today(deferral):
     """If this fails, something became implementable and nobody noticed — which is
     the whole point of the register."""
     assert fires(deferral, date(2026, 8, 27)) is not True
+
+
+def test_the_relevance_validation_deferral_names_slice_7_not_slice_6():
+    """It was deferred deliberately, and the boundary is the decision. Slice 6 can
+    run on an unvalidated relevance rule because a threshold-sensitivity pass
+    substitutes for the check; Slice 7 cannot, because it would build a product
+    surface on an unvalidated definition of "niche"."""
+    validation = next(d for d in DEFERRALS if "human validation" in d.metric)
+    assert "SLICE 7" in validation.trigger
+    assert validation.kind == "manual"
+    assert "kappa" in validation.blocker

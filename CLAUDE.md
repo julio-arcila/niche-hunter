@@ -85,10 +85,12 @@ reviewer. Summarize exploration briefly.
   true-crime trials, ADR-0024). 57–67% of every niche's supply sits outside the
   market its seed states; `supply.geo_concentration` reports it beside `gap`.
 - 376 tests, zero network. 17 metrics registered.
-- **Outstanding, and it gates Slice 6:** a *human* pass over
-  `reports/spotcheck_50.jsonl`. A second model agreed with my relevance labels at
-  kappa 0.943, which shows the criterion is unambiguous but cannot detect a bias two
-  language models share.
+- **Outstanding, deferred to before Slice 7:** a *human* pass over
+  `reports/spotcheck_50.jsonl`. A second model agreed at kappa 0.943 — the criterion
+  is unambiguous, which is not the same as right. Slice 6 buys insurance instead by
+  running the backtest at three relevance thresholds; the score is stored and the
+  cut applied at read time, so that is a query. Building Slice 7's product surface
+  on an unvalidated definition of "niche" is not deferrable.
 - Still blocked: openness needs the enrichment backfill (274 units) — `is_short` is
   NULL for 92% of videos, so 4 of 5 cohorts are empty. `nh deferrals` lists this and
   seven others, each with a checkable trigger.

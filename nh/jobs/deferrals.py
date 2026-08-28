@@ -45,6 +45,24 @@ class Deferral:
 #: Ordered roughly by how close each is to firing.
 DEFERRALS: tuple[Deferral, ...] = (
     Deferral(
+        metric="relevance rule — independent human validation",
+        blocker=(
+            "held-out precision 0.781 was measured against labels written by the "
+            "same system that wrote the lexicon; a second model agreed at kappa "
+            "0.943, which shows the criterion is unambiguous but cannot detect a "
+            "bias two language models share"
+        ),
+        kind="manual",
+        trigger=(
+            "a human labels reports/spotcheck_50.jsonl — REQUIRED BEFORE SLICE 7, "
+            "not before Slice 6"
+        ),
+        consumer=(
+            "every supply.* and money.* number, and the niches Slice 6 constructs from YouNiverse"
+        ),
+        cost="~20 minutes of reading; scripts/spotcheck_agreement.py reports kappa",
+    ),
+    Deferral(
         metric="supply.median_top_video_age",
         blocker=(
             "corpus is 96% under 90 days old — RSS returns a channel's newest 15 "

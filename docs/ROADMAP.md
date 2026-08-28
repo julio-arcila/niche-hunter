@@ -274,6 +274,27 @@ recovers absent rows. `docs/METRICS.md` already specifies rank correlation for
 `outcome.growth_180d` is defined in METRICS.md, written before any replay code
 exists so it cannot be chosen after seeing results.
 
+**Also required, and it substitutes for a check that was deferred:** run the
+backtest at **three relevance thresholds** and report whether the rank correlation
+survives. Slice 4 stores the relevance *score* and applies the cut at read time, so
+this is a query rather than a re-run.
+
+The niches Slice 6 constructs from YouNiverse are defined by a relevance rule whose
+held-out precision (0.781) was measured against labels written by the same system
+that wrote the lexicon. A second model agreed at kappa 0.943 — which shows the
+criterion is unambiguous, and cannot detect a bias two language models share. The
+independent human pass is deferred to before Slice 7 (`nh deferrals`).
+
+A correlation stable across thresholds means the labelling bias does not reach the
+conclusion. A correlation that moves with the threshold means the relevance rule is
+producing the result, and the human check becomes urgent before anything here is
+believed.
+
+**`reports/backtest_*.md` must state that its niches were defined by an unvalidated
+rule**, so a null result is not over-read: "the thesis is dead" and "the features
+were wrong" look identical from the outside, and only that sentence keeps them
+apart.
+
 **Gate E — the real one.** If precision is at or near the base rate:
 **do not build the dashboard.** Choose one:
 - return to Slice 5 with what the failure analysis taught you, or
