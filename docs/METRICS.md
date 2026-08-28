@@ -26,7 +26,7 @@ Feeds        : which composite score, if any
 
 ## Defined
 
-Sixteen metrics across four of the six groups (`voice` and `cost_risk` are still
+Seventeen metrics across four of the six groups (`voice` and `cost_risk` are still
 empty). Each was verified to **vary across the five live niches** before
 implementation — a metric that is flat across the units it
 compares is not a comparator, however plausible its formula.
@@ -354,6 +354,34 @@ Failure mode : +/-5 point sampling jitter between fetches moves the ratio; the
                (aviation disasters documentary = NaN) must be replaced in
                seed_terms, never padded here.
 Feeds        : none yet — corroboration display in Slice 3
+```
+
+### supply.pressure_index
+```
+Formula      : mean of the within-day percentile ranks of supply.median_views and
+               supply.uploads_per_week, over the clusters scored that day.
+Inputs       : features_daily (the same day's rows for those two metrics)
+Join key     : cluster_id
+Confidence   : min of the two components' confidences. Ranks carry no confidence of
+               their own, so the weaker input bounds it.
+Failure mode : a rank, so NOT comparable across days on which the cluster set
+               changed -- same limitation as scorecards.supply and gap, and the
+               population it was ranked over is recorded in detail.ranked_over so a
+               later reader can tell. Both components are themselves on-niche-only
+               (definition v2-on-niche), so it inherits relevance precision 0.781.
+Why a MEAN OF RANKS: it invents no weights. Any coefficient on "how big are the
+               winners" versus "how much arrives" would be a fabricated constant,
+               and there is nothing to calibrate one against until Gate E.
+Why it exists: docs/METRICS.md's composite-stub note names this as the fix for gap
+               compression -- scorecards.supply ranks median_views alone, which
+               correlates with niche size, and so does demand, so gap is a mismatch
+               of two ranks that share a driver and comes out narrower than either.
+Feeds        : nothing yet. It ships BESIDE scorecards.supply rather than replacing
+               it, so the stored series survives and Slice 6 backtests both -- the
+               same treatment the two demand strata get.
+Measured     : 2026-08-27 -- aviation 1.00, engineering 0.67, corporate 0.17,
+               maritime 0.17. The tie is the metric working: those two hold
+               opposite ranks on the two components and the mean cancels them.
 ```
 
 ### supply.top10_concentration

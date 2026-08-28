@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 import sqlalchemy as sa
 
 from nh.db.session import session_scope
@@ -14,14 +15,14 @@ from tests.conftest_features import CLUSTER, DAY, RUN, add_channel, make_cluster
 def test_uploads_per_week_divides_the_window_not_the_channel_count(engine):
     """A cluster total: supply is the volume a newcomer competes against."""
     make_cluster(engine)
-    add_channel(engine, "a", videos=4, age_days=1)
-    add_channel(engine, "b", videos=4, age_days=1)
+    add_channel(engine, "a", videos=4, age_days=20)
+    add_channel(engine, "b", videos=4, age_days=20)
     assert uploads_per_week(session_for(engine), CLUSTER, DAY).value == 2.0  # 8 over 4 weeks
 
 
 def test_uploads_outside_the_window_are_not_counted(engine):
     make_cluster(engine)
-    add_channel(engine, "recent", videos=4, age_days=1)
+    add_channel(engine, "recent", videos=4, age_days=20)
     add_channel(engine, "stale", videos=40, age_days=200)
     assert uploads_per_week(session_for(engine), CLUSTER, DAY).value == 1.0
 
@@ -171,3 +172,66 @@ def test_it_reports_where_the_supply_actually_is(engine):
 
     assert result.value == 0.25
     assert result.detail["top_countries"][0] == ("IN", 3)
+
+
+# -- pressure_index ----------------------------------------------------------
+
+
+def test_pressure_index_is_the_mean_of_two_ranks_not_a_weighted_blend(engine):
+    """Mean of ranks invents no weights. Any coefficient on "how big are the
+    winners" versus "how much arrives" would be a fabricated constant with nothing
+    to calibrate it against until Gate E."""
+    from functools import partial
+
+    from nh.db.provenance import stamp
+    from nh.db.types import utcnow
+    from nh.features.run import compute
+
+    make_cluster(engine, "a")
+    make_cluster(engine, "b")
+    # `a` wins on median_views, `b` wins on uploads — the ranks should cancel.
+    add_channel(engine, "UCa", cluster_id="a", videos=6, views=10_000, age_days=20)
+    add_channel(engine, "UCb1", cluster_id="b", videos=6, views=10, age_days=20)
+    add_channel(engine, "UCb2", cluster_id="b", videos=6, views=10, age_days=20)
+
+    mark = partial(stamp, source="features", run_id="t", at=utcnow())
+    with session_scope(engine) as s:
+        compute(s, DAY, mark)
+        rows = dict(
+            s.execute(
+                sa.text("SELECT cluster_id, value FROM features_daily WHERE name='pressure_index'")
+            ).all()
+        )
+    assert set(rows) == {"a", "b"}
+    # Two clusters, opposite ranks on the two components -> both land at 0.5.
+    assert rows["a"] == pytest.approx(0.5)
+    assert rows["b"] == pytest.approx(0.5)
+
+
+def test_pressure_index_records_its_components_and_population(engine):
+    """A rank is only meaningful against the set it was taken over, so the set is
+    part of the row."""
+    from functools import partial
+
+    from nh.db.provenance import stamp
+    from nh.db.types import utcnow
+    from nh.features.run import compute
+
+    make_cluster(engine, "a")
+    make_cluster(engine, "b")
+    add_channel(engine, "UCa", cluster_id="a", videos=6, views=10_000, age_days=20)
+    add_channel(engine, "UCb", cluster_id="b", videos=6, views=10, age_days=20)
+
+    mark = partial(stamp, source="features", run_id="t", at=utcnow())
+    with session_scope(engine) as s:
+        compute(s, DAY, mark)
+        detail = s.execute(
+            sa.text(
+                "SELECT detail FROM features_daily WHERE name='pressure_index' AND cluster_id='a'"
+            )
+        ).scalar()
+    import json
+
+    detail = json.loads(detail) if isinstance(detail, str) else detail
+    assert set(detail["components"]) == {"median_views", "uploads_per_week"}
+    assert detail["ranked_over"] == ["a", "b"]
