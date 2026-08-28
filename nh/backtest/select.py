@@ -19,7 +19,9 @@ share evidence.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from nh.backtest.niches import MIN_MEMBER_CHANNELS, MIN_ON_NICHE_VIDEOS, by_slug
 from nh.backtest.scan import ChannelCounts
@@ -37,6 +39,35 @@ class Selection:
     @property
     def kept(self) -> list[str]:
         return sorted(self.members)
+
+    def save(self, path: Path) -> None:
+        """Persist the selection between the scan and the load.
+
+        The scan is a five-hour pass over 13.6 GB and the load is a separate command,
+        so the decision about which channels belong to which niche has to survive the
+        gap. Writing it also makes it reviewable before millions of rows are
+        materialised on the strength of it.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "members": {slug: sorted(ids) for slug, ids in sorted(self.members.items())},
+                    "dropped": self.dropped,
+                    "contested": self.contested,
+                },
+                indent=2,
+            )
+        )
+
+    @classmethod
+    def load(cls, path: Path) -> Selection:
+        raw = json.loads(path.read_text())
+        return cls(
+            members={slug: set(ids) for slug, ids in raw["members"].items()},
+            dropped=[tuple(pair) for pair in raw["dropped"]],
+            contested=raw["contested"],
+        )
 
 
 def dominant_niche(

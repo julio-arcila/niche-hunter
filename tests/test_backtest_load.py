@@ -278,3 +278,42 @@ def test_loading_twice_changes_nothing(backtest_engine, tmp_path):
     with session_scope(backtest_engine) as session:
         after = session.scalar(sa.select(sa.func.count()).select_from(ChannelSnapshot))
     assert before == after == 3
+
+
+# --------------------------------------------------------------------------
+# Selection round-trip
+# --------------------------------------------------------------------------
+
+
+def test_a_selection_survives_the_gap_between_scan_and_load(tmp_path):
+    """The scan is a multi-hour pass over 13.6 GB and the load is a separate command,
+    so the assignment has to persist. Writing it also makes it reviewable before
+    millions of rows are materialised on the strength of it."""
+    from nh.backtest.select import Selection
+
+    original = Selection(
+        members={SLUG: {"UCb", "UCa"}}, dropped=[("chemical-spills", 4)], contested=7
+    )
+    path = tmp_path / "selection.json"
+
+    original.save(path)
+    restored = Selection.load(path)
+
+    assert restored.members == original.members
+    assert restored.dropped == original.dropped
+    assert restored.contested == 7
+
+
+def test_a_saved_selection_is_diffable(tmp_path):
+    """Sorted and indented, so a re-run's assignment can be reviewed as a diff rather
+    than as an opaque blob."""
+    from nh.backtest.select import Selection
+
+    path = tmp_path / "selection.json"
+    Selection(members={"b": {"UCz", "UCa"}, "a": {"UCq"}}).save(path)
+
+    text = path.read_text()
+
+    assert text.index('"a"') < text.index('"b"')
+    assert text.index('"UCa"') < text.index('"UCz"')
+    assert "\n" in text

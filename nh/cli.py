@@ -525,5 +525,167 @@ def doctor(
             typer.echo(f"  dropped {name} ({held} row(s))")
 
 
+backtest_app = typer.Typer(
+    no_args_is_help=True,
+    help="Gate E: replay the scorer over 2015-2019 and correlate with what happened.",
+)
+app.add_typer(backtest_app, name="backtest")
+
+
+def _backtest_engine():
+    """The engine, having refused anything not named as a backtest database.
+
+    The load writes ~30 fake clusters and millions of 2019 rows; in the live corpus
+    `nh nightly` would then RSS-poll channels that stopped uploading in 2019 and rank
+    live niches against phantom ones. Set
+    `NH_DATABASE_URL=sqlite:///data/backtest.db`.
+    """
+    from nh.backtest.load import refuse_live
+    from nh.db.session import get_engine
+
+    engine = get_engine()
+    refuse_live(engine)
+    return engine
+
+
+@backtest_app.command("scan")
+def backtest_scan(
+    metadata: Path = typer.Option(
+        Path("data/youniverse/yt_metadata_en.jsonl.gz"), help="The 13.6 GB video dump."
+    ),
+    out: Path = typer.Option(Path("data/backtest/hits.jsonl.gz"), help="Where hits are written."),
+    selection_out: Path = typer.Option(
+        Path("data/backtest/selection.json"), help="Where the niche assignment is written."
+    ),
+    limit: int = typer.Option(0, help="Stop after N videos. 0 scans the file."),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Score 73M video titles against the backtest lexicons. One pass, keeps almost none of it."""
+    _setup_logging(verbose)
+    from nh.backtest.scan import scan
+    from nh.backtest.select import select
+
+    result = scan(metadata, out, limit=limit or None)
+    typer.echo(f"videos read   : {result.videos_read:,}")
+    typer.echo(f"videos scored : {result.videos_scored:,} ({result.hits:,} hits)")
+
+    selection = select(result.counts)
+    selection.save(selection_out)
+    typer.echo(f"niches kept   : {len(selection.kept)} (written to {selection_out})")
+    typer.echo(f"contested     : {selection.contested:,} channels qualified for more than one")
+    for slug, n in selection.dropped:
+        typer.echo(f"  dropped {slug}: {n} member channels")
+
+
+@backtest_app.command("load")
+def backtest_load(
+    hits: Path = typer.Option(Path("data/backtest/hits.jsonl.gz")),
+    selection_path: Path = typer.Option(Path("data/backtest/selection.json")),
+    channels: Path = typer.Option(Path("data/youniverse/df_channels_en.tsv.gz")),
+    timeseries: Path = typer.Option(Path("data/youniverse/df_timeseries_en.tsv.gz")),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Materialise the selected population into the backtest database."""
+    _setup_logging(verbose)
+    import uuid
+    from datetime import UTC
+
+    from nh.backtest.load import load
+    from nh.backtest.select import Selection
+
+    engine = _backtest_engine()
+    report = load(
+        engine,
+        selection=Selection.load(selection_path),
+        hits=hits,
+        channels_path=channels,
+        timeseries_path=timeseries,
+        run_id=str(uuid.uuid4()),
+        at=datetime.now(UTC),
+    )
+    typer.echo(f"clusters      : {report.clusters}")
+    typer.echo(f"channels      : {report.channels:,}")
+    typer.echo(f"channel weeks : {report.channel_weeks:,}")
+    typer.echo(f"videos        : {report.videos:,} ({report.video_members:,} memberships)")
+    if report.channels_without_metadata:
+        typer.secho(
+            f"no metadata for {len(report.channels_without_metadata)} selected channel(s)",
+            fg=typer.colors.YELLOW,
+        )
+
+
+@backtest_app.command("replay")
+def backtest_replay(
+    start: datetime = typer.Option(..., formats=["%Y-%m-%d"]),
+    end: datetime = typer.Option(..., formats=["%Y-%m-%d"]),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Compute features and scorecards at every weekly decision date in the window."""
+    _setup_logging(verbose)
+    import uuid
+
+    from nh.backtest.replay import decision_dates, replay
+
+    engine = _backtest_engine()
+    dates = decision_dates(start.date(), end.date())
+    typer.echo(f"decision dates: {len(dates)}")
+    rows, cards = replay(engine, dates, run_id=str(uuid.uuid4()))
+    typer.echo(f"feature rows  : {rows:,}")
+    typer.echo(f"scorecards    : {cards:,}")
+
+
+@backtest_app.command("score")
+def backtest_score(
+    start: datetime = typer.Option(..., formats=["%Y-%m-%d"]),
+    end: datetime = typer.Option(..., formats=["%Y-%m-%d"]),
+    horizon: int = typer.Option(180, help="Outcome horizon in days."),
+    out: Path = typer.Option(None, help="Report path. Defaults to reports/backtest_<today>.md"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Pair scores with outcomes, run the pre-registered test, write the report."""
+    _setup_logging(verbose)
+    from nh.backtest.niches import by_slug
+    from nh.backtest.replay import as_series, decision_dates, pair
+    from nh.backtest.report import Findings, Variant, render, verdict
+    from nh.backtest.stats import evaluate, partial_spearman, spearman
+
+    engine = _backtest_engine()
+    pairings = pair(engine, decision_dates(start.date(), end.date()), horizon_days=horizon)
+    if not pairings:
+        typer.secho("no date has three scored niches with outcomes", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    aggregate, per_date = evaluate(as_series(pairings))
+    # The size baseline, pooled across dates: a score that ranks niches by how big
+    # they are needs no pipeline to reproduce.
+    scores = [s for p in pairings for s in p.scores]
+    outcomes = [o for p in pairings for o in p.outcomes]
+    sizes = [float(n) for p in pairings for n in p.sizes]
+
+    findings = Findings(
+        day=date.today(),
+        primary=Variant(
+            label="gap",
+            stratum="topic",
+            supply_from="views_per_new_video",
+            threshold=0.55,
+            horizon_days=horizon,
+            aggregate=aggregate,
+        ),
+        niches_selected=aggregate.n_median,
+        niches_committed=len(by_slug()),
+        per_date=per_date,
+        size_rho=spearman(sizes, outcomes),
+        size_controlled_rho=partial_spearman(scores, outcomes, sizes),
+    )
+    label, reason = verdict(findings)
+    path = out or Path(f"reports/backtest_{date.today().isoformat()}.md")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render(findings))
+    typer.echo(f"wrote {path}")
+    colour = typer.colors.GREEN if label == "PASS" else typer.colors.YELLOW
+    typer.secho(f"{label} — {reason}", fg=colour)
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()
