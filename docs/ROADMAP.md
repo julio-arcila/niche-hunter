@@ -245,6 +245,15 @@ swap (ADR-0019), and `value`/`sustainability`/`opportunity`/`ci_*`.
 
 **Goal:** find out whether any of this predicts anything.
 
+**Status 2026-08-28: the instrument is built and green; the verdict is not in.**
+All of `nh/backtest/` ships — `niches.py` (36 niches in 6 families, committed before
+the data landed), `scan.py`, `select.py`, `youniverse.py`, `load.py`, `outcome.py`,
+`replay.py`, `stats.py`, `report.py` — behind `nh backtest seed|scan|load|replay|score`.
+The primary result, the verdict rule and the permutation scheme are fixed in
+`reports/backtest_preregistration_2026-08-27.md` with an amendment log. What remains
+is operator time, not design: `yt_metadata_en.jsonl.gz` is still downloading, and the
+scan cannot run until it lands.
+
 Ships:
 - YouNiverse loader → the existing `channels` / `channel_snapshots` / `videos`
   tables in a **separate database file**, so no backtest row can reach the live
@@ -256,7 +265,8 @@ Ships:
 - `supply.views_per_new_video`, because `median_views` is NULL at every historical
   date and would otherwise take `gap` and `stage` with it
 - threshold tuning on one window, validation on a window you did not tune against
-- `reports/backtest_<date>.md`
+- `reports/backtest_<date>.md`, with the verdict rule applied by `report.verdict`
+  rather than by the writer's judgement on the day
 
 **Dropped from this list (ADR-0025):** the Wayback CDX collector and
 `historical_channel_weeks`. YouNiverse supplies historical subscriber counts for
@@ -284,6 +294,19 @@ Budget real time for auditing this, not for building it.
 at date *t* and realised growth over the next 90/180 days, with a permutation-test
 p-value, over a population described as survivorship-limited — plus a written
 analysis of where the ranking goes wrong.
+
+**The null permutes niche labels globally**, one permutation per replication applied
+to every date — not within each date. Consecutive weekly decision dates share 179 of
+their 180 outcome days, so a within-date null treats them as independent replicates
+and shrinks the standard error by `sqrt(D)`. Measured: four weekly copies of a single
+date with rho = 0.486 return p = 0.034 under a within-date null. The effective sample
+size is the number of *niches*, which is what the power table is computed on; the
+count of quasi-independent windows is reported as a diagnostic and never as an N.
+
+**A null and an underpowered run are different verdicts.** Below 20 surviving niches
+the smallest detectable rho exceeds any effect worth having, so `report.verdict`
+returns INCONCLUSIVE — UNDERPOWERED rather than FAIL. Only a null licenses abandoning
+the thesis.
 
 Precision and recall for a binary "emerging" is **not obtainable**. YouNiverse is
 "all channels with >10k subscribers and >10 videos" as of 2019-10-27, so every

@@ -69,35 +69,18 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
-- Phase: Slice 5 complete (amended — ADR-0020). Built the decision layer rather
-  than breadth, because every deferred group ends in a NULL scorecard column and
-  the roadmap's own risk #9 says calibration precedes breadth.
-- `scorecards.stage` exists — a **demand-trajectory** classifier, pure (no Session,
-  no clock), zero tuned constants, ADR-0023. It is what Slice 6 replays.
-- **Gate E cannot run as specified.** YouNiverse contains only channels that
-  crossed 10k subs by 2019, so "will this emerge?" has a base rate near 1 and no
-  sampling fixes it. Slice 6 must use rank correlation instead —
-  `reports/gate_e_feasibility_2026-08-27.md`, and `outcome.growth_180d` is now
-  defined in METRICS.md.
-- **The demand strata rank the niches near-inverted (Spearman −0.70).** Both are
-  carried; Gate E arbitrates against a pre-registered criterion (ADR-0022).
-- Seeds: 6 (court-cases split — its demand measured civics while its supply was
-  true-crime trials, ADR-0024). 57–67% of every niche's supply sits outside the
-  market its seed states; `supply.geo_concentration` reports it beside `gap`.
-- 376 tests, zero network. 17 metrics registered.
-- **Outstanding, deferred to before Slice 7:** a *human* pass over
-  `reports/spotcheck_50.jsonl`. A second model agreed at kappa 0.943 — the criterion
-  is unambiguous, which is not the same as right. Slice 6 buys insurance instead by
-  running the backtest at three relevance thresholds; the score is stored and the
-  cut applied at read time, so that is a query. Building Slice 7's product surface
-  on an unvalidated definition of "niche" is not deferrable.
-- Still blocked: openness needs the enrichment backfill (274 units) — `is_short` is
-  NULL for 92% of videos, so 4 of 5 cohorts are empty. `nh deferrals` lists this and
-  seven others, each with a checkable trigger.
-- Next: Slice 6, redesigned per the feasibility report.
-
-## Commands added since the list above
-- `nh deferrals` — unimplemented metrics and what would unblock each
-- `nh cluster inspect|sample|import|calibrate` — relevance decisions and labels
-- `nh doctor --repair` — clear leftovers from an interrupted batch migration
-- `nh backfill descriptions` — re-derive `videos.description` from `raw_records`
+- Phase: Slice 6 in flight — the calibration instrument is built and green, the
+  Gate E verdict is not in. Branch `slice-6-calibration`.
+- `nh/backtest/`: 36 niches in 6 families (committed before the data landed), an
+  exact prefilter, YouNiverse readers, loader, `outcome.growth_180d`, the replay,
+  the statistics and the report writer. CLI: `nh backtest seed|scan|load|replay|score`.
+- The primary result, verdict rule and permutation scheme are pre-registered in
+  `reports/backtest_preregistration_2026-08-27.md`, with an amendment log.
+- 625 tests, zero network. The whole feature layer is day-*bounded* now, not just
+  day-parameterised; `tests/test_features_leakage.py` is the standing guard.
+- Blocking, and both are operator time not design: `yt_metadata_en.jsonl.gz` is
+  still downloading (~8 of 13.64 GB), and the scan cannot run until it lands. The
+  Wikipedia backfill for the 36 backtest niches runs against `data/backtest.db`
+  independently and does not wait for it.
+- Never point a backtest command at the live corpus. `load.refuse_live` requires
+  "backtest" in the database URL; `NH_DATABASE_URL=sqlite:///data/backtest.db`.
