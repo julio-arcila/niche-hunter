@@ -1,0 +1,120 @@
+{"row": 1, "domain": "trading", "label": 1, "confidence": "high", "underdetermined": false, "note": "teaches a trading skill (liquidity sweep entries)"}
+{"row": 2, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "intervention (eating less) tied to aging, science promised"}
+{"row": 3, "domain": "philosophy-of-science", "label": 0, "confidence": "low", "underdetermined": true, "note": "theology/teleology ('cosmic purpose') — no clause covers philosophy-of-religion vs 11b's interpretation-of-a-theory"}
+{"row": 4, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "named mechanism: adenosine receptor modulation"}
+{"row": 5, "domain": "trading", "label": 1, "confidence": "high", "underdetermined": false, "note": "teaches risk/drawdown analysis method"}
+{"row": 6, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "nootropics survey — core intervention content"}
+{"row": 7, "domain": "biohacking", "label": 0, "confidence": "low", "underdetermined": false, "note": "science-news tease naming no shift and no mechanism — rule 8 + 11a"}
+{"row": 8, "domain": "biohacking", "label": 0, "confidence": "high", "underdetermined": false, "note": "rule 10 verbatim: branded formula explainer"}
+{"row": 9, "domain": "trading", "label": 1, "confidence": "low", "underdetermined": true, "note": "biography/history-of-the-field — no clause addresses trader-biography content"}
+{"row": 10, "domain": "philosophy-of-science", "label": 0, "confidence": "high", "underdetermined": false, "note": "'paradigm' as a phrase in Islamic finance — the correction's FALSE branch"}
+{"row": 11, "domain": "geopolitics", "label": 1, "confidence": "high", "underdetermined": false, "note": "names what is explained (why exports defy sanctions)"}
+{"row": 12, "domain": "trading", "label": 0, "confidence": "high", "underdetermined": false, "note": "software feature promo — the tool is the point"}
+{"row": 13, "domain": "trading", "label": 1, "confidence": "low", "underdetermined": true, "note": "daily pair forecast — v3 never restates the base criterion, nothing settles ephemeral signal/forecast content"}
+{"row": 14, "domain": "philosophy-of-science", "label": "?", "confidence": "low", "underdetermined": false, "note": "joke/meme caption; title uninformative about the video"}
+{"row": 15, "domain": "geopolitics", "label": 1, "confidence": "low", "underdetermined": false, "note": "truncated but names the explanandum (why China matters)"}
+{"row": 16, "domain": "philosophy-of-science", "label": 1, "confidence": "low", "underdetermined": false, "note": "scientific-method explainer — the method is the domain's own subject, even at class-6 level"}
+{"row": 17, "domain": "philosophy-of-science", "label": 0, "confidence": "low", "underdetermined": true, "note": "general philosophy, not phil-of-science — parent-discipline case; only v2's decision 2 text could settle it"}
+{"row": 18, "domain": "geopolitics", "label": 0, "confidence": "high", "underdetermined": false, "note": "rule 8's own example: reaction tease"}
+{"row": 19, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "named biological clock (marker/measurement)"}
+{"row": 20, "domain": "philosophy-of-science", "label": 1, "confidence": "high", "underdetermined": false, "note": "explicitly philosophy of science and theory development"}
+{"row": 21, "domain": "geopolitics", "label": 0, "confidence": "low", "underdetermined": false, "note": "topic list with no verb, names nothing being explained — rule 8"}
+{"row": 22, "domain": "trading", "label": 0, "confidence": "low", "underdetermined": true, "note": "live trading stream on branded prop platform — no clause covers live-session content"}
+{"row": 23, "domain": "philosophy-of-science", "label": "?", "confidence": "low", "underdetermined": false, "note": "bare 'The Paradigm Shift' — cannot tell Kuhn-as-subject from phrase-in-another-field"}
+{"row": 24, "domain": "biohacking", "label": 0, "confidence": "high", "underdetermined": false, "note": "11a verbatim: general exercise, no mechanism"}
+{"row": 25, "domain": "geopolitics", "label": 1, "confidence": "low", "underdetermined": true, "note": "verbless noun phrase that does name the payload — rule 8's no-verb test and its names-what-is-explained test collide"}
+{"row": 26, "domain": "philosophy-of-science", "label": 0, "confidence": "high", "underdetermined": false, "note": "paradigm shift in agronomy — events in another field"}
+{"row": 27, "domain": "philosophy-of-science", "label": 0, "confidence": "high", "underdetermined": false, "note": "NDE/consciousness content, paradigm-as-phrase"}
+{"row": 28, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "mechanism (NAD+) without a brand — rule 10 carve"}
+{"row": 29, "domain": "philosophy-of-science", "label": 1, "confidence": "high", "underdetermined": false, "note": "Kuhn's book summarized — the discipline's own text"}
+{"row": 30, "domain": "geopolitics", "label": 1, "confidence": "high", "underdetermined": false, "note": "names what is explained (the deal)"}
+{"row": 31, "domain": "trading", "label": 1, "confidence": "high", "underdetermined": false, "note": "teaches calendar spreads"}
+{"row": 32, "domain": "geopolitics", "label": 1, "confidence": "low", "underdetermined": true, "note": "withheld subject ('secret weapon') but names why it matters — rule 8's OR lets a tease pass"}
+{"row": 33, "domain": "trading", "label": 1, "confidence": "high", "underdetermined": false, "note": "concept/strategy explained"}
+{"row": 34, "domain": "biohacking", "label": 0, "confidence": "low", "underdetermined": false, "note": "bare label; no intervention, mechanism or marker named — 11a"}
+{"row": 35, "domain": "trading", "label": 1, "confidence": "low", "underdetermined": false, "note": "generic education bundle, but names the skills taught"}
+{"row": 36, "domain": "trading", "label": 1, "confidence": "high", "underdetermined": false, "note": "strategy masterclass"}
+{"row": 37, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "named intervention with mechanism, evidence, risks"}
+{"row": 38, "domain": "philosophy-of-science", "label": 0, "confidence": "high", "underdetermined": false, "note": "branded product (Autodesk) + paradigm-as-phrase"}
+{"row": 39, "domain": "geopolitics", "label": 1, "confidence": "high", "underdetermined": false, "note": "names what is explained (the pact)"}
+{"row": 40, "domain": "trading", "label": 0, "confidence": "high", "underdetermined": false, "note": "off-topic hashtag spam (phone repair)"}
+{"row": 41, "domain": "geopolitics", "label": 0, "confidence": "high", "underdetermined": false, "note": "rule 8: open question ('What happens next?')"}
+{"row": 42, "domain": "philosophy-of-science", "label": 0, "confidence": "low", "underdetermined": false, "note": "R&I policy; paradigm-as-phrase plus open question"}
+{"row": 43, "domain": "philosophy-of-science", "label": 0, "confidence": "high", "underdetermined": false, "note": "statistics itself — sibling discipline (decision 2)"}
+{"row": 44, "domain": "trading", "label": 1, "confidence": "low", "underdetermined": true, "note": "single-stock TA with target/stop (Arabic) — same signal-content gap as row 13"}
+{"row": 45, "domain": "trading", "label": 0, "confidence": "high", "underdetermined": false, "note": "rule 9 verbatim: AI-trading-bot setup"}
+{"row": 46, "domain": "biohacking", "label": 0, "confidence": "low", "underdetermined": false, "note": "exposure claim with no named mechanism — 11a"}
+{"row": 47, "domain": "trading", "label": 1, "confidence": "high", "underdetermined": false, "note": "algo strategy explained"}
+{"row": 48, "domain": "geopolitics", "label": 1, "confidence": "low", "underdetermined": true, "note": "same withheld-subject/why-it-matters gap as row 32"}
+{"row": 49, "domain": "philosophy-of-science", "label": 0, "confidence": "low", "underdetermined": false, "note": "'scientific method' as rhetoric about tax administration — phrase in another field"}
+{"row": 50, "domain": "biohacking", "label": 0, "confidence": "low", "underdetermined": true, "note": "why-we-age explainer (Hindi), no intervention or named mechanism — 11a's intervention requirement vs rule 10's mechanism carve leave the bare aging-question unsettled"}
+{"row": 51, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "named intervention, evidence and risk"}
+{"row": 52, "domain": "philosophy-of-science", "label": 1, "confidence": "high", "underdetermined": false, "note": "method + demarcation (#Pseudoscience) — the domain's subject"}
+{"row": 53, "domain": "biohacking", "label": 0, "confidence": "low", "underdetermined": false, "note": "question tease; 'longevity genes' names no specific mechanism — 11a"}
+{"row": 54, "domain": "philosophy-of-science", "label": "?", "confidence": "low", "underdetermined": false, "note": "cryptic series title; cannot tell physics from interpretation"}
+{"row": 55, "domain": "biohacking", "label": 1, "confidence": "low", "underdetermined": false, "note": "named compound explainer; effect not mechanism, but not general-wellness advice either"}
+{"row": 56, "domain": "geopolitics", "label": 1, "confidence": "high", "underdetermined": false, "note": "names what is explained (the diplomatic message)"}
+{"row": 57, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "coffee tied to telomeres (named marker, Korean)"}
+{"row": 58, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "interventions tied to condition with evidence explained"}
+{"row": 59, "domain": "biohacking", "label": 0, "confidence": "high", "underdetermined": false, "note": "11a verbatim: stretching, no mechanism"}
+{"row": 60, "domain": "trading", "label": 1, "confidence": "high", "underdetermined": false, "note": "concept guide (liquidity)"}
+{"row": 61, "domain": "trading", "label": 1, "confidence": "high", "underdetermined": false, "note": "skill guide"}
+{"row": 62, "domain": "trading", "label": 0, "confidence": "low", "underdetermined": true, "note": "live algo stream — live-session content gap, as row 22"}
+{"row": 63, "domain": "trading", "label": 0, "confidence": "low", "underdetermined": false, "note": "course-batch progress announcement; nothing taught in the video itself"}
+{"row": 64, "domain": "trading", "label": 1, "confidence": "low", "underdetermined": false, "note": "regulatory how-to; still trading education, not a tool tutorial"}
+{"row": 65, "domain": "philosophy-of-science", "label": 0, "confidence": "high", "underdetermined": false, "note": "HR/hiring content, paradigm-as-phrase"}
+{"row": 66, "domain": "trading", "label": 0, "confidence": "low", "underdetermined": true, "note": "live stream — same gap as rows 22/62"}
+{"row": 67, "domain": "geopolitics", "label": 0, "confidence": "low", "underdetermined": true, "note": "geography listicle — sibling-discipline line never drawn for geopolitics (geography/history)"}
+{"row": 68, "domain": "geopolitics", "label": 0, "confidence": "high", "underdetermined": false, "note": "domestic legal/tech news; 'Balance of Power' is the show's name, not the subject"}
+{"row": 69, "domain": "philosophy-of-science", "label": 1, "confidence": "high", "underdetermined": false, "note": "the method examined and critiqued — method is the subject"}
+{"row": 70, "domain": "geopolitics", "label": 0, "confidence": "high", "underdetermined": false, "note": "rule 8's verbatim example: bare topic label"}
+{"row": 71, "domain": "geopolitics", "label": 1, "confidence": "high", "underdetermined": false, "note": "why-question names its explanandum"}
+{"row": 72, "domain": "geopolitics", "label": 1, "confidence": "high", "underdetermined": false, "note": "names what is explained (the route, the Caspian)"}
+{"row": 73, "domain": "philosophy-of-science", "label": 0, "confidence": "low", "underdetermined": true, "note": "student review mixing scientific method with science content (living/non-living things) — mixed titles unaddressed"}
+{"row": 74, "domain": "geopolitics", "label": 1, "confidence": "high", "underdetermined": false, "note": "IR education, names the explanandum"}
+{"row": 75, "domain": "trading", "label": 1, "confidence": "low", "underdetermined": true, "note": "'perfect entry TODAY' signal call — same signal-content gap as rows 13/44"}
+{"row": 76, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "named peptides explained"}
+{"row": 77, "domain": "trading", "label": 0, "confidence": "high", "underdetermined": false, "note": "rule 9 verbatim: TradingView walkthrough"}
+{"row": 78, "domain": "geopolitics", "label": 1, "confidence": "low", "underdetermined": true, "note": "history explainer of a political partition — history vs geopolitics line never drawn"}
+{"row": 79, "domain": "biohacking", "label": 0, "confidence": "high", "underdetermined": false, "note": "kindness/wellness, no mechanism — 11a"}
+{"row": 80, "domain": "biohacking", "label": 0, "confidence": "low", "underdetermined": false, "note": "question tease, no intervention or mechanism named"}
+{"row": 81, "domain": "philosophy-of-science", "label": 0, "confidence": "low", "underdetermined": true, "note": "science as lens on philosophy — the rule only covers the reverse direction"}
+{"row": 82, "domain": "trading", "label": 1, "confidence": "high", "underdetermined": false, "note": "chart pattern taught — rule 9's explicit carve"}
+{"row": 83, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "named intervention tied to telomeres"}
+{"row": 84, "domain": "philosophy-of-science", "label": 0, "confidence": "high", "underdetermined": false, "note": "supplement-medicine 'paradigm shift' — decision 5's FALSE case"}
+{"row": 85, "domain": "trading", "label": 1, "confidence": "high", "underdetermined": false, "note": "scalping concept explained"}
+{"row": 86, "domain": "trading", "label": 1, "confidence": "low", "underdetermined": false, "note": "names the framework despite the tease tail"}
+{"row": 87, "domain": "philosophy-of-science", "label": 1, "confidence": "high", "underdetermined": false, "note": "the correction's TRUE case: paradigms in geographical thought as the subject"}
+{"row": 88, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "named marker (IL-6, inflammaging) and a finding"}
+{"row": 89, "domain": "philosophy-of-science", "label": 0, "confidence": "low", "underdetermined": false, "note": "bare label + sibling discipline (neuroscience)"}
+{"row": 90, "domain": "geopolitics", "label": 1, "confidence": "low", "underdetermined": true, "note": "specific yes/no question — rule 8 lists 'an open question' as FALSE without saying whether specificity rescues it"}
+{"row": 91, "domain": "geopolitics", "label": 1, "confidence": "low", "underdetermined": true, "note": "same question-title gap as row 90"}
+{"row": 92, "domain": "geopolitics", "label": 0, "confidence": "low", "underdetermined": false, "note": "nationalist hype short (Telugu) — reaction tease, names nothing explained"}
+{"row": 93, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "named intervention (GlyNAC) tied to ageing"}
+{"row": 94, "domain": "trading", "label": 1, "confidence": "low", "underdetermined": false, "note": "income-claim promo, but names the strategy taught"}
+{"row": 95, "domain": "trading", "label": 0, "confidence": "low", "underdetermined": true, "note": "live stream — same gap as rows 22/62/66"}
+{"row": 96, "domain": "geopolitics", "label": 1, "confidence": "low", "underdetermined": true, "note": "verbless comparison label — same rule-8 collision as row 25"}
+{"row": 97, "domain": "philosophy-of-science", "label": 0, "confidence": "high", "underdetermined": false, "note": "decision 5 verbatim: 'a paradigm shift in Medicine'"}
+{"row": 98, "domain": "geopolitics", "label": 1, "confidence": "high", "underdetermined": false, "note": "names the explanandum (why still fighting)"}
+{"row": 99, "domain": "geopolitics", "label": 1, "confidence": "low", "underdetermined": true, "note": "yes/no question (Indonesian) — same question-title gap as rows 90/91"}
+{"row": 100, "domain": "geopolitics", "label": 1, "confidence": "low", "underdetermined": false, "note": "hyperbolic, but names its thesis (world order is a lie)"}
+{"row": 101, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "named peptide, biochemical perspective"}
+{"row": 102, "domain": "trading", "label": 0, "confidence": "low", "underdetermined": true, "note": "AI-bot experiment/results video — rule 9 covers setup tutorials, not tool-experiments where the tool is still the point"}
+{"row": 103, "domain": "geopolitics", "label": 1, "confidence": "low", "underdetermined": false, "note": "named subject + 'Explained'"}
+{"row": 104, "domain": "trading", "label": 1, "confidence": "low", "underdetermined": false, "note": "promotional but names what is revealed (his strategy)"}
+{"row": 105, "domain": "geopolitics", "label": 1, "confidence": "high", "underdetermined": false, "note": "names what is analyzed (two diplomatic setbacks)"}
+{"row": 106, "domain": "philosophy-of-science", "label": 1, "confidence": "high", "underdetermined": false, "note": "positivism and feminist critique — phil of (social) science proper"}
+{"row": 107, "domain": "philosophy-of-science", "label": 1, "confidence": "low", "underdetermined": false, "note": "method + critique lecture — method is the subject"}
+{"row": 108, "domain": "trading", "label": 1, "confidence": "high", "underdetermined": false, "note": "teaches a skill"}
+{"row": 109, "domain": "philosophy-of-science", "label": 0, "confidence": "low", "underdetermined": true, "note": "fringe theory-change advocacy ('participatory universe'/plasma) — decision 5 and 11b's interpretation carve collide"}
+{"row": 110, "domain": "biohacking", "label": 0, "confidence": "high", "underdetermined": false, "note": "'secret no one tells you' — tease, nothing named"}
+{"row": 111, "domain": "philosophy-of-science", "label": 1, "confidence": "low", "underdetermined": false, "note": "scientific inference applied to TA signals — method applied where the method is the point"}
+{"row": 112, "domain": "geopolitics", "label": 1, "confidence": "high", "underdetermined": false, "note": "names the explanandum (why India is angry)"}
+{"row": 113, "domain": "biohacking", "label": 1, "confidence": "low", "underdetermined": true, "note": "'grows your brain' — 11a gives no threshold for near-mechanism claims on a wellness intervention"}
+{"row": 114, "domain": "biohacking", "label": 1, "confidence": "low", "underdetermined": true, "note": "branded drug (Ozempic) evidence review by a doctor — rule 10 makes branded explainers FALSE without excepting critical evidence reviews"}
+{"row": 115, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "behavior tied to named hormone (melatonin)"}
+{"row": 116, "domain": "philosophy-of-science", "label": 0, "confidence": "high", "underdetermined": false, "note": "medical guideline 'paradigm shift' (Baveno) — decision 5"}
+{"row": 117, "domain": "geopolitics", "label": 0, "confidence": "high", "underdetermined": false, "note": "pure tease: 'prediction that could change everything'"}
+{"row": 118, "domain": "biohacking", "label": 1, "confidence": "high", "underdetermined": false, "note": "intervention (telomere lengthening) tied to named marker, science explained"}
+{"row": 119, "domain": "philosophy-of-science", "label": 0, "confidence": "low", "underdetermined": true, "note": "general-philosophy survey (Aristotle) — same parent-discipline gap as row 17"}
+{"row": 120, "domain": "geopolitics", "label": 1, "confidence": "high", "underdetermined": false, "note": "names the explanandum (why Israel stepped back)"}
