@@ -17,7 +17,8 @@ reports/*.md
 !reports/.gitkeep
 !reports/backtest_*.md
 !reports/relevance_*.md
-!reports/labelling_criterion.md
+!reports/labelling_criterion*.md  # a criterion is evidence that the rule predates
+                                  # the labels; every one of them must be tracked
 
 # python
 __pycache__/
