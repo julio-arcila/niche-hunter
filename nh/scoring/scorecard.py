@@ -16,12 +16,19 @@ from sqlalchemy.orm import Session
 from nh.db.models import FeatureDaily, Scorecard
 from nh.db.provenance import Stamp
 from nh.db.upsert import upsert
+from nh.scoring.lifecycle import GAP, MOMENTUM, classify
 
 #: Both are stubs, replaced by real composites in Slice 5. Named in
 #: docs/METRICS.md under "Composite stubs" so nobody mistakes them for findings.
 OPENNESS_FROM = "breakthrough_rate_cohort"
 SUPPLY_FROM = "median_views"
 DEMAND_FROM = "wiki_weekly_views"
+#: The stage's momentum axis. wiki_yoy, NOT wiki_momentum_28d — see ADR-0023 and
+#: the metric's own entry: three of four niches peak in September, so a late-August
+#: month-over-month reading measures the school calendar rather than a trend.
+MOMENTUM_FROM = "wiki_yoy"
+#: Carried into the stage's evidence for traceability. Never a decision input.
+MOMENTUM_EVIDENCE = "wiki_momentum_28d"
 
 
 def percentile_rank(values: dict[str, float]) -> dict[str, float]:
@@ -61,7 +68,9 @@ def build(session: Session, day: date, mark: Stamp) -> int:
             FeatureDaily.confidence,
         ).where(
             FeatureDaily.day == day,
-            FeatureDaily.name.in_((OPENNESS_FROM, SUPPLY_FROM, DEMAND_FROM)),
+            FeatureDaily.name.in_(
+                (OPENNESS_FROM, SUPPLY_FROM, DEMAND_FROM, MOMENTUM_FROM, MOMENTUM_EVIDENCE)
+            ),
         )
     ).all()
     if not rows:
@@ -77,6 +86,8 @@ def build(session: Session, day: date, mark: Stamp) -> int:
     # it is NULL. A missing card and an all-NULL card say different things — the
     # first that scoring never ran, the second that it ran and nothing was
     # computable — and only the second is a fact about the niche.
+    momentum = {cid: v for cid, name, v, _ in rows if name == MOMENTUM_FROM}
+    evidence_momentum = {cid: v for cid, name, v, _ in rows if name == MOMENTUM_EVIDENCE}
     scored = {cid for cid, _, _, _ in rows}
 
     def gap(cluster_id: str) -> float | None:
@@ -100,6 +111,35 @@ def build(session: Session, day: date, mark: Stamp) -> int:
             confidences.get((cluster_id, SUPPLY_FROM)) or 0.0,
         )
 
+    def stage_for(cluster_id: str) -> tuple[str, dict]:
+        """The demand-trajectory stage, and the basis it was decided on.
+
+        `classify` is pure and is handed a plain vector, so nothing it sees can
+        come from after the decision date. That is what makes Slice 6's replay
+        auditable at one call site.
+        """
+        stage, evidence = classify(
+            {
+                MOMENTUM: momentum.get(cluster_id),
+                GAP: gap(cluster_id),
+                # Carried for traceability, never read as an input: measured, three
+                # of four niches peak in September, so a late-August
+                # month-over-month reading is the school calendar.
+                MOMENTUM_EVIDENCE: evidence_momentum.get(cluster_id),
+            }
+        )
+        return str(stage), evidence
+
+    def stage_confidence(cluster_id: str) -> float | None:
+        """The weaker of the two axes, as gap_confidence is of its two legs."""
+        if momentum.get(cluster_id) is None or gap(cluster_id) is None:
+            return None
+        return min(
+            confidences.get((cluster_id, MOMENTUM_FROM)) or 0.0, gap_confidence(cluster_id) or 0.0
+        )
+
+    stages = {cluster_id: stage_for(cluster_id) for cluster_id in scored}
+
     cards = [
         mark(
             Scorecard,
@@ -119,7 +159,9 @@ def build(session: Session, day: date, mark: Stamp) -> int:
                 "opportunity": None,
                 "ci_low": None,
                 "ci_high": None,
-                "stage": None,
+                "stage": stages[cluster_id][0],
+                "stage_confidence": stage_confidence(cluster_id),
+                "detail": stages[cluster_id][1],
             },
         )
         for cluster_id in sorted(scored)

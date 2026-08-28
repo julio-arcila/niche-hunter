@@ -48,7 +48,13 @@ def test_the_demand_side_stays_null_until_slice_three(engine):
     assert card.gap is None
     assert card.value is None
     assert card.opportunity is None
-    assert card.stage is None
+    # Slice 5: `unknown` with a reason, not NULL. Same principle as
+    # `FeatureResult.empty` — a missing card says scoring never ran, an `unknown`
+    # says it ran and could not decide, and only the second is a fact about the
+    # niche. Still no fabricated score, which is what this test is really about.
+    assert card.stage == "unknown"
+    assert card.stage_confidence is None
+    assert "no momentum" in card.detail["reason"]
 
 
 def test_openness_is_carried_through_unmodified(engine):
@@ -179,3 +185,60 @@ def test_ranking_does_not_depend_on_input_order():
 def test_an_all_tied_set_ranks_everything_at_the_midpoint():
     ranks = percentile_rank({"a": 1.0, "b": 1.0, "c": 1.0})
     assert set(ranks.values()) == {0.5}
+
+
+def test_the_stage_records_the_basis_it_was_decided_on(engine):
+    """Supply momentum arrives in a few weeks and stages will move. The move has to
+    be attributable to the axes that changed rather than mysterious."""
+    _feature(engine, "a", "median_views", 100.0)
+    _feature(engine, "b", "median_views", 900.0)
+    _feature(engine, "a", "wiki_weekly_views", 900.0)
+    _feature(engine, "b", "wiki_weekly_views", 100.0)
+    _feature(engine, "a", "wiki_yoy", 0.25)
+    _feature(engine, "b", "wiki_yoy", -0.25)
+
+    with session_scope(engine) as s:
+        build(s, DAY, _mark())
+        cards = {c.cluster_id: c for c in s.scalars(sa.select(Scorecard))}
+
+    # `a` has the higher demand rank and the lower supply rank, so a positive gap.
+    assert cards["a"].stage == "emerging"
+    assert cards["b"].stage == "saturated"
+    for card in cards.values():
+        assert card.detail["basis"] == ["gap", "momentum"]
+        assert card.detail["thresholds"]
+
+
+def test_a_cluster_with_no_momentum_is_unknown_rather_than_saturated(engine):
+    """Defaulting a missing axis to 0 would classify every un-measured cluster as
+    saturated, which reads as a finding."""
+    _feature(engine, "a", "median_views", 100.0)
+    _feature(engine, "b", "median_views", 900.0)
+    _feature(engine, "a", "wiki_weekly_views", 900.0)
+    _feature(engine, "b", "wiki_weekly_views", 100.0)
+
+    with session_scope(engine) as s:
+        build(s, DAY, _mark())
+        cards = {c.cluster_id: c for c in s.scalars(sa.select(Scorecard))}
+
+    assert all(c.stage == "unknown" for c in cards.values())
+    # The gap is still computed; an unknown stage does not null the rest of the card.
+    assert cards["a"].gap is not None
+
+
+def test_wiki_momentum_28d_is_evidence_not_an_input(engine):
+    """It is carried into detail for traceability and must never decide a stage —
+    three of four niches peak in September, so a late-August month-over-month
+    reading is the school calendar."""
+    _feature(engine, "a", "median_views", 100.0)
+    _feature(engine, "a", "wiki_weekly_views", 900.0)
+    _feature(engine, "a", "wiki_yoy", 0.25)
+    _feature(engine, "a", "wiki_momentum_28d", -0.31)
+
+    with session_scope(engine) as s:
+        build(s, DAY, _mark())
+        card = s.scalars(sa.select(Scorecard)).one()
+
+    assert card.detail["wiki_momentum_28d"] == -0.31
+    assert card.detail["basis"] == ["gap", "momentum"]  # not three axes
+    assert card.stage in ("emerging", "contested")  # the negative 28d did not decide it
