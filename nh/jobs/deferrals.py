@@ -135,6 +135,26 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="large — a collector package that does not exist",
     ),
     Deferral(
+        metric="landmark-court-cases — seed reactivation",
+        blocker=(
+            "deactivated 2026-08-28 (ADR-0028). Post-Gate-E its evidence page would be "
+            "one number over a column of NULLs: reference-article demand — the stratum "
+            "carrying the school-calendar and curiosity-not-intent confounders, whose "
+            "two readings invert rankings at rho -0.70 (ADR-0022) — over a supply that "
+            "is empty by this niche's own definition"
+        ),
+        kind="manual",
+        trigger=(
+            "any one of: the demand-stratum arbitration resolves with a stratum an "
+            "evidence page can defend; a future calibration validates a demand "
+            "reading; the operator wants the page as an editorial choice. Reactivate "
+            "with UPDATE niche_seeds SET active=1 WHERE slug='landmark-court-cases' — "
+            "its 23 articles backfill quota-free on the next nightly (ADR-0022)"
+        ),
+        consumer="the demand-without-supply exemplar; ~600 search units/night when active",
+        cost="one UPDATE plus one nightly for the demand backfill",
+    ),
+    Deferral(
         metric="scorecards.value / sustainability / opportunity / ci_low / ci_high",
         blocker="their inputs are deferred above; opportunity's weights are a Slice 6 OUTPUT",
         kind="manual",

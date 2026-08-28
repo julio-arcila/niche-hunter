@@ -51,6 +51,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
+        "active": True,
         "primary_sources": [
             {
                 "name": "NTSB CAROL",
@@ -72,6 +73,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
+        "active": True,
         "primary_sources": [
             {
                 "name": "US Coast Guard NCOE",
@@ -93,6 +95,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
+        "active": True,
         "primary_sources": [
             {
                 "name": "SEC EDGAR",
@@ -118,6 +121,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
+        "active": True,
         "primary_sources": [
             {
                 "name": "NIST investigations",
@@ -138,6 +142,11 @@ SEEDS: tuple[dict[str, Any], ...] = (
     # ("Supreme_Court_of_the_United_States ... may be measuring civics rather than
     # the niche") and left it to be revisited once inspectable. It is now.
     {
+        # DEACTIVATED 2026-08-28 (ADR-0028). Post-Gate-E its evidence page would be
+        # one number and a column of NULLs: reference-article demand — the stratum
+        # carrying the school-calendar and curiosity-not-intent confounders (ADR-0022)
+        # — over a supply that is empty by this niche's own definition. Reactivation
+        # conditions are in the deferral register, not here.
         "slug": "landmark-court-cases",
         "label": "Landmark court cases",
         "keywords": [
@@ -147,6 +156,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
+        "active": False,
         "primary_sources": [
             {
                 "name": "CourtListener",
@@ -172,6 +182,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
+        "active": True,
         "primary_sources": [
             {
                 "name": "CourtListener",

@@ -22,6 +22,12 @@ from nh.seeds import SEEDS, apply_seeds
 
 DAY = date(2026, 8, 27)
 
+#: The seed set minus any deactivated by hand. `assign_channels` creates a cluster per
+#: ACTIVE seed, so these tests count against this rather than against SEEDS —
+#: `landmark-court-cases` went inactive on 2026-08-28 (ADR-0028), and that gap between
+#: "defined" and "collected" is exactly what the flag is for.
+LIVE_SEEDS = tuple(seed for seed in SEEDS if seed["active"])
+
 
 def _mark():
     return partial(stamp, source="clustering", run_id="test", at=utcnow())
@@ -89,7 +95,7 @@ def test_one_cluster_per_active_seed_even_with_no_members(engine):
     apply_seeds(engine)
     with session_scope(engine) as s:
         assign(s, DAY, _mark())
-        assert s.scalar(sa.select(sa.func.count()).select_from(Cluster)) == len(SEEDS)
+        assert s.scalar(sa.select(sa.func.count()).select_from(Cluster)) == len(LIVE_SEEDS)
 
 
 def test_every_discovered_channel_lands_in_exactly_one_cluster(engine):
@@ -227,7 +233,7 @@ def test_a_cluster_with_no_on_niche_video_is_retired_not_deleted(engine):
         assign(s, DAY, _mark())
         clusters = dict(s.execute(sa.select(Cluster.cluster_id, Cluster.active)).all())
     assert clusters["aviation-disasters"] is False
-    assert len(clusters) == len(SEEDS)  # retired, still present
+    assert len(clusters) == len(LIVE_SEEDS)  # retired, still present
 
 
 def test_a_cluster_reactivates_when_it_gains_an_on_niche_video(engine):

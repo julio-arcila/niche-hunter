@@ -79,9 +79,18 @@ def test_geo_states_the_market_the_niche_is_about(engine):
 def test_search_budget_counts_both_sort_orders():
     """Both orders are structural: `date` is the breakthrough-rate denominator,
     `viewCount` the numerator. The x2 is not a tunable."""
-    queries = sum(len(seed["keywords"]) for seed in SEEDS)
+    queries = sum(len(s["keywords"]) for s in SEEDS if s["active"])
     assert search_budget(SEEDS, pages=1) == queries * 2 * 100
     assert search_budget(SEEDS, pages=2) == queries * 2 * 2 * 100
+
+
+def test_a_deactivated_seed_costs_no_search_quota():
+    """The point of deactivating one. `landmark-court-cases` went inactive on
+    2026-08-28 (ADR-0028) after one nightly had already spent ~600 units on it."""
+    live = tuple(s for s in SEEDS if s["active"])
+
+    assert search_budget(SEEDS) == search_budget(live)
+    assert len(live) < len(SEEDS)
 
 
 def test_the_default_seed_set_fits_the_daily_budget():
