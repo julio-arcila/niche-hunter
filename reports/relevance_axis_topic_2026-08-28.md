@@ -35,19 +35,31 @@ read. Nothing was chosen by inspecting labels, so the rows are a test set.
 - **selling / tooling / tease** — the criterion's FALSE clauses on income claims, tool
   tutorials, signals and withheld-subject hooks.
 
-## Result
+## Result — replicated across two rules and two raters
 
-Winner chosen on a random half and scored on the other half, 200 splits:
+A second blind pass under a self-contained v4 criterion (10.0% underdetermined, the
+packaging defect that voided v3 eliminated) relabelled the same 120 rows. The two label
+sets agree at **kappa 0.845 / raw 0.926** on the 95 rows both rules determined. That
+bounds *rule* stability as well as rater stability, since the rule changed too.
+
+Every candidate scored held-out on 200 random halves, under the stricter v4 labels
+(n=107, base rate **0.523** — far closer to a real corpus than v2's stratified 0.670):
 
 ```
-chosen 182/200   B  domain x exposition      held-out  P 0.936  R 0.682  F1 0.788
-chosen  11/200   D  B + negative filter      held-out  P 0.961  R 0.570  F1 0.713
-chosen   5/200   A  domain alone (baseline)  held-out  P 0.616  R 0.761  F1 0.681
-chosen   2/200   C  domain + negative filter held-out  P 0.565  R 0.639  F1 0.600
+A  domain alone (baseline)   P 0.549  R 0.807  F1 0.652
+B  domain x exposition       P 0.866  R 0.736  F1 0.794      <- winner, 168/200 splits
+C  domain + negative filter  P 0.577  R 0.756  F1 0.652
+D  B + negative filter       P 0.901  R 0.685  F1 0.777
 ```
 
-**An exposition axis is the topic-domain analogue of the event axis.** Within this
-corpus it takes held-out precision from 0.616 to 0.936, costing recall 0.761 → 0.682.
+Under the earlier v2 labels the same protocol gave B P 0.936 / R 0.682 / F1 0.788, and B
+won 182/200. **B wins under both rules and both raters**, and A never won a single split
+under v4. F1 is stable at 0.788 vs 0.794 across the two label sets even though precision
+and recall trade places — which is what a real effect looks like rather than a fitted one.
+
+**An exposition axis is the topic-domain analogue of the event axis.** Under v4 it takes
+held-out precision from 0.549 to 0.866, and unlike the v2 fit it *also* improves nothing
+away: recall falls only 0.807 -> 0.736.
 
 ## Three things this does not say
 
@@ -58,11 +70,16 @@ corpus it takes held-out precision from 0.616 to 0.936, costing recall 0.761 →
 2. **Recall 0.682 means roughly a third of on-niche videos are missed.** For a tool that
    surfaces evidence for a human, that is a real cost and not obviously the right
    trade — the threshold is a product decision, not a measurement.
-3. **The negative filters did not work as scoring features**, though they work well as
-   labelling rules. Selling and tool markers alone barely move precision (0.616 → 0.565
-   held-out), and combined with exposition they buy 0.025 precision for 0.112 recall.
-   The rules that help a rater decide are not the same as the features that help a
-   scorer, and the criterion's own FALSE clauses are the evidence.
+3. **The negative filters are weaker than the criterion's emphasis on them suggests —
+   but the first version of this claim was too strong.** Fitted on v2 they looked useless
+   (held-out precision 0.616 → 0.565 for filter-only). Under v4, whose rule actually
+   *encodes* tool tutorials, signals and comparisons as FALSE, they do real work: filter-
+   only rises to 0.577 and D reaches the highest precision of any candidate at 0.901,
+   winning 32/200 splits against 11/200 before. So part of the original finding was an
+   artifact of labels produced by a rule that did not contain those clauses. What
+   survives is narrower and still worth keeping: **B beats D under both label sets**,
+   because the negative markers buy precision by discarding recall (0.736 → 0.685), and
+   an exposition signal already excludes most of what they catch.
 
 ## What follows
 
