@@ -1,5 +1,14 @@
 # Metrics
 
+**2026-08-28 — lexicon family membership changed (ADR-0028).** `court-cases` out,
+`true-crime-trials` in; `LEXICON_VERSION` is `2026-08-28.1`. The family is still five,
+so every "one of five lexicons" statement below stays literally true. The four
+continuing niches' weights were measured unchanged (the retired entry was term-disjoint
+with all of them) and that is now a standing test rather than a one-off check. The new
+lexicon's held-out precision is **unmeasured** — 0.781 belongs to the old family — so
+every `supply.*` number for `true-crime-trials` carries that caveat until the pre-Slice-7
+human spot-check covers it.
+
 **Every `Measured:` line carries a date.** A measured number is a fact about a
 corpus on a day, not a property of the metric, and this file is read as if its
 numbers are current. Two undated claims here went stale unnoticed and were caught

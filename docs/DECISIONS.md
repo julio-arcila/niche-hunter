@@ -604,6 +604,9 @@ market its seed claims**, while demand is read off English Wikipedia. The gap co
 not see that; the metric reports it beside the gap rather than being folded into
 it, because combining them would invent an exchange rate.
 
+Successor disposition, the lexicon family change, and the post-Gate-E
+re-grounding of this rule: **ADR-0028**.
+
 ## ADR-0025 — Wayback dropped; the leakage rule is `observed_date`, per table
 2026-08-27. Accepted. Two corrections to instructions that would have sent the next
 reader down a path returning no rows.
@@ -691,3 +694,72 @@ returning "3.7" where an integer was promised. Reusing it here turned every nume
 column of an 18.9M-row file into NULL with no error anywhere, and the backtest would
 have reported "no data" rather than "bug". `youniverse._count` parses and rounds at
 the one place that knows the values are smoothed; `as_int` is unchanged.
+
+## ADR-0028 — Seed coherence survives Gate E; the court-cases successors resolve asymmetrically
+2026-08-28. Accepted. **Refines ADR-0024, which stands.** Nothing in Gate E's FAIL
+(rho 0.091, p 0.4988, `reports/backtest_2026-08-28.md`) touches that ADR's diagnosis
+or its rule that a seed's keywords and articles must name the same subject. What the
+verdict changed is what coherence *protects*.
+
+Coherence was justified as protecting `gap`. `gap` failed calibration, and the product
+claim narrowed to *surfaces evidence for a human to judge*. The naive reading is that
+coherence was scaffolding for a calibration that failed and can now be dropped. The
+opposite is true: an uncalibrated composite misleads a model, but an **incoherent
+evidence page misleads the judge** — and the numbers on one page must be about one
+thing precisely because no calibration stands behind them any more. Coherence is
+re-grounded, not retired, and it matters more than it did.
+
+Coherence is a property and costs nothing per night. **The 600 units are the price of
+two portfolio slots**, and slots are judged one at a time, against the narrowed
+product's question: *would this niche's evidence page be worth a human's judgment?*
+The two successors answer oppositely, so they resolve asymmetrically.
+
+**`true-crime-trials` is completed.** It is where the old seed's supply actually was —
+ADR-0024 measured *Lindsay Clancy* in 59 of 520 on-niche titles — and its channels are
+already collected and RSS-polled. Its lexicon (41 terms, 53 with `_COMMON`) enters
+`LEXICONS` in the same commit that removes `court-cases`, under one `LEXICON_VERSION`
+bump to `2026-08-28.1`. One commit rather than two, for a reason worth stating: removal
+is measured harmless — the four continuing lexicons are term-disjoint from the retired
+one, so zero weights move — but *keeping* the corpse while adding the successor would
+score the successor's most discriminative vocabulary at 0.5 under the `1/k` rule. A
+dead lexicon would suppress exactly the terms its replacement needs. Both properties
+are now tests, not claims, with the retired entry frozen as a literal in
+`tests/test_lexicon_families.py` so neither needs git archaeology.
+
+The civics vocabulary is deliberately not re-homed: importing `lawsuit`, `supreme
+court`, `precedent`, `statute`, `constitutional`, `appeal`, `plaintiff`, `settlement`,
+`damages`, `injunction`, `legal`, `law`, `litigation` or `landmark case` would rebuild
+the civil-litigation false-positive shape ADR-0018 recorded. Nor is `fraud`,
+`embezzlement`, `whistleblower` or `scandal`: each sits in `corporate-collapse` at
+1.00, and adding any here would halve it for both — a white-collar trial belongs to
+the niche that owns that vocabulary. A golden pin guards that, because the regression
+would otherwise be silent. **The new lexicon's held-out precision is unmeasured** —
+0.781 belongs to the old five-member family — so it joins the mandatory pre-Slice-7
+human spot-check, and until then its dependent metrics carry that caveat.
+
+**`landmark-court-cases` is deactivated**, with three sufficient reactivation triggers
+in the deferral register. The RUNBOOK's "never cut a seed" protects unbackfillable
+supply history; this niche has none by construction and its demand is re-fetchable
+quota-free (ADR-0022, measured), which makes it the exception rather than a breach.
+
+**Completing the split exposed a second freeze**, past the lexicon gap that
+`lexicon_gaps()` now reports. `assign_channels` computed dominance over *every* seed's
+lineage and discarded the winner afterwards if it was inactive — so a channel whose
+majority history came from a deactivated seed was dropped from the loop and kept its
+stale membership row indefinitely, however much lineage an active seed accumulated.
+Measured 2026-08-28: 110 channels still sat in the retired `court-cases` cluster while
+both successors collected. The lineage query now joins `NicheSeed` on `active`.
+Filtering before the ranking rather than after also makes `confidence` a share among
+the niches actually tracked, which is what it claims to be.
+
+Identity still comes only from discovery lineage; **ADR-0013 is unchanged.** A
+content-based one-off reassignment — scoring each channel's videos against the new
+lexicon and moving it — was considered and rejected: it would overturn that ADR, and a
+doctrinal change must not ride in on a cleanup. Migration is therefore gradual, as
+successor queries re-surface each channel, and a channel no active seed claims gets no
+membership invented for it.
+
+Two things this ADR does not settle, carried forward. The new lexicon's precision,
+until the spot-check. And whether the topic demand stratum means anything for *any*
+niche — Gate E's failure analysis leaves that open, and `landmark-court-cases` is
+parked on exactly that question rather than deleted over it.
