@@ -93,7 +93,12 @@ class Settings(BaseSettings):
             "trends": (),  # no auth
             "wikipedia": (),  # official API, no auth
             "reddit": (self.reddit_client_id, self.reddit_client_secret, self.reddit_user_agent),
-            "keyword_planner": (self.gads_customer_id,),
+            # No credential: the shipped path is the UI CSV export, whose only
+            # requirement is a human with a browser (ADR-0030). An eventual Google
+            # Ads API path gates on `gads_customer_id` inside its own fetch branch,
+            # not here — otherwise the CSV path would be unusable until someone
+            # obtained a token it never needs.
+            "keyword_planner": (),
         }
         if source not in required:
             # Explicit rather than defaulting to True: an unknown source is a

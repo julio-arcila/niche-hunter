@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from nh.collectors.registry import REGISTRY
 from nh.db.models import JobRun
 from nh.db.session import session_scope
 from nh.db.types import utcnow
@@ -119,12 +120,25 @@ def test_only_the_latest_run_is_judged(settings, engine):
     assert result.run_id == RUN_ID
 
 
-def test_unported_sources_are_not_expected_to_run(settings, engine):
-    """reddit and keyword_planner are absent by design until ported."""
+def test_sources_that_cannot_run_tonight_are_not_expected_to(settings, engine):
+    """Two different reasons, and the gate must honour both.
+
+    `reddit` is **unported** — no code exists. `keyword_planner` is **ported but
+    manual** (ADR-0030): its data arrives as a CSV a human downloads, so it has no
+    network fetch the nightly could run and its absence from a nightly says nothing
+    about the night's health. Before manual sources existed this test passed for one
+    reason; it now passes for two, and conflating them would let a real regression —
+    a ported, schedulable source silently collecting nothing — hide behind the same
+    green.
+    """
     _healthy(engine)
     result = check(engine, settings)
     assert not any("reddit" in p for p in result.problems)
     assert not any("keyword_planner" in p for p in result.problems)
+
+    by_source = {s.source: s for s in REGISTRY}
+    assert not by_source["reddit"].ported
+    assert by_source["keyword_planner"].ported and by_source["keyword_planner"].manual
 
 
 def test_recent_runs_is_newest_first(settings, engine):

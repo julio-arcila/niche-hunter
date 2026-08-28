@@ -201,6 +201,71 @@ class DemandSeries(Base, AppendOnly, Provenance):
     )
 
 
+class KeywordMetric(Base, AppendOnly, Provenance):
+    """One Keyword Planner reading per keyword per described period.
+
+    **Append-only, not the entity table ADR-0016 anticipated.** That ADR called for
+    "a `keyword_metrics` entity table for bids and competition", which would be
+    upserted on the keyword. But a bid is a *described-period fact*, not a property
+    of the keyword: every monthly re-export carries a new twelve-month window, and an
+    upsert would silently overwrite the previous period's price with the current
+    one, destroying exactly the history this table exists to accumulate. Written with
+    `insert_ignore`, so re-ingesting the same export is a no-op and the first reading
+    of a period is the one that survives — the same rule the `*_snapshots` tables live
+    under (ADR-0030 refines ADR-0016 on this point).
+
+    `observed_date` is the **last day of the period the numbers describe**, taken from
+    the export's own header line, with `period_start` making the window explicit. That
+    is ADR-0027's third reading of the column — "the period the value covers, landed on
+    its final day" — extended from a week to twelve months rather than inventing a
+    fourth reading. `at` remains the day the file was exported.
+
+    `avg_monthly_searches` is stored **exactly as the export gives it**, which on a
+    zero-spend account means power-of-ten bucket midpoints (measured 2026-08-28: only
+    50, 500, 5000 and 50000 occur across 30 keywords). It is a bucket centre, not a
+    count; nothing here may de-bucket it, and every metric built on it inherits that
+    coarseness. NULL means the export carried no volume for the keyword — 8 of 30 on
+    the first US export — and never zero, which would be a different and false claim
+    (data rule 7).
+
+    `currency` is stored verbatim because no exchange rate may be invented to
+    normalise it (ADR-0031). `method` distinguishes the UI CSV path from an eventual
+    API path; the prototype proved both normalise identically.
+    """
+
+    __tablename__ = "keyword_metrics"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    keyword: Mapped[str] = mapped_column(sa.String(256), index=True)
+    #: '' means worldwide, matching `seed_terms.geo`. NOT NULL: a NULL would split
+    #: the unique key, since NULL never equals NULL in SQL.
+    geo: Mapped[str] = mapped_column(sa.String(8), default="")
+    lang: Mapped[str | None] = mapped_column(sa.String(8))
+    observed_date: Mapped[date] = mapped_column(sa.Date)
+    period_start: Mapped[date | None] = mapped_column(sa.Date)
+    avg_monthly_searches: Mapped[float | None] = mapped_column(sa.Float)
+    three_month_change: Mapped[float | None] = mapped_column(sa.Float)
+    yoy_change: Mapped[float | None] = mapped_column(sa.Float)
+    #: The locale label as exported ("Baja"/"Low"). Kept verbatim beside the numeric
+    #: index so a locale change is visible rather than silently remapped.
+    competition: Mapped[str | None] = mapped_column(sa.String(32))
+    competition_index: Mapped[int | None] = mapped_column(sa.Integer)
+    bid_low: Mapped[float | None] = mapped_column(sa.Float)
+    bid_high: Mapped[float | None] = mapped_column(sa.Float)
+    currency: Mapped[str | None] = mapped_column(sa.String(8))
+    method: Mapped[str] = mapped_column(sa.String(16), default="ui_csv")
+    #: Ties every row to the exact bytes it came from, so a number on a page can be
+    #: traced to a file in `raw_records` without trusting a filename.
+    file_sha256: Mapped[str | None] = mapped_column(sa.String(64))
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "keyword", "geo", "lang", "observed_date", "source", name="uq_keyword_metrics_period"
+        ),
+        sa.Index("ix_keyword_metrics_series", "keyword", "observed_date"),
+    )
+
+
 class RawRecord(Base, AppendOnly, Provenance):
     """Every payload as the source returned it, before any interpretation.
 

@@ -731,5 +731,73 @@ def backtest_score(
     typer.secho(f"{label} — {reason}", fg=colour)
 
 
+kp_app = typer.Typer(no_args_is_help=True, help="Keyword Planner — manual CSV import.")
+app.add_typer(kp_app, name="kp")
+
+
+@kp_app.command("ingest")
+def kp_ingest(
+    csv_path: Path = typer.Argument(..., help="The 'Historical metrics' export."),
+    geo: str = typer.Option(
+        "", "--geo", help="Geo the export was run for, e.g. US. '' = worldwide."
+    ),
+    lang: str = typer.Option("en", "--lang"),
+    period_end: datetime = typer.Option(
+        None,
+        "--period-end",
+        formats=["%Y-%m-%d"],
+        help="Last day of the period the numbers describe. Only needed when the "
+        "export's own date line is in a locale the parser does not read.",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Import a Keyword Planner export.
+
+    Manual by design: this source has no network fetch, so `nh nightly` will not run
+    it (ADR-0030). `raise_on_error=True` because a human is at the keyboard — the
+    outage-survival semantics that keep a nightly alive would only hide a bad file.
+    """
+    _setup_logging(verbose)
+    from uuid import uuid4
+
+    import sqlalchemy as sa
+
+    from nh.collectors.keyword_planner import KeywordPlannerCollector
+    from nh.db.models import KeywordMetric, SeedTerm
+    from nh.db.session import get_engine, session_scope
+
+    if not csv_path.exists():
+        typer.secho(f"no such file: {csv_path}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    engine = get_engine()
+    collector = KeywordPlannerCollector(
+        str(uuid4()),
+        engine=engine,
+        path=csv_path,
+        geo=geo,
+        lang=lang,
+        period_end=period_end.date() if period_end else None,
+    )
+    run = collector.run(job="kp_import", raise_on_error=True)
+    typer.echo(f"  status        : {run.status}")
+    typer.echo(f"  raw payloads  : {run.raw_written}")
+    # snapshots_written, not rows_upserted: KeywordMetric is append-only, so rows
+    # arrive via the snapshot path and a re-ingest correctly reports 0 new.
+    typer.echo(f"  keyword rows  : {run.snapshots_written} new")
+
+    # Matching is reported, never enforced: everything the export carries is stored,
+    # and which keywords a niche claims is a feature-time question whose honesty
+    # lives in `inputs_n`. A keyword Google reshaped into a close variant should not
+    # be dropped at ingest.
+    with session_scope(engine) as session:
+        seeded = {t.lower() for t in session.scalars(sa.select(SeedTerm.term))}
+        stored = list(session.scalars(sa.select(KeywordMetric.keyword)))
+    matched = sum(1 for k in stored if k.lower() in seeded)
+    typer.echo(f"  matched a seed term: {matched}/{len(stored)}")
+    if matched < len(stored):
+        typer.echo("  unmatched keywords are stored anyway; features decide what counts")
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

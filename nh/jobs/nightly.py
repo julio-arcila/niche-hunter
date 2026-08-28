@@ -50,6 +50,8 @@ def plan(only: list[str] | None = None, settings: Settings | None = None) -> lis
     for spec in iter_specs(only):
         if not spec.ported:
             out.append(PlannedRun(spec, False, f"not ported from {spec.prototype}"))
+        elif spec.manual:
+            out.append(PlannedRun(spec, False, f"manual import — {spec.manual_cmd}"))
         elif not settings.configured(spec.source):
             out.append(PlannedRun(spec, False, "credentials not configured"))
         else:

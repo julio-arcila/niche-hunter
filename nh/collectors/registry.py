@@ -20,6 +20,16 @@ class CollectorSpec:
     prototype: str
     ported: bool
     notes: str
+    #: A source a human imports by hand rather than one the nightly can run. It is
+    #: ported (the code exists and works) but has no network fetch to schedule, so
+    #: `nh nightly` must neither run it nor count its absence as a failure. Keyword
+    #: Planner is the first: its data arrives as a CSV someone downloads (ADR-0030).
+    manual: bool = False
+    #: The exact command that imports a manual source, printed by `nh nightly
+    #: --dry-run`. Stated rather than derived from `source`, because a reason line
+    #: telling the operator to run a command that does not exist is worse than no
+    #: reason at all.
+    manual_cmd: str = ""
 
     def load(self) -> type:
         module_path, _, cls_name = self.dotted.partition(":")
@@ -76,10 +86,16 @@ REGISTRY: tuple[CollectorSpec, ...] = (
     CollectorSpec(
         source="keyword_planner",
         dotted="nh.collectors.keyword_planner:KeywordPlannerCollector",
-        cadence="weekly (cached 7 days)",
+        cadence="manual (UI CSV export)",
         prototype="legacy/niche_hunter_kp.py",
-        ported=False,
-        notes="Needs Google Ads Basic access. UI CSV export is the fallback path.",
+        ported=True,
+        manual=True,
+        manual_cmd="nh kp ingest <csv>",
+        notes=(
+            "UI CSV export — no API, no token, no application (ADR-0029/0030). "
+            "Run `nh kp ingest <csv>`. Measured 2026-08-28: the export carries exact "
+            "values where the UI shows only ranges."
+        ),
     ),
 )
 

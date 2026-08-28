@@ -115,7 +115,11 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
     result = CheckResult(run_id)
     by_source = {row[0]: row for row in rows}
 
-    for spec in (s for s in REGISTRY if s.ported):
+    # `s.manual` excluded deliberately: a manual source has no network fetch the
+    # nightly could run, so its absence from a nightly run says nothing about the
+    # night's health. Its freshness is the operator's job and is visible in
+    # `job_runs` under its own job name (ADR-0030).
+    for spec in (s for s in REGISTRY if s.ported and not s.manual):
         row = by_source.get(spec.source)
         if not settings.configured(spec.source):
             result.problems.append(
