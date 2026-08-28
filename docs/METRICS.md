@@ -26,7 +26,7 @@ Feeds        : which composite score, if any
 
 ## Defined
 
-Twelve metrics across four of the six groups (`voice` and `cost_risk` are still
+Fifteen metrics across four of the six groups (`voice` and `cost_risk` are still
 empty). Each was verified to **vary across the five live niches** before
 implementation — a metric that is flat across the units it
 compares is not a comparator, however plausible its formula.
@@ -245,6 +245,87 @@ Failure mode : a single news spike in either window swamps the ratio — detail
                sum of 0 -> NULL, never an infinity.
 Feeds        : none yet — display in Slice 3, demand composite in Slice 5
 Measured     : -36% to +1% across the five seeds
+```
+
+### demand.wiki_yoy
+```
+Formula      : views in (day-lag-28d, day-lag] divided by views in the same 28-day
+               window 365 days earlier, minus 1. Summed across the cluster's
+               wikipedia articles.
+Inputs       : demand_snapshots(term, observed_date, value, source='wikipedia');
+               seed_terms; clusters
+Join key     : cluster_id -> clusters.seed_id -> seed_terms.seed_id
+Confidence   : min over the two windows of (coverage x volume adequacy), as
+               wiki_momentum_28d. The weaker window bounds the ratio.
+Failure mode : a single news event in EITHER window moves it, and the two are a
+               year apart so they cannot cancel. Immune to annual seasonality by
+               construction, which is the whole reason it exists; not immune to a
+               one-off. Check demand.wiki_volatility_365d before acting on it.
+Why not wiki_momentum_28d: that metric's own entry records court-cases at -31%
+               month-over-month in late August and warns it "is plausibly term
+               structure rather than decay". Measured in Slice 5: three of four
+               niches peak in SEPTEMBER (demand.wiki_seasonality), so a
+               month-over-month reading in August is measuring the school calendar.
+               A year-apart comparison cannot be.
+Feeds        : scorecards.stage — the momentum axis. wiki_momentum_28d stays as
+               evidence in detail and is NOT a decision input.
+Measured     : 2026-08-27 -- ALL FOUR active niches negative: maritime -13.5%,
+               engineering -21.5%, aviation -21.8%, corporate -24.8%. English
+               Wikipedia overall was measured at -6% YoY in Slice 3, so these are
+               real declines and not only platform drift. Note the consequence for
+               `stage`: with every niche negative the momentum axis does not
+               currently discriminate, which is a fact about the portfolio rather
+               than a defect in the metric.
+```
+
+### demand.wiki_volatility_365d
+```
+Formula      : standard deviation of week-over-week log change in cluster-total
+               daily views, over the last 365 days. Weeks with a zero on either
+               side are dropped rather than treated as an infinite change.
+Inputs       : demand_snapshots; seed_terms; clusters
+Join key     : as wiki_yoy
+Confidence   : usable weekly changes / 51 -- the full year the metric claims.
+Failure mode : log changes are undefined at zero, so a niche that goes dark for a
+               week is quietly excluded rather than recorded as maximally volatile.
+               Weekly aggregation hides intra-week spikes by design; that is the
+               point, since Wikipedia has a strong day-of-week cycle that would
+               otherwise dominate and measure the calendar.
+Why weekly, why log: log makes it scale-free, so a 300-views/day niche and a
+               30,000-views/day niche are comparable -- raw variance would rank
+               them by size. Weekly removes the day-of-week cycle.
+Feeds        : INSIGHT_RULES Rule 7's false-positive check ("demand that is a
+               single news event rather than a standing interest"). A spike in a
+               volatile series is a Tuesday; in a quiet one it is news.
+Measured     : 2026-08-27 -- 3.8x spread. corporate 0.071 (steadiest), maritime
+               0.140, aviation 0.154, engineering 0.268 (jumpiest). Event-driven
+               niches score higher, which is what the metric is for.
+```
+
+### demand.wiki_seasonality
+```
+Formula      : each calendar month gets an index (its mean daily cluster-total
+               views over all observed years / the overall mean daily views); the
+               metric is the standard deviation of those twelve. Scale-free, and
+               reads as "typical monthly deviation from the annual average".
+Inputs       : demand_snapshots; seed_terms; clusters
+Join key     : as wiki_yoy
+Confidence   : observed days / 365.25 / 3, capped at 1. CYCLES, not rows: one cycle
+               cannot separate season from trend and two cannot tell a repeating
+               pattern from a coincidence. A row-count confidence would report 1.00
+               from eight months of data for a number about a year.
+Failure mode : three cycles is the bare minimum and a single large news event in
+               one month of one year still shifts that month's index. It cannot
+               separate a genuine season from an annually recurring news cycle --
+               an anniversary looks exactly like a season.
+Feeds        : INSIGHT_RULES Rule 4's false-positive check ("a seasonal upload
+               spike with no real change in openness"). Returns NULL, never 0.0,
+               until all twelve calendar months are observed.
+Measured     : 2026-08-27, 3.0 cycles for every niche -- aviation 0.218 peaking in
+               FEBRUARY, engineering 0.162, corporate 0.073 and maritime 0.051 all
+               peaking in SEPTEMBER. Three of four peaking together in September is
+               the school calendar, and it is the measured basis for reading
+               wiki_momentum_28d as term structure rather than decay.
 ```
 
 ### demand.trends_momentum_13w

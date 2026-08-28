@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
+import sqlalchemy as sa
+
 from nh.db.models import Cluster, DemandSeries, DemandSnapshot, NicheSeed, SeedTerm
 from nh.db.session import session_scope
 from nh.features.demand import (
@@ -17,7 +20,10 @@ from nh.features.demand import (
     LAG_DAYS,
     trends_momentum_13w,
     wiki_momentum_28d,
+    wiki_seasonality,
+    wiki_volatility_365d,
     wiki_weekly_views,
+    wiki_yoy,
 )
 from tests.conftest_features import session_for
 
@@ -233,3 +239,126 @@ def test_demand_terms_is_per_seed_not_per_cluster(engine):
         second = demand_terms(s, "sub-2", "wikipedia")
 
     assert first == second == ["Aviation_safety"]
+
+
+# -- the history metrics `stage` needs (Slice 5) -----------------------------
+
+
+def test_wiki_yoy_compares_the_same_window_a_year_apart(engine):
+    """Doubling year on year must read +1.0, not +100 or +0.5."""
+    _cluster(engine)
+    _views(engine, "Article_A", start_days_ago=2, n=28, per_day=200)
+    _views(engine, "Article_A", start_days_ago=367, n=28, per_day=100)
+
+    with session_scope(engine) as s:
+        result = wiki_yoy(s, CLUSTER, DAY)
+
+    assert result.value == pytest.approx(1.0)
+
+
+def test_wiki_yoy_is_null_without_a_prior_year(engine):
+    """A year of history is the whole point of the metric; without it there is no
+    number to report, and 0.0 would read as "flat"."""
+    _cluster(engine)
+    _views(engine, "Article_A", start_days_ago=2, n=28, per_day=200)
+
+    with session_scope(engine) as s:
+        result = wiki_yoy(s, CLUSTER, DAY)
+
+    assert result.value is None
+    assert "last year" in result.detail["reason"]
+
+
+def test_wiki_yoy_ignores_a_month_over_month_seasonal_dip(engine):
+    """The reason this is the stage's axis rather than wiki_momentum_28d. A series
+    that is identical in both year-apart windows reads flat, however it moved in
+    between."""
+    _cluster(engine)
+    _views(engine, "Article_A", start_days_ago=2, n=28, per_day=100)
+    _views(engine, "Article_A", start_days_ago=40, n=28, per_day=900)  # a spike between
+    _views(engine, "Article_A", start_days_ago=367, n=28, per_day=100)
+
+    with session_scope(engine) as s:
+        assert wiki_yoy(s, CLUSTER, DAY).value == pytest.approx(0.0)
+
+
+def test_volatility_is_zero_for_a_perfectly_flat_series(engine):
+    _cluster(engine)
+    _views(engine, "Article_A", start_days_ago=2, n=364, per_day=100)
+
+    with session_scope(engine) as s:
+        result = wiki_volatility_365d(s, CLUSTER, DAY)
+
+    assert result.value == pytest.approx(0.0)
+    assert result.confidence == 1.0
+
+
+def test_volatility_is_scale_free(engine):
+    """A niche drawing 300 views a day and one drawing 30,000 must be comparable;
+    raw variance would rank them by size."""
+    _cluster(engine)
+    for i in range(52):
+        _views(engine, "Article_A", start_days_ago=2 + i * 7, n=7, per_day=100 * (1 + i % 2))
+    with session_scope(engine) as s:
+        small = wiki_volatility_365d(s, CLUSTER, DAY).value
+
+    with session_scope(engine) as s:
+        s.execute(sa.text("UPDATE demand_snapshots SET value = value * 1000"))
+        s.commit()
+        large = wiki_volatility_365d(s, CLUSTER, DAY).value
+
+    assert small == pytest.approx(large)
+
+
+def test_volatility_refuses_too_short_a_series(engine):
+    _cluster(engine)
+    _views(engine, "Article_A", start_days_ago=2, n=21, per_day=100)
+
+    with session_scope(engine) as s:
+        result = wiki_volatility_365d(s, CLUSTER, DAY)
+
+    assert result.value is None
+    assert "standard deviation needs more" in result.detail["reason"]
+
+
+def test_seasonality_needs_all_twelve_months(engine):
+    """An annual pattern computed from part of a year is not a weak measurement of
+    seasonality, it is not a measurement of seasonality."""
+    _cluster(engine)
+    _views(engine, "Article_A", start_days_ago=2, n=120, per_day=100)
+
+    with session_scope(engine) as s:
+        result = wiki_seasonality(s, CLUSTER, DAY)
+
+    assert result.value is None
+    assert "calendar months observed" in result.detail["reason"]
+
+
+def test_seasonality_confidence_counts_cycles_not_rows(engine):
+    """One year of daily data is 365 rows and exactly one cycle. Row count would
+    report full confidence in a number that cannot exist yet."""
+    _cluster(engine)
+    _views(engine, "Article_A", start_days_ago=2, n=364, per_day=100)
+
+    with session_scope(engine) as s:
+        result = wiki_seasonality(s, CLUSTER, DAY)
+
+    assert result.inputs_n > 300
+    assert result.confidence == pytest.approx(1 / 3, abs=0.02)
+
+
+def test_seasonality_finds_the_peak_month(engine):
+    _cluster(engine)
+    _views(engine, "Article_A", start_days_ago=2, n=1095, per_day=100)
+    with session_scope(engine) as s:
+        s.execute(
+            sa.text(
+                "UPDATE demand_snapshots SET value = 500 "
+                "WHERE CAST(strftime('%m', observed_date) AS INTEGER) = 7"
+            )
+        )
+        s.commit()
+        result = wiki_seasonality(s, CLUSTER, DAY)
+
+    assert result.detail["peak_month"] == 7
+    assert result.value > 0.1

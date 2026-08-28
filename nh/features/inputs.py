@@ -273,14 +273,22 @@ def cohort(session: Session, cluster_id: str, day: date) -> dict[str, list[int]]
     }
 
 
-def demand_terms(session: Session, cluster_id: str, source: str) -> list[str]:
-    """Active demand terms for the cluster's seed.
+def demand_terms(
+    session: Session, cluster_id: str, source: str, stratum: str = "topic"
+) -> list[str]:
+    """Active demand terms for the cluster's seed, at one level of the subject.
 
     Joins through `clusters.seed_id`, which is the one place to touch when Slice 4
     changes what a `cluster_id` is. Deliberately does NOT fall back to
     `niche_seeds.keywords`: those are YouTube search phrases and are demand-dead
     elsewhere — most read literal zero on Trends — so reusing them would
     manufacture confident nonsense (ADR-0015).
+
+    `stratum` defaults to `topic` so every existing caller keeps the articles it
+    already had and the stored series stays comparable. The `event` stratum is
+    carried alongside rather than replacing it: measured, the two invert the demand
+    ranking end to end, and which one is right is a question for Gate E rather than
+    for an argument (ADR-0022).
     """
     return list(
         session.scalars(
@@ -289,6 +297,7 @@ def demand_terms(session: Session, cluster_id: str, source: str) -> list[str]:
             .where(
                 Cluster.cluster_id == cluster_id,
                 SeedTerm.source == source,
+                SeedTerm.stratum == stratum,
                 SeedTerm.active.is_(True),
             )
             .order_by(SeedTerm.term)

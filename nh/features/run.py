@@ -23,6 +23,9 @@ Metric = Callable[[Session, str, date], FeatureResult]
 METRICS: tuple[Metric, ...] = (
     demand.wiki_weekly_views,
     demand.wiki_momentum_28d,
+    demand.wiki_yoy,
+    demand.wiki_volatility_365d,
+    demand.wiki_seasonality,
     demand.trends_momentum_13w,
     supply.uploads_per_week,
     supply.median_views,

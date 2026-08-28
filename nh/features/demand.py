@@ -9,6 +9,9 @@ encyclopedic curiosity, not intent to watch a video.
 from __future__ import annotations
 
 from datetime import date, timedelta
+from itertools import pairwise
+from math import log
+from statistics import stdev
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -174,5 +177,196 @@ def trends_momentum_13w(session: Session, cluster_id: str, day: date) -> Feature
             "non_zero_points": non_zero,
             "note": "shape only — Trends levels are not comparable across requests",
             "inputs": {"tables": ["demand_series", "seed_terms"]},
+        },
+    )
+
+
+def _daily_series(session: Session, terms: list[str], lo: date, hi: date) -> list[float]:
+    """Cluster-total views per day over `(lo, hi]`, in date order.
+
+    Summed across the niche's articles per day, not per article: a niche's demand
+    is what its whole basket draws, and a per-article series would be dominated by
+    whichever article is largest.
+    """
+    rows = session.execute(
+        sa.select(DemandSnapshot.observed_date, sa.func.sum(DemandSnapshot.value))
+        .where(
+            DemandSnapshot.term.in_(terms),
+            DemandSnapshot.source == "wikipedia",
+            DemandSnapshot.value.is_not(None),
+            DemandSnapshot.observed_date > lo,
+            DemandSnapshot.observed_date <= hi,
+        )
+        .group_by(DemandSnapshot.observed_date)
+        .order_by(DemandSnapshot.observed_date)
+    ).all()
+    return [float(total) for _, total in rows]
+
+
+def wiki_yoy(session: Session, cluster_id: str, day: date) -> FeatureResult:
+    """This 28-day window against the same window a year ago. The stage's momentum axis.
+
+    Year-over-year rather than month-over-month, and the reason is written into
+    `wiki_momentum_28d`'s own entry: court-cases measured -31% month-over-month in
+    late August, which is plausibly the school calendar rather than decay. A
+    year-apart comparison is immune to annual seasonality by construction, which is
+    what makes it safe to hand to a classifier. `wiki_momentum_28d` stays as
+    evidence; it is not a decision input.
+    """
+    terms = demand_terms(session, cluster_id, "wikipedia")
+    if not terms:
+        return FeatureResult.empty(GROUP, "wiki_yoy", "no wikipedia terms mapped for this seed")
+    end = day - timedelta(days=LAG_DAYS)
+    now_points, now_views = _window(session, terms, end - timedelta(days=WINDOW_DAYS), end)
+    then_end = end - timedelta(days=365)
+    ago_points, ago_views = _window(
+        session, terms, then_end - timedelta(days=WINDOW_DAYS), then_end
+    )
+    if not ago_views:
+        return FeatureResult.empty(
+            GROUP,
+            "wiki_yoy",
+            "no views in the same window last year — a year of history is the whole point",
+            window_days=WINDOW_DAYS,
+        )
+    expected = WINDOW_DAYS * len(terms)
+    return FeatureResult(
+        group=GROUP,
+        name="wiki_yoy",
+        value=now_views / ago_views - 1,
+        # The weaker of the two windows bounds the ratio, as in wiki_momentum_28d.
+        confidence=min(
+            _adequacy(now_points, expected, now_views), _adequacy(ago_points, expected, ago_views)
+        ),
+        inputs_n=now_points + ago_points,
+        detail={
+            "window_days": WINDOW_DAYS,
+            "views_now": now_views,
+            "views_year_ago": ago_views,
+            "terms": len(terms),
+            "as_of": end.isoformat(),
+            "note": "immune to annual seasonality by construction; a news spike in either window still moves it",
+            "inputs": {"tables": ["demand_snapshots", "seed_terms", "clusters"]},
+        },
+    )
+
+
+def wiki_volatility_365d(session: Session, cluster_id: str, day: date) -> FeatureResult:
+    """How jumpy the demand series is — standard deviation of weekly log changes.
+
+    Log changes rather than raw differences so the number is scale-free: a niche
+    drawing 300 views a day and one drawing 30,000 are comparable, which raw
+    variance would not be. Weekly rather than daily because Wikipedia traffic has a
+    strong day-of-week cycle that would otherwise dominate and measure the calendar
+    rather than the niche.
+
+    This is the false-positive check INSIGHT_RULES Rule 7 asks for: a demand spike
+    in a volatile series is a Tuesday, and in a quiet one it is news.
+    """
+    terms = demand_terms(session, cluster_id, "wikipedia")
+    if not terms:
+        return FeatureResult.empty(
+            GROUP, "wiki_volatility_365d", "no wikipedia terms mapped for this seed"
+        )
+    end = day - timedelta(days=LAG_DAYS)
+    daily = _daily_series(session, terms, end - timedelta(days=365), end)
+    weeks = [sum(daily[i : i + 7]) for i in range(0, len(daily) - 6, 7)]
+    changes = [
+        log(later / earlier) for earlier, later in pairwise(weeks) if earlier > 0 and later > 0
+    ]
+    if len(changes) < 8:
+        return FeatureResult.empty(
+            GROUP,
+            "wiki_volatility_365d",
+            f"only {len(changes)} usable weekly changes; a standard deviation needs more",
+        )
+    return FeatureResult(
+        group=GROUP,
+        name="wiki_volatility_365d",
+        value=float(stdev(changes)),
+        # 52 weeks is the full year this metric claims to describe.
+        confidence=min(len(changes) / 51, 1.0),
+        inputs_n=len(changes),
+        detail={
+            "weeks_observed": len(weeks),
+            "usable_changes": len(changes),
+            "as_of": end.isoformat(),
+            "note": "sd of week-over-week log change; scale-free, so comparable across niches",
+            "inputs": {"tables": ["demand_snapshots", "seed_terms", "clusters"]},
+        },
+    )
+
+
+#: Full annual cycles wanted before a seasonal index is worth reading. Three is the
+#: bare minimum — one cycle cannot separate season from trend, two cannot tell a
+#: repeating pattern from a coincidence — and three is what the backfill provides.
+SEASON_CYCLES = 3
+
+
+def wiki_seasonality(session: Session, cluster_id: str, day: date) -> FeatureResult:
+    """How much of a niche's demand is the calendar. Spread of the month-of-year index.
+
+    Each calendar month gets an index: its mean daily views over all observed years
+    divided by the overall mean. The metric is the standard deviation of those
+    twelve, so it is scale-free and reads as "typical monthly deviation from the
+    annual average".
+
+    This is the false-positive check INSIGHT_RULES Rule 4 asks for — a September
+    upload spike against a September demand peak is the school calendar, not a
+    niche heating up — and it is the reason `wiki_momentum_28d` carries a warning
+    not to be read as a trend.
+
+    `confidence` keys on **cycles observed**, not on row count. A metric about an
+    annual pattern computed from eight months of data would otherwise report full
+    confidence in a number that cannot exist.
+    """
+    terms = demand_terms(session, cluster_id, "wikipedia")
+    if not terms:
+        return FeatureResult.empty(
+            GROUP, "wiki_seasonality", "no wikipedia terms mapped for this seed"
+        )
+    end = day - timedelta(days=LAG_DAYS)
+    rows = session.execute(
+        sa.select(DemandSnapshot.observed_date, sa.func.sum(DemandSnapshot.value))
+        .where(
+            DemandSnapshot.term.in_(terms),
+            DemandSnapshot.source == "wikipedia",
+            DemandSnapshot.value.is_not(None),
+            DemandSnapshot.observed_date <= end,
+        )
+        .group_by(DemandSnapshot.observed_date)
+    ).all()
+    if not rows:
+        return FeatureResult.empty(GROUP, "wiki_seasonality", "no demand history for this seed")
+
+    by_month: dict[int, list[float]] = {}
+    for observed, total in rows:
+        by_month.setdefault(observed.month, []).append(float(total))
+    if len(by_month) < 12:
+        return FeatureResult.empty(
+            GROUP,
+            "wiki_seasonality",
+            f"only {len(by_month)} of 12 calendar months observed",
+            months_observed=len(by_month),
+        )
+    overall = sum(total for _, total in rows) / len(rows)
+    if not overall:
+        return FeatureResult.empty(GROUP, "wiki_seasonality", "no views in the observed history")
+    index = {month: (sum(v) / len(v)) / overall for month, v in by_month.items()}
+    cycles = len(rows) / 365.25
+    return FeatureResult(
+        group=GROUP,
+        name="wiki_seasonality",
+        value=float(stdev(index.values())),
+        confidence=min(cycles / SEASON_CYCLES, 1.0),
+        inputs_n=len(rows),
+        detail={
+            "cycles_observed": round(cycles, 2),
+            "cycles_wanted": SEASON_CYCLES,
+            "peak_month": max(index, key=index.get),
+            "trough_month": min(index, key=index.get),
+            "month_index": {m: round(v, 3) for m, v in sorted(index.items())},
+            "as_of": end.isoformat(),
+            "inputs": {"tables": ["demand_snapshots", "seed_terms", "clusters"]},
         },
     )

@@ -50,6 +50,10 @@ ignore = ["E501"]
 "nh/cli.py" = ["B008"]        # typer.Option in a default IS the Typer API
 "legacy/*" = ["ALL"]           # frozen prototypes; ported file-by-file, never linted in place
 "nh/db/migrations/*" = ["I001"]
+# Real Wikipedia article titles, pasted verbatim. Some genuinely contain an en
+# dash (Rokotov–Faibishenko_case) and "correcting" it to a hyphen would silently
+# break the lookup — the metric would read NULL and look like absent demand.
+"nh/seeds.py" = ["RUF001"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
