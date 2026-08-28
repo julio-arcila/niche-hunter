@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from nh.clustering.lexicon import LEXICON_VERSION
-from nh.db.models import ClusterMember, Video
+from nh.db.models import Channel, Cluster, ClusterMember, NicheSeed, Video
 from nh.features.inputs import (
     AGE_FLOOR_DAYS,
     FEED_DEPTH,
@@ -232,5 +232,65 @@ def on_niche_share(session: Session, cluster_id: str, day: date) -> FeatureResul
                 "reports/relevance_2026-08-27.md"
             ),
             "inputs": {"tables": ["cluster_members"]},
+        },
+    )
+
+
+def geo_concentration(session: Session, cluster_id: str, day: date) -> FeatureResult:
+    """Share of member channels based in the market the seed says it is about.
+
+    The demand side is read off English Wikipedia, which is global and US-leaning;
+    the supply side is whatever `relevanceLanguage=en` discovery returns, which
+    measured 2026-08-27 is 234 Indian channels against 290 US. `gap` subtracts one
+    rank from the other and cannot see that, so this metric makes the divergence a
+    number instead of letting the gap absorb it.
+
+    NOT a quality score, and it must not be read as one. A low value can mean the
+    seed's stated geo is wrong, or that the niche is genuinely global; both are
+    findings and neither is a defect. It exists so that a `gap` computed across
+    mismatched populations is visibly that, rather than quietly plausible.
+
+    Unknown country excludes a channel from both sides — 719 of 955 have one — and
+    lowers confidence, rather than counting as "not local" (data rule 7).
+    """
+    seed_geo = session.scalar(
+        sa.select(NicheSeed.geo)
+        .join(Cluster, Cluster.seed_id == NicheSeed.id)
+        .where(Cluster.cluster_id == cluster_id)
+    )
+    if not seed_geo:
+        return FeatureResult.empty(
+            GROUP, "geo_concentration", "seed states no geo, so there is nothing to diverge from"
+        )
+    members = member_channels(session, cluster_id)
+    if not members:
+        return FeatureResult.empty(GROUP, "geo_concentration", "cluster has no member channel")
+
+    counts = dict(
+        session.execute(
+            sa.select(Channel.country, sa.func.count())
+            .where(Channel.channel_id.in_(members), Channel.country.is_not(None))
+            .group_by(Channel.country)
+        ).all()
+    )
+    known = sum(counts.values())
+    if not known:
+        return FeatureResult.empty(
+            GROUP, "geo_concentration", "no member channel reports a country"
+        )
+    return FeatureResult(
+        group=GROUP,
+        name="geo_concentration",
+        value=counts.get(seed_geo, 0) / known,
+        confidence=known / len(members),
+        inputs_n=known,
+        detail={
+            "seed_geo": seed_geo,
+            "member_channels": len(members),
+            "with_known_country": known,
+            "top_countries": sorted(counts.items(), key=lambda kv: -kv[1])[:5],
+            "as_of": day.isoformat(),
+            "note": "not a quality score; a low value may mean the niche is global",
+            "inputs": {"tables": ["cluster_members", "channels", "clusters", "niche_seeds"]},
         },
     )

@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from nh.clustering.lexicon import LEXICON_VERSION, event_weights, weights
 from nh.clustering.relevance import RELEVANCE_HIGH, RELEVANCE_LOW, score
 from nh.clustering.trivial import assign_channels
-from nh.db.models import Cluster, ClusterMember, Video
+from nh.db.models import Cluster, ClusterMember, NicheSeed, Video
 from nh.db.provenance import Stamp
 from nh.db.upsert import upsert
 
@@ -123,7 +123,18 @@ def _flush(session: Session, rows: list[dict]) -> int:
 
 
 def retire_empty(session: Session, day: date) -> None:
-    """Deactivate clusters with no on-niche video, and reactivate ones that gain some.
+    """Retire clusters whose seed was switched off, or that hold no on-niche video.
+
+    Two reasons a cluster stops being live, and the seed one is not optional: when a
+    seed is deactivated — or split into two, as `court-cases` was in Slice 5 —
+    `assign_channels` simply stops upserting its cluster, which leaves the old row
+    `active=True` and still generating a `features_daily` row and a percentile rank
+    every night, forever. `apply_seeds` deliberately never deactivates a seed it no
+    longer sees, because a typo in the literal would otherwise silently kill a
+    niche; so the seed is switched off by hand and this is what notices.
+
+    Reactivation matters too — a niche that goes quiet for a week must come back on
+    its own, not need a hand.
 
     Retirement rather than deletion: `features_daily` and `scorecards` keep rows
     keyed on `cluster_id`, and deleting the cluster would orphan history that is
@@ -138,8 +149,15 @@ def retire_empty(session: Session, day: date) -> None:
             )
         )
     )
+    seeded = set(
+        session.scalars(
+            sa.select(Cluster.cluster_id)
+            .join(NicheSeed, NicheSeed.id == Cluster.seed_id)
+            .where(NicheSeed.active)
+        )
+    )
     for cluster_id, active in session.execute(sa.select(Cluster.cluster_id, Cluster.active)).all():
-        wanted = cluster_id in live
+        wanted = cluster_id in live and cluster_id in seeded
         if wanted != active:
             session.execute(
                 sa.update(Cluster)

@@ -18,7 +18,7 @@ from nh.db.models import Cluster, ClusterMember, Discovery, NicheSeed, Video
 from nh.db.provenance import stamp
 from nh.db.session import session_scope
 from nh.db.types import utcnow
-from nh.seeds import apply_seeds
+from nh.seeds import SEEDS, apply_seeds
 
 DAY = date(2026, 8, 27)
 
@@ -89,7 +89,7 @@ def test_one_cluster_per_active_seed_even_with_no_members(engine):
     apply_seeds(engine)
     with session_scope(engine) as s:
         assign(s, DAY, _mark())
-        assert s.scalar(sa.select(sa.func.count()).select_from(Cluster)) == 5
+        assert s.scalar(sa.select(sa.func.count()).select_from(Cluster)) == len(SEEDS)
 
 
 def test_every_discovered_channel_lands_in_exactly_one_cluster(engine):
@@ -227,7 +227,7 @@ def test_a_cluster_with_no_on_niche_video_is_retired_not_deleted(engine):
         assign(s, DAY, _mark())
         clusters = dict(s.execute(sa.select(Cluster.cluster_id, Cluster.active)).all())
     assert clusters["aviation-disasters"] is False
-    assert len(clusters) == 5  # retired, still present
+    assert len(clusters) == len(SEEDS)  # retired, still present
 
 
 def test_a_cluster_reactivates_when_it_gains_an_on_niche_video(engine):
@@ -244,3 +244,34 @@ def test_a_cluster_reactivates_when_it_gains_an_on_niche_video(engine):
             sa.select(Cluster.active).where(Cluster.cluster_id == "aviation-disasters")
         )
     assert active is True
+
+
+def test_a_cluster_whose_seed_was_switched_off_is_retired(engine):
+    """`apply_seeds` never deactivates a seed it stops seeing — a typo in the
+    literal would otherwise silently kill a niche — so a seed is switched off by
+    hand, and this is what notices. Without it the old cluster keeps producing a
+    features_daily row and a percentile rank every night, forever."""
+    from nh.db.models import NicheSeed
+
+    apply_seeds(engine)
+    _discovered(engine, "ch1", "aviation-disasters", "date", 1)
+    _video(engine, "v1", "ch1", "Plane crashed on the runway after engine failure")
+    with session_scope(engine) as s:
+        assign(s, DAY, _mark())
+        assert (
+            s.scalar(sa.select(Cluster.active).where(Cluster.cluster_id == "aviation-disasters"))
+            is True
+        )
+
+        s.execute(
+            sa.update(NicheSeed).where(NicheSeed.slug == "aviation-disasters").values(active=False)
+        )
+        s.commit()
+        assign(s, DAY, _mark())
+        row = s.execute(
+            sa.select(Cluster.active, Cluster.retired_on).where(
+                Cluster.cluster_id == "aviation-disasters"
+            )
+        ).one()
+    assert row.active is False
+    assert row.retired_on == DAY

@@ -26,7 +26,7 @@ Feeds        : which composite score, if any
 
 ## Defined
 
-Ten metrics across four of the six groups (`voice` and `cost_risk` are still
+Twelve metrics across four of the six groups (`voice` and `cost_risk` are still
 empty). Each was verified to **vary across the five live niches** before
 implementation — a metric that is flat across the units it
 compares is not a comparator, however plausible its formula.
@@ -296,6 +296,34 @@ Failure mode : it measures our LEXICON as much as the corpus. A lexicon edit mov
 Measured     : 2026-08-27 -- aviation 33.7%, court 26.5%, corporate 21.2%,
                maritime 20.8%, engineering 19.6%. The spread tracks how specific
                each seed's keywords are.
+```
+
+### supply.geo_concentration
+```
+Formula      : share of the cluster's member channels whose channels.country equals
+               the seed's stated niche_seeds.geo. Channels with no reported country
+               are excluded from BOTH sides and lower confidence -- 236 of 955 have
+               none, and counting them as "not local" would understate every niche
+               by a quarter (data rule 7).
+Inputs       : cluster_members(item_type='channel'); channels.country; clusters.seed_id;
+               niche_seeds.geo
+Join key     : cluster_id -> clusters.seed_id -> niche_seeds.geo
+Confidence   : channels with a known country / member channels. Coverage only --
+               this is a census of the cluster, not a sample of it.
+Failure mode : NOT a quality score, and the most likely way it is misread. A low
+               value can mean the seed's stated geo is wrong, or that the niche is
+               genuinely global. Both are findings; neither is a defect.
+Why it exists: demand is read off English Wikipedia, which is global and US-leaning,
+               while supply is whatever relevanceLanguage=en discovery returns.
+               `gap` subtracts one rank from the other and cannot see the mismatch.
+               This makes it a number rather than letting the gap absorb it.
+Measured     : 2026-08-27, against a stated geo of US -- corporate-collapse 0.33,
+               engineering 0.37, maritime 0.43, aviation 0.43. So 57-67% of every
+               niche's supply sits outside the market its seed claims. Separately,
+               234 of 719 channels reporting a country are Indian against 290 US.
+Feeds        : nothing yet. A confound to report beside `gap`, not an input to it --
+               folding it into a composite would be inventing an exchange rate
+               between "how local is this" and "how big is the gap".
 ```
 
 ### openness.winner_age_years

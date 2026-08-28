@@ -29,9 +29,17 @@ from nh.db.models import NicheSeed, SeedTerm
 from nh.db.session import session_scope
 from nh.db.upsert import upsert
 
-#: geo stays NULL on the seed. Resolved in Slice 3: geo lives per-term on
-#: `seed_terms`, where it actually drives a request, rather than on the seed where
-#: it would be a guess (ADR-0015).
+#: `geo` is the market a niche is ABOUT, stated rather than inferred (Slice 5).
+#: Slice 3 left it NULL on the grounds that geo belongs per-term where it drives a
+#: request; that is still true of `seed_terms.geo`, and it turned out to leave a
+#: different question unasked. Measured 2026-08-27: 234 of 719 channels are Indian
+#: against 290 US, and 27% of corporate-collapse's on-niche videos use India-market
+#: vocabulary, while demand is read off English Wikipedia. `supply.geo_concentration`
+#: measures that divergence — it cannot be seen at all unless the seed says what it
+#: intended.
+#:
+#: `primary_sources` records what was actually found when the sources were tried,
+#: dated, rather than what Slice 1 assumed (ADR-0020).
 SEEDS: tuple[dict[str, Any], ...] = (
     {
         "slug": "aviation-disasters",
@@ -41,7 +49,17 @@ SEEDS: tuple[dict[str, Any], ...] = (
             "plane crash investigation",
             "air crash analysis",
         ],
+        "geo": "US",
         "lang": "en",
+        "primary_sources": [
+            {
+                "name": "NTSB CAROL",
+                "url": "https://data.ntsb.gov/carol-main-public/",
+                "status": "exists_uncollected",
+                "reviewed_on": "2026-08-27",
+                "note": "query API reachable but rejects documented-looking payloads; shape undocumented",
+            }
+        ],
         "notes": "Primary source: NTSB accident dockets. The prototype's default niche.",
     },
     {
@@ -52,7 +70,17 @@ SEEDS: tuple[dict[str, Any], ...] = (
             "maritime disaster investigation",
             "sinking ship analysis",
         ],
+        "geo": "US",
         "lang": "en",
+        "primary_sources": [
+            {
+                "name": "US Coast Guard NCOE",
+                "url": "https://www.dco.uscg.mil/",
+                "status": "none_found",
+                "reviewed_on": "2026-08-27",
+                "note": "403 to an ordinary GET; no public API located",
+            }
+        ],
         "notes": "Primary source: NTSB Marine, US Coast Guard reports.",
     },
     {
@@ -63,8 +91,22 @@ SEEDS: tuple[dict[str, Any], ...] = (
             "corporate fraud explained",
             "business failure analysis",
         ],
+        "geo": "US",
         "lang": "en",
-        "notes": "Primary source: SEC EDGAR filings.",
+        "primary_sources": [
+            {
+                "name": "SEC EDGAR",
+                "url": "https://data.sec.gov/submissions/",
+                "status": "exists_uncollected",
+                "reviewed_on": "2026-08-27",
+                "note": "submissions and full-text search both work unauthenticated",
+            }
+        ],
+        "notes": (
+            "Primary source: SEC EDGAR filings. Measured: 27% of this niche's "
+            "on-niche videos are India-market (Rajesh Exports, crore, SEBI), so a "
+            "US geo understates its supply — see supply.geo_concentration."
+        ),
     },
     {
         "slug": "engineering-failures",
@@ -74,19 +116,76 @@ SEEDS: tuple[dict[str, Any], ...] = (
             "structural failure analysis",
             "bridge collapse investigation",
         ],
+        "geo": "US",
         "lang": "en",
+        "primary_sources": [
+            {
+                "name": "NIST investigations",
+                "url": "https://www.nist.gov/",
+                "status": "none_found",
+                "reviewed_on": "2026-08-27",
+                "note": "no publications API; reports are prose documents",
+            }
+        ],
         "notes": "Primary source: NIST investigations, NTSB.",
     },
+    # Split from one `court-cases` seed in Slice 5 (ADR-0024). The old seed's label
+    # and demand articles were about landmark constitutional decisions; its supply
+    # was contemporary true-crime trial streaming — measured, "Lindsay Clancy"
+    # appeared in 59 of 520 on-niche titles, then Mario Fernandez Saldana, the
+    # Bridegan murder, Karmelo Anthony. `gap` was subtracting a supply rank for one
+    # subject from a demand rank for another. Slice 3 predicted exactly this
+    # ("Supreme_Court_of_the_United_States ... may be measuring civics rather than
+    # the niche") and left it to be revisited once inspectable. It is now.
     {
-        "slug": "court-cases",
+        "slug": "landmark-court-cases",
         "label": "Landmark court cases",
         "keywords": [
-            "famous court case documentary",
-            "trial analysis",
-            "legal case explained",
+            "landmark supreme court case explained",
+            "constitutional law case documentary",
+            "precedent setting court decision",
         ],
+        "geo": "US",
         "lang": "en",
-        "notes": "Primary source: CourtListener opinions and dockets.",
+        "primary_sources": [
+            {
+                "name": "CourtListener",
+                "url": "https://www.courtlistener.com/api/rest/v4/",
+                "status": "exists_uncollected",
+                "reviewed_on": "2026-08-27",
+                "note": "unauthenticated REST v4; carries dateFiled, so cadence is a real series",
+            }
+        ],
+        "notes": (
+            "Keeps the original demand articles. If demand here is real and the "
+            "supply is elsewhere, that is the gap the product exists to find — but "
+            "it has to be measured against keywords that ask for this subject."
+        ),
+    },
+    {
+        "slug": "true-crime-trials",
+        "label": "True-crime trials",
+        "keywords": [
+            "murder trial live coverage",
+            "court trial testimony analysis",
+            "criminal trial verdict explained",
+        ],
+        "geo": "US",
+        "lang": "en",
+        "primary_sources": [
+            {
+                "name": "CourtListener",
+                "url": "https://www.courtlistener.com/api/rest/v4/",
+                "status": "exists_uncollected",
+                "reviewed_on": "2026-08-27",
+                "note": "covers opinions; live trial coverage has no primary-source equivalent",
+            }
+        ],
+        "notes": (
+            "What the old court-cases supply actually was. Demand articles are "
+            "per-trial, so they are event-stratum by nature — the one niche where "
+            "the topic stratum has no natural articles at all."
+        ),
     },
 )
 
@@ -126,18 +225,22 @@ TERMS: tuple[dict[str, Any], ...] = (
     },
     {"slug": "engineering-failures", "source": "wikipedia", "term": "Engineering_disasters"},
     {
-        "slug": "court-cases",
+        "slug": "landmark-court-cases",
         "source": "wikipedia",
         "term": "List_of_landmark_court_decisions_in_the_United_States",
         "notes": "reference-heavy: carries school-calendar traffic, see METRICS.md failure mode",
     },
     {
-        "slug": "court-cases",
+        "slug": "landmark-court-cases",
         "source": "wikipedia",
         "term": "Supreme_Court_of_the_United_States",
-        "notes": "broad — may measure civics rather than the niche; revisit once inspectable",
+        "notes": (
+            "broad — Slice 3 flagged that this may measure civics rather than the "
+            "niche. Confirmed in Slice 5: it does, and the niche it was attached to "
+            "was really about trials. It stays here, where civics IS the subject."
+        ),
     },
-    {"slug": "court-cases", "source": "wikipedia", "term": "Landmark_case"},
+    {"slug": "landmark-court-cases", "source": "wikipedia", "term": "Landmark_case"},
     # --- trends: shape only, one term per request, no anchor -----------------
     {
         "slug": "aviation-disasters",
@@ -164,9 +267,15 @@ TERMS: tuple[dict[str, Any], ...] = (
         "notes": "measured mean 0.1 — near the quantisation floor, expect NULL momentum",
     },
     {
-        "slug": "court-cases",
+        "slug": "landmark-court-cases",
         "source": "trends",
-        "term": "court case",
+        "term": "supreme court",
+        "notes": "provisional — untested",
+    },
+    {
+        "slug": "true-crime-trials",
+        "source": "trends",
+        "term": "murder trial",
         "notes": "provisional — untested",
     },
 )
@@ -221,7 +330,13 @@ def apply_seeds(engine: Engine | None = None, seeds: tuple[dict[str, Any], ...] 
             NicheSeed,
             list(seeds),
             conflict_on=["slug"],
-            update=["label", "keywords", "lang", "notes"],
+            # `geo` and `primary_sources` are curation from the literal above, so
+            # they belong in the update set — without them an existing row keeps
+            # whatever it had when it was first inserted and the literal silently
+            # stops being the source of truth. `active` and `created_at` stay out,
+            # for the opposite reason: those are hand state and must survive a
+            # re-run.
+            update=["label", "keywords", "geo", "lang", "primary_sources", "notes"],
         )
 
 

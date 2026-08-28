@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from nh.features.supply import median_views, uploads_per_week
-from tests.conftest_features import CLUSTER, DAY, add_channel, make_cluster, session_for
+import sqlalchemy as sa
+
+from nh.db.session import session_scope
+from nh.features.supply import geo_concentration, median_views, uploads_per_week
+from tests.conftest_features import CLUSTER, DAY, RUN, add_channel, make_cluster, session_for
 
 
 def test_uploads_per_week_divides_the_window_not_the_channel_count(engine):
@@ -90,3 +93,81 @@ def test_confidence_falls_when_the_metric_sees_little_of_the_niche(engine):
         add_channel(engine, f"silent{i}", videos=0)
     result = median_views(session_for(engine), CLUSTER, DAY)
     assert result.confidence < 0.2  # 1 of 10 channels, and 1 is far below n=30
+
+
+# -- geo_concentration -------------------------------------------------------
+
+
+def _seeded_cluster(engine, geo="US"):
+    from nh.db.models import Cluster, NicheSeed
+
+    with session_scope(engine) as s:
+        s.add(NicheSeed(id=1, slug=CLUSTER, label="Aviation", keywords=[], geo=geo))
+        s.flush()
+        s.add(Cluster(cluster_id=CLUSTER, seed_id=1, source="clustering", run_id=RUN))
+
+
+def _country(engine, channel_id, country):
+    from nh.db.models import Channel
+
+    with session_scope(engine) as s:
+        s.execute(
+            sa.update(Channel).where(Channel.channel_id == channel_id).values(country=country)
+        )
+        s.commit()
+
+
+def test_geo_concentration_is_the_share_from_the_stated_market(engine):
+    _seeded_cluster(engine, geo="US")
+    for name, country in (("UCa", "US"), ("UCb", "US"), ("UCc", "IN"), ("UCd", "GB")):
+        add_channel(engine, name, videos=1)
+        _country(engine, name, country)
+
+    with session_scope(engine) as s:
+        result = geo_concentration(s, CLUSTER, DAY)
+
+    assert result.value == 0.5
+    assert result.detail["seed_geo"] == "US"
+
+
+def test_an_unknown_country_lowers_confidence_rather_than_counting_as_foreign(engine):
+    """Data rule 7. 236 of 955 real channels report no country; treating them as
+    "not local" would understate every niche by a quarter."""
+    _seeded_cluster(engine, geo="US")
+    add_channel(engine, "UCknown", videos=1)
+    _country(engine, "UCknown", "US")
+    add_channel(engine, "UCunknown", videos=1)  # country stays NULL
+
+    with session_scope(engine) as s:
+        result = geo_concentration(s, CLUSTER, DAY)
+
+    assert result.value == 1.0  # the one channel we can place is local
+    assert result.confidence == 0.5  # but we could only place half of them
+    assert result.inputs_n == 1
+
+
+def test_a_seed_with_no_stated_geo_has_nothing_to_diverge_from(engine):
+    _seeded_cluster(engine, geo=None)
+    add_channel(engine, "UCa", videos=1)
+    _country(engine, "UCa", "US")
+
+    with session_scope(engine) as s:
+        result = geo_concentration(s, CLUSTER, DAY)
+
+    assert result.value is None
+    assert "states no geo" in result.detail["reason"]
+
+
+def test_it_reports_where_the_supply_actually_is(engine):
+    """The detail is the point: a low value is only actionable if you can see which
+    market the supply came from instead."""
+    _seeded_cluster(engine, geo="US")
+    for name, country in (("UCa", "IN"), ("UCb", "IN"), ("UCc", "IN"), ("UCd", "US")):
+        add_channel(engine, name, videos=1)
+        _country(engine, name, country)
+
+    with session_scope(engine) as s:
+        result = geo_concentration(s, CLUSTER, DAY)
+
+    assert result.value == 0.25
+    assert result.detail["top_countries"][0] == ("IN", 3)

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 
-from nh.db.models import NicheSeed
+from nh.db.models import NicheSeed, SeedTerm
 from nh.db.session import session_scope
-from nh.seeds import SEEDS, apply_seeds, search_budget
+from nh.seeds import SEEDS, apply_seeds, apply_terms, search_budget
 
 
 def _slugs(engine) -> list[str]:
@@ -39,10 +39,17 @@ def test_reseeding_does_not_reactivate_a_disabled_seed(engine):
     on a niche someone deliberately stopped."""
     apply_seeds(engine)
     with session_scope(engine) as s:
-        s.execute(sa.update(NicheSeed).where(NicheSeed.slug == "court-cases").values(active=False))
+        s.execute(
+            sa.update(NicheSeed)
+            .where(NicheSeed.slug == "landmark-court-cases")
+            .values(active=False)
+        )
     apply_seeds(engine)
     with session_scope(engine) as s:
-        assert s.scalar(sa.select(NicheSeed.active).where(NicheSeed.slug == "court-cases")) is False
+        assert (
+            s.scalar(sa.select(NicheSeed.active).where(NicheSeed.slug == "landmark-court-cases"))
+            is False
+        )
 
 
 def test_keywords_round_trip_as_a_list(engine):
@@ -53,19 +60,28 @@ def test_keywords_round_trip_as_a_list(engine):
     assert "plane crash investigation" in row.keywords
 
 
-def test_geo_is_null_not_invented(engine):
-    """These niches are global-English. An invented 'US' would be a fabricated
-    value that Trends and Keyword Planner would later treat as real (rule 6)."""
+def test_geo_states_the_market_the_niche_is_about(engine):
+    """Reverses `test_geo_is_null_not_invented` (Slice 5), and the distinction is
+    the whole point. That test was right that an invented geo must not become a
+    *request parameter* — `seed_terms.geo` still carries that and is still ''.
+    `niche_seeds.geo` is a different thing: a stated intent that nothing sends
+    anywhere, and which `supply.geo_concentration` measures divergence from.
+    Measured, 234 of 719 channels are Indian against 290 US. That gap is invisible
+    unless the seed says what it meant."""
     apply_seeds(engine)
+    apply_terms(engine)
     with session_scope(engine) as s:
-        assert all(g is None for g in s.scalars(sa.select(NicheSeed.geo)))
+        assert all(g for g in s.scalars(sa.select(NicheSeed.geo)))
+        # The request-driving field is untouched.
+        assert all(g == "" for g in s.scalars(sa.select(SeedTerm.geo)))
 
 
 def test_search_budget_counts_both_sort_orders():
     """Both orders are structural: `date` is the breakthrough-rate denominator,
     `viewCount` the numerator. The x2 is not a tunable."""
-    assert search_budget(SEEDS, pages=1) == 15 * 2 * 100
-    assert search_budget(SEEDS, pages=2) == 15 * 2 * 2 * 100
+    queries = sum(len(seed["keywords"]) for seed in SEEDS)
+    assert search_budget(SEEDS, pages=1) == queries * 2 * 100
+    assert search_budget(SEEDS, pages=2) == queries * 2 * 2 * 100
 
 
 def test_the_default_seed_set_fits_the_daily_budget():
