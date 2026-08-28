@@ -275,3 +275,41 @@ def test_a_cluster_whose_seed_was_switched_off_is_retired(engine):
         ).one()
     assert row.active is False
     assert row.retired_on == DAY
+
+
+# --------------------------------------------------------------------------
+# Seed / lexicon coupling
+# --------------------------------------------------------------------------
+
+
+def test_an_active_seed_without_a_lexicon_is_reported(engine):
+    """The court-cases regression, as a guard.
+
+    ADR-0024 split a seed in two, both successors were activated, and neither got a
+    lexicon. `assign_videos` skips a cluster it cannot score, so both sat inert --
+    videos unscored, clusters retired as empty, 600 YouTube search units a night
+    spent on nothing -- and the pipeline said not one word about it for a day.
+    """
+    from nh.clustering.phase import lexicon_gaps
+    from nh.db.session import get_sessionmaker
+
+    with session_scope(engine) as s:
+        s.add(NicheSeed(slug="no-lexicon-here", label="Orphan", keywords=[], active=True))
+
+    unscorable, _ = lexicon_gaps(get_sessionmaker(engine)())
+
+    assert "no-lexicon-here" in unscorable
+
+
+def test_a_deactivated_seed_keeps_its_lexicon_harmlessly(engine):
+    """The inverse mismatch is not an error. Measured 2026-08-28: removing the
+    retired `court-cases` lexicon changes the weights of the other four niches by
+    nothing at all, because the lexicons are term-disjoint -- so a retired niche
+    keeping its terms costs no accuracy elsewhere."""
+    from nh.clustering.phase import lexicon_gaps
+    from nh.db.session import get_sessionmaker
+
+    unscorable, orphaned = lexicon_gaps(get_sessionmaker(engine)())
+
+    assert unscorable == []
+    assert "aviation-disasters" in orphaned  # this fixture defines no seeds

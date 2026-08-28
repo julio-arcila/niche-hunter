@@ -18,6 +18,7 @@ historical row and `nh/jobs/status.py` gates the nightly on it.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from datetime import date
 
@@ -30,6 +31,29 @@ from nh.clustering.trivial import assign_channels
 from nh.db.models import Cluster, ClusterMember, NicheSeed, Video
 from nh.db.provenance import Stamp
 from nh.db.upsert import upsert
+
+log = logging.getLogger(__name__)
+
+
+def lexicon_gaps(session: Session) -> tuple[list[str], list[str]]:
+    """`(active seeds with no lexicon, lexicons with no active seed)`.
+
+    The first list is the dangerous one and it is not hypothetical: ADR-0024 split
+    `court-cases` into `landmark-court-cases` and `true-crime-trials`, both seeds were
+    activated, and **neither ever got a lexicon**. `assign_videos` skips a cluster it
+    cannot score, so their videos were never scored, their relevance stayed NULL,
+    `on_niche_join` excluded them, and `retire_empty` retired both clusters on their
+    creation day. Nothing anywhere said why. Measured 2026-08-28, the two were still
+    spending 600 YouTube search units a night -- 6.3% of the budget -- on niches that
+    could not produce a single scored video.
+
+    The second list is harmless (a retired niche keeping its terms) and is reported
+    only so the pair reads as one question rather than two.
+    """
+    slugs = set(session.scalars(sa.select(NicheSeed.slug).where(NicheSeed.active)))
+    known = set(weights())
+    return sorted(slugs - known), sorted(known - slugs)
+
 
 #: Videos scored per write. The corpus is ~15k rows and grows with the channel
 #: set, so it is streamed rather than assembled in one list.
@@ -70,9 +94,23 @@ def assign_videos(session: Session, mark: Stamp) -> int:
     of every stored row.
     """
     domain, event = weights(), event_weights()
+    # Loud, once per run, before any row is written. The skip below is correct --
+    # there is nothing to score a video against -- but silently skipping an ACTIVE
+    # niche is how two of them sat inert for a day while still spending quota.
+    unscorable, _ = lexicon_gaps(session)
+    for slug in unscorable:
+        log.warning(
+            "active seed %r has no lexicon: its videos cannot be scored, its cluster "
+            "will be retired as empty, and its discovery quota is being spent for "
+            "nothing. Add it to nh/clustering/lexicon.py::LEXICONS or deactivate the "
+            "seed.",
+            slug,
+        )
     rows, written = [], 0
+    skipped: set[str] = set()
     for cluster_id, video_id, title, description in _video_rows(session):
         if cluster_id not in domain:
+            skipped.add(cluster_id)
             continue
         result = score(title, description, domain[cluster_id], event)
         rows.append(
@@ -91,6 +129,8 @@ def assign_videos(session: Session, mark: Stamp) -> int:
         if len(rows) >= CHUNK:
             written += _flush(session, rows)
             rows = []
+    if skipped:
+        log.warning("skipped %d cluster(s) with no lexicon: %s", len(skipped), sorted(skipped))
     return written + _flush(session, rows)
 
 

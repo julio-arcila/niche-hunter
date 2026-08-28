@@ -511,6 +511,19 @@ def doctor(
         typer.echo("run: uv run alembic upgrade head")
         raise typer.Exit(1)
 
+    # An active seed with no lexicon collects and can never score. Silent until
+    # 2026-08-28, when two such seeds were found spending 600 units a night.
+    from nh.clustering.phase import lexicon_gaps
+    from nh.db.session import get_sessionmaker
+
+    unscorable, orphaned = lexicon_gaps(get_sessionmaker(engine)())
+    if unscorable:
+        typer.secho(f"seeds without a lexicon : {', '.join(unscorable)}", fg=typer.colors.RED)
+        typer.echo("  these collect quota and can never score a video")
+        typer.echo("  add them to nh/clustering/lexicon.py::LEXICONS, or deactivate the seed")
+    if orphaned:
+        typer.echo(f"lexicons without a seed : {', '.join(orphaned)} (harmless)")
+
     # An interrupted batch migration leaves `_alembic_tmp_*` behind. Everything
     # keeps working until the next schema change to that table, which then fails
     # with "already exists" — so it is worth saying out loud while it is harmless.
