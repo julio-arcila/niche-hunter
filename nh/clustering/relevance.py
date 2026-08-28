@@ -36,6 +36,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from functools import lru_cache
 from math import sqrt
 
 #: The title is the promise a video makes; a description carries sponsor blocks,
@@ -98,8 +99,19 @@ class Score:
         return self.value is not None
 
 
+@lru_cache(maxsize=16)
 def normalise(text: str) -> str:
-    """Lowercase, punctuation to spaces. Emoji and hashtags fall out as separators."""
+    """Lowercase, punctuation to spaces. Emoji and hashtags fall out as separators.
+
+    Cached, and the tiny `maxsize` is the point rather than a compromise. Titles are
+    nearly all distinct, so a large cache would miss on every new video and pay for
+    the privilege. What repeats is *within* one video: the scan prefilters a title
+    once and then scores it against each niche whose prefilter it cleared, and every
+    one of those re-normalises the same title and description. Sixteen entries hold
+    the current video's two strings with room to spare, so the repeats hit and the
+    next video evicts them. Measured: `re.sub` was the largest remaining cost in the
+    scan after `_singular` was cached.
+    """
     return _WORD.sub(" ", text.lower()).strip()
 
 
@@ -112,6 +124,7 @@ def _latin_share(text: str) -> float | None:
     return latin / len(letters)
 
 
+@lru_cache(maxsize=500_000)
 def _singular(token: str) -> str:
     """Strip one plural/third-person suffix. Not a stemmer, and deliberately not.
 
@@ -120,6 +133,15 @@ def _singular(token: str) -> str:
     into "collaps" and start matching things nobody wrote down, which is the kind
     of silent broadening a frozen lexicon exists to prevent. Two suffixes, applied
     to both sides, and nothing else.
+
+    Cached because it is pure and its inputs repeat enormously. Measured on the
+    backtest scan: 35 million calls for 60,000 videos — 583 per video — and 54% of
+    the whole scan's runtime. Two sources of repetition, both total: English word
+    frequency is Zipfian, so the same few thousand tokens recur across every title;
+    and `_matches` calls it on each *lexicon term*, which are the same ~50 fixed
+    strings for every video scored. The cache changes no output — that is what
+    `test_relevance.py` and the frozen 0.781 precision figure guarantee — it only
+    stops the same answer being recomputed a billion times.
     """
     if len(token) > 4 and token.endswith("es"):
         return token[:-2]

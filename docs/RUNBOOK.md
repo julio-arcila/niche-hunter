@@ -233,7 +233,7 @@ earlier, which is why the replay window starts there. Two consequences:
 ```bash
 ls -la data/youniverse/yt_metadata_en.jsonl.gz   # 13.64 GB when complete
 uv run nh backtest scan --limit 50000            # smoke test first, ~10 seconds
-uv run nh backtest scan                          # the real pass, several hours
+uv run nh backtest scan                          # the real pass, ~5.2 hours
 ```
 
 Run the `--limit` pass first. It exercises the same code on the same file and tells
@@ -242,8 +242,12 @@ failure four hours into the full pass costs the afternoon.
 
 The scan streams the gzip once and keeps almost none of it: it writes
 `data/backtest/hits.jsonl.gz` (video, niche, date, relevance) and
-`data/backtest/selection.json` (which channels belong to which niche). Expect roughly
-6,000 videos/second.
+`data/backtest/selection.json` (which channels belong to which niche).
+
+**Measured on the real file, 2026-08-28: 3,894 videos/second, so ~5.2 hours for
+72.9M videos.** Decompression and JSON parsing are only ~3% of that — the cost is
+scoring, and it was 7.4 hours before `_singular` and `normalise` were memoized. Of
+the videos read, 9.9% clear the prefilter and get scored.
 
 **Read `selection.json` before Step 4.** It is sorted and indented so it diffs, and it
 is the last point at which the assignment is reviewable before millions of rows are
