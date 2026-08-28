@@ -251,6 +251,66 @@ def on_niche_share(session: Session, cluster_id: str, day: date) -> FeatureResul
     )
 
 
+def format_mix(session: Session, cluster_id: str, day: date) -> FeatureResult:
+    """Share of the niche's recent on-niche videos that are Shorts.
+
+    Registered 2026-08-28 because its deferral trigger fired: `is_short` is now known
+    for 99.6% of videos, against the 92%-NULL blocker the deferral was written under.
+    `test_no_deferral_is_silently_unblocked_today` is what caught it, which is the
+    register working rather than a surprise.
+
+    Unknown `is_short` is excluded from numerator *and* denominator, never counted as
+    long-form. That is the NULL-as-False trap `money.midroll_eligible_share` documents:
+    a cluster the enrichment has not reached would otherwise report a confident 0.0
+    Shorts share, which is a claim about the niche rather than about our coverage.
+
+    On-niche only, like every Slice 4 supply metric. A member channel's off-niche
+    uploads answer a different question, and Shorts skew hard toward exactly the
+    off-niche filler that `on_niche_share` measured at ~20%.
+    """
+    since = window_start(day, WINDOW_DAYS)
+    until = _day_end(day)
+    known, shorts = session.execute(
+        sa.select(
+            sa.func.count(Video.video_id),
+            sa.func.sum(sa.case((Video.is_short.is_(True), 1), else_=0)),
+        )
+        .join(Channel, Channel.channel_id == Video.channel_id)
+        .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
+        .where(
+            Video.is_short.is_not(None),
+            Video.published_at.is_not(None),
+            Video.published_at >= since,
+            Video.published_at <= until,
+            sa.exists(sa.select(1).where(on_niche_join(cluster_id, day)).correlate(Video)),
+        )
+    ).one()
+
+    if not known:
+        return FeatureResult.empty(
+            GROUP,
+            "format_mix",
+            "no on-niche member video in the window has a known is_short",
+            window_days=WINDOW_DAYS,
+        )
+    judged, total = relevance_coverage(session, cluster_id, day)
+    return FeatureResult(
+        group=GROUP,
+        name="format_mix",
+        value=(shorts or 0) / known,
+        confidence=min(known / CONFIDENCE_N, 1.0) * (min(judged / total, 1.0) if total else 0.0),
+        inputs_n=known,
+        detail={
+            "definition": DEFINITION,
+            "videos_with_known_format": known,
+            "shorts": shorts or 0,
+            "window": [since.date().isoformat(), day.isoformat()],
+            "note": "unknown is_short excluded from both sides, never counted long-form",
+            "inputs": {"tables": ["videos", "cluster_members"]},
+        },
+    )
+
+
 def geo_concentration(session: Session, cluster_id: str, day: date) -> FeatureResult:
     """Share of member channels based in the market the seed says it is about.
 

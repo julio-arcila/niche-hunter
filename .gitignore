@@ -17,8 +17,9 @@ reports/*.md
 !reports/.gitkeep
 !reports/backtest_*.md
 !reports/relevance_*.md
-!reports/labelling_criterion*.md  # a criterion is evidence that the rule predates
-                                  # the labels; every one of them must be tracked
+# A criterion is the evidence that the rule predated the labels, so every one of
+# them is tracked — the glob, not one filename, or the next is silently dropped.
+!reports/labelling_criterion*.md
 
 # python
 __pycache__/

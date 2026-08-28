@@ -83,14 +83,6 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="none — implemented and measured, just unregistered",
     ),
     Deferral(
-        metric="supply.format_mix",
-        blocker="is_short is NULL for 92% of videos until the enrichment backfill runs",
-        kind="query",
-        trigger="share of videos with a known is_short >= 0.80",
-        consumer="nothing yet; a supply composite input",
-        cost="small — one query plus a scalar reduction of a distribution",
-    ),
-    Deferral(
         metric="openness.rss_acceleration",
         blocker="needs a view series per video; video_snapshots has one day",
         kind="query",

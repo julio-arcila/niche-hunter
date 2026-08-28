@@ -195,6 +195,27 @@ Feeds        : openness composite from Slice 5
 Measured     : 5.3x spread cohort-restricted (0.43 to 2.26); 3.8x unrestricted
 ```
 
+### supply.format_mix
+```
+Formula      : among on-niche member-channel videos with published_at in
+               (day-28d, day] and is_short IS NOT NULL, the share with
+               is_short IS TRUE. Unknown is_short is excluded from numerator AND
+               denominator -- never counted as long-form.
+Inputs       : videos(is_short, published_at, channel_id); cluster_members
+Join key     : cluster_id
+Confidence   : min(known_format_videos / 30, 1) x relevance coverage. Videos are the
+               honest n because is_short is a per-video property; 30 is the supply
+               group's constant, not money's 100, because the 28-day supply window is
+               far thinner than money's 90-day one.
+Failure mode : Shorts skew toward off-niche filler, so computing this over a channel's
+               whole output rather than its on-niche output would measure the channel's
+               posting habits instead of the niche's supply. On-niche only for that
+               reason. A cluster the enrichment has not reached returns NULL, not 0.0.
+Registered   : 2026-08-28, when its deferral trigger fired (is_short known for 99.6%
+               of videos against a 92%-NULL blocker). Consumer is a future supply
+               composite; nothing ranked uses it while ADR-0029 stands.
+```
+
 ### money.midroll_eligible_share
 ```
 Formula      : among member-channel videos with published_at in (day-90d, day] and
