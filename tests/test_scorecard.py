@@ -242,3 +242,32 @@ def test_wiki_momentum_28d_is_evidence_not_an_input(engine):
     assert card.detail["wiki_momentum_28d"] == -0.31
     assert card.detail["basis"] == ["gap", "momentum"]  # not three axes
     assert card.stage in ("emerging", "contested")  # the negative 28d did not decide it
+
+
+def test_supply_can_be_ranked_on_a_different_metric(engine):
+    """The backtest needs this: median_views is NULL at every historical date, so
+    scorecards.supply must be able to rank a replayable analogue instead. The live
+    default is unchanged — a backtest that scores with its own code is not testing
+    the product."""
+    _feature(engine, "a", "views_per_new_video", 100.0)
+    _feature(engine, "b", "views_per_new_video", 900.0)
+    _feature(engine, "a", "wiki_weekly_views", 900.0)
+    _feature(engine, "b", "wiki_weekly_views", 100.0)
+
+    with session_scope(engine) as s:
+        build(s, DAY, _mark(), supply_from="views_per_new_video")
+        cards = {c.cluster_id: c for c in s.scalars(sa.select(Scorecard))}
+
+    assert cards["a"].supply == 0.0 and cards["b"].supply == 1.0
+    assert cards["a"].gap == 1.0  # highest demand, lowest supply
+
+
+def test_the_live_default_still_ranks_median_views(engine):
+    _feature(engine, "a", "median_views", 100.0)
+    _feature(engine, "a", "views_per_new_video", 999_999.0)
+
+    with session_scope(engine) as s:
+        build(s, DAY, _mark())
+        card = s.scalars(sa.select(Scorecard)).one()
+
+    assert card.supply == 0.5  # a single cluster ranks at the midpoint

@@ -59,7 +59,16 @@ def percentile_rank(values: dict[str, float]) -> dict[str, float]:
     return ranks
 
 
-def build(session: Session, day: date, mark: Stamp) -> int:
+def build(session: Session, day: date, mark: Stamp, *, supply_from: str = SUPPLY_FROM) -> int:
+    """Build one scorecard per cluster for `day`.
+
+    `supply_from` names the metric `scorecards.supply` ranks. The live default is
+    `median_views` and does not move. The backtest passes
+    `supply.views_per_new_video`, because `median_views` is NULL at every historical
+    date — YouNiverse holds per-video views only as of its 2019 crawl. Parameterised
+    rather than copied: a backtest that scores with its own code is not testing the
+    product (ADR-0026).
+    """
     rows = session.execute(
         sa.select(
             FeatureDaily.cluster_id,
@@ -69,7 +78,7 @@ def build(session: Session, day: date, mark: Stamp) -> int:
         ).where(
             FeatureDaily.day == day,
             FeatureDaily.name.in_(
-                (OPENNESS_FROM, SUPPLY_FROM, DEMAND_FROM, MOMENTUM_FROM, MOMENTUM_EVIDENCE)
+                (OPENNESS_FROM, supply_from, DEMAND_FROM, MOMENTUM_FROM, MOMENTUM_EVIDENCE)
             ),
         )
     ).all()
@@ -77,7 +86,7 @@ def build(session: Session, day: date, mark: Stamp) -> int:
         return 0
 
     openness = {cid: v for cid, name, v, _ in rows if name == OPENNESS_FROM}
-    medians = {cid: v for cid, name, v, _ in rows if name == SUPPLY_FROM and v is not None}
+    medians = {cid: v for cid, name, v, _ in rows if name == supply_from and v is not None}
     levels = {cid: v for cid, name, v, _ in rows if name == DEMAND_FROM and v is not None}
     supply = percentile_rank(medians)
     demand = percentile_rank(levels)
@@ -108,7 +117,7 @@ def build(session: Session, day: date, mark: Stamp) -> int:
             return None
         return min(
             confidences.get((cluster_id, DEMAND_FROM)) or 0.0,
-            confidences.get((cluster_id, SUPPLY_FROM)) or 0.0,
+            confidences.get((cluster_id, supply_from)) or 0.0,
         )
 
     def stage_for(cluster_id: str) -> tuple[str, dict]:

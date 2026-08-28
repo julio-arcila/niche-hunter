@@ -9,7 +9,15 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from nh.clustering.lexicon import LEXICON_VERSION
-from nh.db.models import Channel, Cluster, ClusterMember, NicheSeed, Video, VideoSnapshot
+from nh.db.models import (
+    Channel,
+    ChannelSnapshot,
+    Cluster,
+    ClusterMember,
+    NicheSeed,
+    Video,
+    VideoSnapshot,
+)
 from nh.features.inputs import (
     AGE_FLOOR_DAYS,
     FEED_DEPTH,
@@ -424,5 +432,87 @@ def median_top_video_age(session: Session, cluster_id: str, day: date) -> Featur
                 "over-states evergreen-ness; it is a floor, not an estimate"
             ),
             "inputs": {"tables": ["cluster_members", "videos", "video_snapshots"]},
+        },
+    )
+
+
+#: Weekly snapshots differenced over this many observations. Four weeks matches
+#: `WINDOW_DAYS`, so the two supply definitions describe the same span.
+FLOW_SNAPSHOTS = 5
+
+
+def views_per_new_video(session: Session, cluster_id: str, day: date) -> FeatureResult:
+    """Views accruing per newly published video. The replayable analogue of median_views.
+
+    `median_views` cannot be replayed: YouNiverse holds per-video view counts only
+    as of its 2019-10-27 crawl, which is after every decision date, so
+    `eligible_videos` correctly excludes all of it and the metric is NULL for every
+    historical date — taking `scorecards.supply`, `gap` and `stage` with it. This is
+    what lets the backtest compute a supply rank at all.
+
+    Flows are differenced from consecutive **stock** snapshots rather than stored:
+    `total_views` and `video_count` are stocks measured when we looked, which is
+    ADR-0015's existing reading, so no third meaning of `observed_date` is created.
+
+    A channel-week with no new video is excluded, not counted as zero — a week
+    without an upload says nothing about reach per upload (data rule 7).
+    """
+    members = member_channels(session, cluster_id, day)
+    if not members:
+        return FeatureResult.empty(GROUP, "views_per_new_video", "cluster has no member channel")
+
+    rows = session.execute(
+        sa.select(
+            ChannelSnapshot.channel_id,
+            ChannelSnapshot.observed_date,
+            ChannelSnapshot.total_views,
+            ChannelSnapshot.video_count,
+        )
+        .where(
+            ChannelSnapshot.channel_id.in_(members),
+            ChannelSnapshot.observed_date <= day,
+            ChannelSnapshot.total_views.is_not(None),
+            ChannelSnapshot.video_count.is_not(None),
+        )
+        .order_by(ChannelSnapshot.channel_id, ChannelSnapshot.observed_date)
+    ).all()
+
+    series: dict[str, list[tuple[int, int]]] = {}
+    for channel_id, _, total_views, video_count in rows:
+        series.setdefault(channel_id, []).append((total_views, video_count))
+
+    ratios = []
+    for points in series.values():
+        window = points[-FLOW_SNAPSHOTS:]
+        if len(window) < 2:
+            continue
+        new_views = window[-1][0] - window[0][0]
+        new_videos = window[-1][1] - window[0][1]
+        if new_videos > 0 and new_views >= 0:
+            ratios.append(new_views / new_videos)
+    if not ratios:
+        return FeatureResult.empty(
+            GROUP,
+            "views_per_new_video",
+            "no member channel published between two snapshots in the window",
+        )
+    return FeatureResult(
+        group=GROUP,
+        name="views_per_new_video",
+        value=float(statistics.median(ratios)),
+        confidence=min(len(ratios) / len(members), 1.0),
+        inputs_n=len(ratios),
+        detail={
+            "definition": DEFINITION,
+            "member_channels": len(members),
+            "contributing_channels": len(ratios),
+            "snapshots_differenced": FLOW_SNAPSHOTS,
+            "as_of": day.isoformat(),
+            "note": (
+                "delta_views includes back-catalogue traffic, so this OVERSTATES "
+                "new-video reach for channels with large catalogues; the backtested "
+                "gap built on it is not the live gap"
+            ),
+            "inputs": {"tables": ["cluster_members", "channel_snapshots"]},
         },
     )

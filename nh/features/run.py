@@ -61,7 +61,15 @@ METRICS: tuple[Metric, ...] = (
 )
 
 
-def compute(session: Session, day: date, mark: Stamp) -> int:
+def compute(
+    session: Session, day: date, mark: Stamp, *, metrics: tuple[Metric, ...] = METRICS
+) -> int:
+    """Compute `metrics` for every active cluster on `day`.
+
+    `metrics` is a parameter so the backtest can run a reduced set — several
+    production metrics have no historical inputs — without forking this loop. The
+    alternative is backtesting code that is not the product (ADR-0026).
+    """
     """One `features_daily` row per cluster per metric.
 
     Every metric runs for every cluster even when it cannot be computed: the row
@@ -84,7 +92,7 @@ def compute(session: Session, day: date, mark: Stamp) -> int:
 
     rows = []
     for cluster_id in cluster_ids:
-        for metric in METRICS:
+        for metric in metrics:
             result = metric(session, cluster_id, day)
             rows.append(
                 mark(

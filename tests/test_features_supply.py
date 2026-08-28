@@ -8,7 +8,12 @@ import pytest
 import sqlalchemy as sa
 
 from nh.db.session import session_scope
-from nh.features.supply import geo_concentration, median_views, uploads_per_week
+from nh.features.supply import (
+    geo_concentration,
+    median_views,
+    uploads_per_week,
+    views_per_new_video,
+)
 from tests.conftest_features import CLUSTER, DAY, RUN, add_channel, make_cluster, session_for
 
 
@@ -235,3 +240,83 @@ def test_pressure_index_records_its_components_and_population(engine):
     detail = json.loads(detail) if isinstance(detail, str) else detail
     assert set(detail["components"]) == {"median_views", "uploads_per_week"}
     assert detail["ranked_over"] == ["a", "b"]
+
+
+# -- views_per_new_video: the replayable supply analogue ---------------------
+
+
+def _weekly(engine, channel_id, points, *, start=DAY):
+    """`points` is [(total_views, video_count), ...], one per week going back."""
+    from datetime import timedelta
+
+    from nh.db.models import ChannelSnapshot
+
+    with session_scope(engine) as s:
+        for i, (views, videos) in enumerate(reversed(points)):
+            s.add(
+                ChannelSnapshot(
+                    channel_id=channel_id,
+                    observed_date=start - timedelta(days=7 * i),
+                    subs=1_000,
+                    total_views=views,
+                    video_count=videos,
+                    source="youniverse",
+                    run_id=RUN,
+                )
+            )
+
+
+def test_views_per_new_video_differences_the_stocks(engine):
+    """10,000 new views over 2 new videos is 5,000 per video."""
+    make_cluster(engine)
+    add_channel(engine, "UCa", videos=1, age_days=40)
+    _weekly(engine, "UCa", [(100_000, 10), (105_000, 11), (110_000, 12)])
+
+    with session_scope(engine) as s:
+        result = views_per_new_video(s, CLUSTER, DAY)
+
+    assert result.value == 5_000
+    assert result.detail["contributing_channels"] == 1
+
+
+def test_a_channel_that_published_nothing_is_excluded_not_zeroed(engine):
+    """A week with no upload says nothing about reach per upload (data rule 7).
+    Counting it as zero would drag every niche's median toward zero in proportion
+    to how quiet its channels are."""
+    make_cluster(engine)
+    add_channel(engine, "UCquiet", videos=1, age_days=40)
+    add_channel(engine, "UCbusy", videos=1, age_days=40)
+    _weekly(engine, "UCquiet", [(500_000, 40), (500_900, 40)])  # views, no new video
+    _weekly(engine, "UCbusy", [(10_000, 5), (14_000, 7)])  # 4,000 over 2 -> 2,000
+
+    with session_scope(engine) as s:
+        result = views_per_new_video(s, CLUSTER, DAY)
+
+    assert result.value == 2_000
+    assert result.inputs_n == 1
+    assert result.confidence == 0.5  # one of two members could contribute
+
+
+def test_it_reads_nothing_after_the_decision_date(engine):
+    """The property that makes it usable in a replay at all."""
+    from datetime import timedelta
+
+    make_cluster(engine)
+    add_channel(engine, "UCa", videos=1, age_days=40)
+    _weekly(engine, "UCa", [(100_000, 10), (110_000, 12)])
+    _weekly(engine, "UCa", [(900_000, 13)], start=DAY + timedelta(days=7))
+
+    with session_scope(engine) as s:
+        assert views_per_new_video(s, CLUSTER, DAY).value == 5_000
+
+
+def test_it_is_empty_when_nothing_can_be_differenced(engine):
+    make_cluster(engine)
+    add_channel(engine, "UCa", videos=1, age_days=40)
+    _weekly(engine, "UCa", [(100_000, 10)])  # a single snapshot has no delta
+
+    with session_scope(engine) as s:
+        result = views_per_new_video(s, CLUSTER, DAY)
+
+    assert result.value is None
+    assert "between two snapshots" in result.detail["reason"]

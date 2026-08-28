@@ -26,7 +26,7 @@ Feeds        : which composite score, if any
 
 ## Defined
 
-Seventeen metrics across four of the six groups (`voice` and `cost_risk` are still
+Eighteen metrics across four of the six groups (`voice` and `cost_risk` are still
 empty). Each was verified to **vary across the five live niches** before
 implementation — a metric that is flat across the units it
 compares is not a comparator, however plausible its formula.
@@ -354,6 +354,39 @@ Failure mode : +/-5 point sampling jitter between fetches moves the ratio; the
                (aviation disasters documentary = NaN) must be replaced in
                seed_terms, never padded here.
 Feeds        : none yet — corroboration display in Slice 3
+```
+
+### supply.views_per_new_video
+```
+Formula      : median across a cluster's member channels of
+               (delta_views / delta_videos) over the trailing 4 weekly snapshots —
+               views accruing per newly published video. Channel-weeks with
+               delta_videos = 0 are excluded, not treated as zero: a week with no
+               upload says nothing about reach per upload.
+Inputs       : channel_snapshots(observed_date, total_views, video_count) — the
+               weekly stocks; the flows are differenced at read time from
+               consecutive rows.
+Join key     : cluster_id, via channel membership
+Confidence   : member channels contributing a usable pair / member channels.
+Failure mode : delta_views counts views on the WHOLE back catalogue, not only on
+               the new video, so it OVERSTATES new-video reach for channels with
+               large catalogues and does so unevenly -- an old channel publishing
+               once looks like a hit. docs/METRICS.md already flags this
+               contamination for outcome.growth_180d, which is why that metric uses
+               subscribers rather than views.
+Why it exists: supply.median_views is NOT REPLAYABLE. YouNiverse holds per-video
+               view counts only as of its 2019-10-27 crawl, which is after every
+               decision date in the backtest window, so eligible_videos correctly
+               excludes all of it and median_views is NULL for every historical
+               date -- taking scorecards.supply, gap and stage down with it. This
+               is the analogue that lets the backtest compute anything at all.
+NOT the same : the backtested `gap` built on this is NOT the `gap` the live
+               pipeline computes. reports/backtest_*.md must say so. Slice 6 also
+               reports a second definition (uploads_per_week alone, faithfully
+               replayable but volume without reach) so the choice is visible rather
+               than assumed.
+Feeds        : scorecards.supply in the backtest only, via
+               scorecard.build(..., supply_from=...). The live default is unchanged.
 ```
 
 ### supply.pressure_index
