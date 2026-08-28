@@ -21,14 +21,95 @@ GOLDEN = {
     ("aviation-disasters", "documentary"): 0.0,
     ("engineering-failures", "collapse"): 0.5,
     ("corporate-collapse", "collapse"): 0.5,
-    ("court-cases", "verdict"): 1.0,
+    ("true-crime-trials", "verdict"): 1.0,
+    ("true-crime-trials", "murder"): 1.0,
+    # The guard on a deliberate exclusion (ADR-0028): `fraud` lives in
+    # corporate-collapse alone. The day someone adds it to true-crime-trials as
+    # well, this drops to 0.5 for BOTH and the white-collar-trial boundary moves
+    # silently. That is what this pin is for.
+    ("corporate-collapse", "fraud"): 1.0,
 }
+
+#: The retired `court-cases` entry, frozen here as a literal so the removal can be
+#: checked forever without git archaeology. ADR-0028 removed it from LEXICONS.
+RETIRED_COURT_CASES = (
+    "court",
+    "trial",
+    "judge",
+    "jury",
+    "verdict",
+    "lawsuit",
+    "case",
+    "supreme court",
+    "ruling",
+    "precedent",
+    "statute",
+    "constitutional",
+    "landmark case",
+    "appeal",
+    "plaintiff",
+    "defendant",
+    "prosecutor",
+    "attorney",
+    "lawyer",
+    "defence",
+    "defense",
+    "testimony",
+    "witness",
+    "evidence",
+    "hearing",
+    "indictment",
+    "plea",
+    "settlement",
+    "damages",
+    "injunction",
+    "subpoena",
+    "cross examination",
+    "legal",
+    "law",
+    "litigation",
+    "acquitted",
+    "convicted",
+    "conviction",
+    "sentence",
+    "sentenced",
+)
 
 
 def test_the_live_weights_are_what_they_were():
     live = weights()
     for (slug, term), expected in GOLDEN.items():
         assert live[slug][term] == expected, f"{slug}.{term} moved"
+
+
+def test_removing_court_cases_moved_no_surviving_weight():
+    """ADR-0028 removed `court-cases` and added `true-crime-trials` in one commit.
+
+    The removal was safe because the retired lexicon was term-disjoint from the four
+    that continue — measured 2026-08-28, zero weights moved. This turns that one-off
+    measurement into a standing property over EVERY term, not a golden handful: if a
+    future edit makes the families overlap, the four survivors' weights shift and this
+    reds.
+
+    It also states why removal had to happen in the same commit as the addition
+    rather than earlier: the new lexicon shares heavily with the retired one, so a
+    family holding both would score true-crime's most discriminative vocabulary at
+    0.5 — a dead lexicon suppressing the terms its own replacement needs.
+    """
+    survivors = {k: v for k, v in LEXICONS.items() if k != "true-crime-trials"}
+    with_corpse = weights({**survivors, "court-cases": RETIRED_COURT_CASES})
+    live = weights()
+
+    for slug in survivors:
+        assert live[slug] == with_corpse[slug], f"{slug} moved when court-cases left"
+
+
+def test_keeping_the_retired_lexicon_would_have_suppressed_its_successor():
+    """The argument for one commit rather than two, asserted."""
+    both = weights({**LEXICONS, "court-cases": RETIRED_COURT_CASES})
+
+    assert weights()["true-crime-trials"]["verdict"] == 1.0
+    assert both["true-crime-trials"]["verdict"] == 0.5
 
 
 def test_a_second_family_does_not_move_the_live_weights():

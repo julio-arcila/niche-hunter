@@ -31,7 +31,7 @@ a row's decision stays attributable to the vocabulary that produced it.
 
 from __future__ import annotations
 
-LEXICON_VERSION = "2026-08-27.1"
+LEXICON_VERSION = "2026-08-28.1"
 
 #: Failure and case markers, shared by all five niches by construction.
 #:
@@ -326,47 +326,70 @@ LEXICONS: dict[str, tuple[str, ...]] = {
         "code violation",
         "inspection",
     ),
-    "court-cases": (
+    # Replaced `court-cases` on 2026-08-28 (ADR-0028). ADR-0024 split that seed
+    # because its demand articles were civics and its supply was contemporary trial
+    # coverage; this is the half the supply actually was. The civics half
+    # (`landmark-court-cases`) is deactivated, so its vocabulary — lawsuit, supreme
+    # court, precedent, statute, constitutional, appeal, plaintiff, settlement,
+    # damages, injunction, legal, law, litigation, landmark case — is deliberately
+    # NOT re-homed here: importing it would rebuild the civil-litigation
+    # false-positive shape ADR-0018 recorded.
+    #
+    # Also deliberately absent, and load-bearing: `fraud`, `embezzlement`,
+    # `whistleblower` and `scandal` all sit in `corporate-collapse` at weight 1.00,
+    # so adding any of them here would halve it for both. A white-collar trial
+    # belongs to the niche that owns that vocabulary. Likewise absent is crime-NEWS
+    # vocabulary — police, crime, criminal, killer, victim, arrest — which produces
+    # the on-domain/off-niche shape: a Boeing "criminal investigation" video must
+    # not clear this niche's domain axis.
+    #
+    # Five terms (trial, verdict, guilty, convicted, sentenced) are also in `EVENT`
+    # and therefore satisfy both axes alone. That is precedented and intended —
+    # every live lexicon overlaps EVENT (2 to 8 terms) and the retired court-cases
+    # entry overlapped on four of these five. It is why "plane crash" scores from
+    # two words.
+    "true-crime-trials": (
         "court",
+        "courtroom",
         "trial",
-        "lawsuit",
-        "case",
         "judge",
         "jury",
+        "juror",
         "verdict",
-        "sentence",
-        "sentenced",
+        "guilty",
+        "acquitted",
         "conviction",
         "convicted",
-        "acquitted",
+        "sentence",
+        "sentenced",
+        "sentencing",
+        "mistrial",
+        "arraignment",
+        "deliberation",
+        "bail",
+        "prosecutor",
         "attorney",
         "lawyer",
-        "prosecutor",
         "defence",
         "defense",
         "defendant",
-        "plaintiff",
         "testimony",
         "witness",
         "evidence",
         "hearing",
-        "appeal",
-        "supreme court",
-        "ruling",
-        "precedent",
-        "statute",
-        "constitutional",
         "indictment",
         "plea",
-        "settlement",
-        "damages",
-        "injunction",
-        "subpoena",
         "cross examination",
-        "legal",
-        "law",
-        "litigation",
-        "landmark case",
+        "subpoena",
+        "murder",
+        "homicide",
+        "manslaughter",
+        "true crime",
+        "detective",
+        "forensic",
+        "interrogation",
+        "confession",
+        "bodycam",
     ),
 }
 

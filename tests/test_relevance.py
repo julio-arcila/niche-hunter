@@ -150,7 +150,7 @@ def test_scoring_is_deterministic():
         ("maritime-disasters", "The vessel capsized at sea and the crew were lost"),
         ("corporate-collapse", "The CEO hid the accounting fraud and the company collapsed"),
         ("engineering-failures", "The concrete girder buckled and the bridge collapsed"),
-        ("court-cases", "The jury reached a guilty verdict and the judge passed sentence"),
+        ("true-crime-trials", "The jury reached a guilty verdict and the judge passed sentence"),
     ],
 )
 def test_a_title_scores_highest_against_its_own_niche(slug, title):
