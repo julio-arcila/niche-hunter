@@ -295,6 +295,38 @@ Then **write the failure-analysis paragraph by hand** — `render()` leaves it a
 `_Not yet written._` and it is the part of the report that has to be thought about
 rather than computed.
 
+### Running it unattended
+
+Steps 3–5 are one chain with two long waits in it, so it is worth driving rather than
+babysitting. `scratchpad/gate_e.sh` (2026-08-28) waits for the download, verifies it,
+then runs scan → load → replay → score, and **aborts the chain on any failure**: a
+backtest built on a truncated corpus or a half-loaded database still produces a
+number, and a number is worse than nothing here because it will be believed.
+
+Three things in it are worth keeping in any re-run:
+
+- **Wait on the byte count, not on the downloader exiting.** curl runs with `-C -`,
+  so a dropped connection exits non-zero with a short file that looks finished. The
+  expected size and md5 come from the Zenodo record
+  (`13636127630` bytes, `md5:0514b2ee52ffaa2c9c27c539038feb60`) — check them there
+  rather than hard-coding a guess.
+- **Verify the md5 before scanning.** Five minutes of hashing against 5.2 hours of
+  scanning a corrupt file.
+- **A FAIL verdict is not a script failure.** `nh backtest score` exits 0 and prints
+  the verdict; only an uncomputable primary exits non-zero. The driver must not
+  conflate "the gate said no" with "the run broke".
+
+Check on it:
+
+```bash
+tail -f scratchpad/gate_e.log            # the driver's own progress
+tail -5 scratchpad/gate_e_scan.log       # or _load / _replay / _score
+pgrep -f gate_e.sh || echo "driver finished or died"
+```
+
+Run it detached (`nohup`) rather than in a foreground shell: it outlives the terminal,
+which a seven-hour chain needs.
+
 ### What is fixed in advance and must not move
 
 `reports/backtest_preregistration_2026-08-27.md` fixes the primary result, the verdict
