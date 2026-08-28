@@ -64,19 +64,17 @@ METRICS: tuple[Metric, ...] = (
 def compute(
     session: Session, day: date, mark: Stamp, *, metrics: tuple[Metric, ...] = METRICS
 ) -> int:
-    """Compute `metrics` for every active cluster on `day`.
-
-    `metrics` is a parameter so the backtest can run a reduced set — several
-    production metrics have no historical inputs — without forking this loop. The
-    alternative is backtesting code that is not the product (ADR-0026).
-    """
-    """One `features_daily` row per cluster per metric.
+    """One `features_daily` row per cluster per metric, for every active cluster.
 
     Every metric runs for every cluster even when it cannot be computed: the row
     is written with `value=NULL, confidence=0, inputs_n=0` and a reason in
     `detail`. A missing row and a NULL row mean different things — the first says
     the pipeline did not run, the second says it ran and found nothing — and only
     the second is a fact about the niche.
+
+    `metrics` is a parameter so the backtest can run a reduced set — several
+    production metrics have no historical inputs — without forking this loop. The
+    alternative is backtesting code that is not the product (ADR-0026).
     """
     # Active only. A retired cluster keeps its `features_daily` history — that is
     # the point of retiring rather than deleting — but stops accruing new rows,

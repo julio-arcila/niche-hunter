@@ -5,7 +5,7 @@ functions the tables they already read: `channels`, `channel_snapshots`, `videos
 `cluster_members`, `clusters`. This module is the adapter, and it is the only place
 where YouNiverse's vocabulary is translated into the project's.
 
-It writes into `data/backtest.db`, never the live corpus, and `_refuse_live()` makes
+It writes into `data/backtest.db`, never the live corpus, and `refuse_live()` makes
 that a precondition rather than an instruction. The live database holds six
 production seeds with real history; a replay dropping 30 fake clusters and millions
 of 2019 rows into it would leave `nh nightly` RSS-polling channels that stopped
@@ -67,7 +67,7 @@ class LoadReport:
     channels_without_metadata: list[str] = field(default_factory=list)
 
 
-def _refuse_live(engine: Engine) -> None:
+def refuse_live(engine: Engine) -> None:
     """The backtest may only write to a database whose name says what it is.
 
     A substring check on the URL, not a check for "is this the configured live URL".
@@ -329,7 +329,7 @@ def load(
     supplies each channel's `first_seen`, and `first_seen` is what bounds membership
     at a past decision date.
     """
-    _refuse_live(engine)
+    refuse_live(engine)
     report = LoadReport()
     members = {channel_id for slug in selection.kept for channel_id in selection.members[slug]}
 
