@@ -50,17 +50,23 @@ DEFERRALS: tuple[Deferral, ...] = (
             "held-out precision 0.781 was measured against labels written by the "
             "same system that wrote the lexicon; a second model agreed at kappa "
             "0.943, which shows the criterion is unambiguous but cannot detect a "
-            "bias two language models share"
+            "bias two language models share. A cross-FAMILY pass (fable-5, blind) "
+            "on 2026-08-28 held precision at 0.875 and agreed at kappa 0.883 — so "
+            "the figure is not visibly a same-family artifact — but it is still a "
+            "model judging a model and does NOT discharge this deferral"
         ),
         kind="manual",
         trigger=(
-            "a human labels reports/spotcheck_50.jsonl — REQUIRED BEFORE SLICE 7, "
-            "not before Slice 6"
+            "a human labels the sample — REQUIRED BEFORE SLICE 7, not before "
+            "Slice 6. Draw it FROM ABOVE the 0.55 threshold and take 60-100 rows: "
+            "reports/spotcheck_50.jsonl is a uniform sample and yields only 8 rows "
+            "above the cut, a 95% interval of [0.53, 0.98] that no gate can act on "
+            "(reports/relevance_interrater_2026-08-28.md)"
         ),
         consumer=(
             "every supply.* and money.* number, and the niches Slice 6 constructs from YouNiverse"
         ),
-        cost="~20 minutes of reading; scripts/spotcheck_agreement.py reports kappa",
+        cost="~45 minutes of reading at 60-100 rows; scripts/spotcheck_agreement.py reports kappa",
     ),
     Deferral(
         metric="supply.median_top_video_age",
