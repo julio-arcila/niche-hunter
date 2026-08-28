@@ -1,3 +1,23 @@
+> **ARCHIVED 2026-08-28 — code-frozen, data-live. Successor:
+> `/Users/mac/Projects/youtube/niche-hunter-2`.**
+>
+> Gate E returned FAIL on 2026-08-28 (rho 0.091, p 0.4988, N=29 — a powered null).
+> `reports/backtest_2026-08-28.md` carries the verdict and the failure analysis.
+> Development moved to the successor repo, which keeps this project's *discipline*
+> and its *data* and none of its code; the reasoning is in that repo's ADR-0001 and
+> ADR-0003.
+>
+> **Do not develop here. Do not stop the cron.** The 09:10 nightly still runs and
+> this corpus still grows, deliberately: live view snapshots and RSS velocity
+> history cannot be re-collected at any price, and the successor's Slice 3 depends
+> on them. A day not collected is lost permanently. Read this repo read-only;
+> commit nothing.
+>
+> Kept alive and untouched: `data/` (the corpus and YouNiverse), `legacy/` (the
+> five original prototypes, also copied to the successor's `reference/`), and
+> `docs/` as the record of what was measured — including
+> `docs/SOURCES.md`'s negative results and `docs/RUNBOOK.md § Known defects`.
+
 # Niche Hunter
 
 Nightly pipeline + dashboard that scores YouTube niche clusters on demand–supply
