@@ -217,6 +217,76 @@ mids helped one term and hurt another, tracking breadth rather than representati
   widen coverage. `replace_more(limit=0)` — each expansion costs a request.
 - **Join key**: `cluster_id` after embedding; shared video ids join on `video_id`.
 
+### Access re-checked 2026-08-28 — the blocker holds
+
+Re-checked the same day the Trends "wall" turned out to be false, because the two
+claims came from the same research pass and one of them was wrong. **This one holds.**
+Self-service registration did close in late 2025; every new OAuth client, free or paid,
+goes through a manual approval ticket. Reported queues run two to four weeks, with a
+pattern of silent rejections for vague or trivial use cases.
+
+*Evidence quality, stated because it is weaker than the Trends measurement:* Reddit's
+own Data API wiki returns **403** to an unauthenticated fetch, so this is corroborated
+from secondary write-ups rather than the primary source, and it is a policy claim that
+cannot be tested without filing. Contrast the Trends finding, which was a direct live
+probe. Treat it as well-corroborated, not measured.
+
+The **free tier is intact**: 100 queries/min per OAuth client, non-commercial — which
+covers this project (read-only, a few hundred queries/night). Commercial is $0.24/1k
+calls and a hand-reviewed contract; we do not want that tier.
+
+ADR-0021 still stands and is the point: *"blocked on approval" describes a policy, not a
+queue position.* No application has ever been filed. The clock starts when one is.
+
+### Enablement runbook — the human half
+
+Steps 1–4 cannot be done by the assistant: they create an app under a personal identity.
+
+1. Use an **established** Reddit account (verified email, some history) — new accounts
+   draw rejections.
+2. `reddit.com/prefs/apps` → create app → type **`script`** (server-side, no redirect
+   flow, which is the right shape for a nightly job).
+3. Submit the Responsible Builder request. State plainly: **non-commercial**,
+   research/analytics, **no redistribution of Reddit content**, low volume. The silent
+   rejections skew toward vague use cases, and our real profile is modest.
+4. On approval collect `client_id` (the string under the app name) and `client_secret`.
+5. Fill `.env` (already scaffolded, `.env.example:44-49`):
+
+   ```
+   NH_REDDIT_CLIENT_ID=
+   NH_REDDIT_CLIENT_SECRET=
+   NH_REDDIT_USER_AGENT=python:niche-hunter:0.1.0 (by u/yourusername)
+   ```
+
+   The UA format `<platform>:<app_id>:<version> (by u/<username>)` is **mandatory and
+   enforced**. A generic UA causes throttling that reads like a code bug.
+
+**Do not set `NH_REDDIT_CLIENT_ID` to a placeholder.** `nh/jobs/deferrals.py:124` uses
+`NH_REDDIT_CLIENT_ID is set` as its trigger, so a dummy value fires the deferral falsely.
+`praw>=7.7` is already declared as the `reddit` extra — nothing needs installing first.
+
+### Why it is worth the wait, post-Gate E
+
+Gate E's failure analysis found **zero of 4,517 niche-dates with negative growth**: the
+corpus contained no failures, so it measured relative growth among channels that had
+already succeeded and could not express emergence at all.
+
+Reddit is one of the few reachable sources that can express **demand which is not
+already served** — the port target names *"recommend a channel" threads that got no
+YouTube link back* as the sharpest single signal in the source: a supply gap with a real
+person attached. Every signal now in the scorecard is measured on content that already
+exists, which is structurally why the gap metric could not see emergence. This is the
+most plausible available fix for what Gate E actually exposed, which is the argument for
+filing rather than deferring again.
+
+Design constraint on the eventual port (ADR-0021, roadmap risk #4): Reddit inputs are
+**optional with a confidence penalty, never required**, so an outage or a revoked
+approval cannot take features down.
+
+**Re-check trigger** — evidence-shaped, not dated: re-open this section when an
+application has actually been filed and either approved or refused. Nothing about the
+policy changes what we do; only filing does.
+
 ## keyword_planner — `legacy/niche_hunter_kp.py` → `nh/collectors/keyword_planner.py`
 
 - **Auth**: Google Ads account (zero-spend is fine) + Manager (MCC) account +
