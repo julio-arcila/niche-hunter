@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from nh.clustering.lexicon import LEXICON_VERSION
-from nh.db.models import Channel, Cluster, ClusterMember, NicheSeed, Video
+from nh.db.models import Channel, Cluster, ClusterMember, NicheSeed, Video, VideoSnapshot
 from nh.features.inputs import (
     AGE_FLOOR_DAYS,
     FEED_DEPTH,
@@ -292,5 +292,132 @@ def geo_concentration(session: Session, cluster_id: str, day: date) -> FeatureRe
             "as_of": day.isoformat(),
             "note": "not a quality score; a low value may mean the niche is global",
             "inputs": {"tables": ["cluster_members", "channels", "clusters", "niche_seeds"]},
+        },
+    )
+
+
+#: Videos that define "the top" of a niche. Same N as `winner_age_years`, so the
+#: two describe the same slice of content from different angles.
+TOP_N = 100
+DAYS_PER_YEAR = 365.25
+
+
+def _top_videos(session: Session, cluster_id: str, day: date) -> list[tuple[str, int, date]]:
+    """`(video_id, views, published)` for the niche's biggest on-niche videos."""
+    latest = (
+        sa.select(VideoSnapshot.video_id, sa.func.max(VideoSnapshot.views).label("views"))
+        .where(VideoSnapshot.observed_date <= day, VideoSnapshot.views.is_not(None))
+        .group_by(VideoSnapshot.video_id)
+        .subquery()
+    )
+    rows = session.execute(
+        sa.select(Video.video_id, latest.c.views, Video.published_at)
+        .join(latest, latest.c.video_id == Video.video_id)
+        .join(ClusterMember, on_niche_join(cluster_id))
+        .where(Video.published_at.is_not(None))
+        .order_by(latest.c.views.desc())
+        .limit(TOP_N)
+    ).all()
+    return [(vid, views, published) for vid, views, published in rows]
+
+
+def top10_concentration(session: Session, cluster_id: str, day: date) -> FeatureResult:
+    """Share of the top-100's views held by its top 10. HIGHER IS MORE CONCENTRATED.
+
+    A newcomer competes against the shape of a niche's attention, not only its
+    volume. Ten videos holding most of it means the niche has settled winners; a
+    flat distribution means attention is still spread and there is room.
+
+    A ratio within the top 100 rather than a share of all cluster views, because
+    the denominator would then move with how many videos we happen to have
+    collected — a coverage artefact would read as a change in concentration.
+    """
+    top = _top_videos(session, cluster_id, day)
+    if len(top) < 20:
+        return FeatureResult.empty(
+            GROUP,
+            "top10_concentration",
+            f"only {len(top)} on-niche videos with views; a top-10 share needs a top",
+        )
+    views = [v for _, v, _ in top]
+    total = sum(views)
+    if not total:
+        return FeatureResult.empty(GROUP, "top10_concentration", "the top videos have no views")
+    return FeatureResult(
+        group=GROUP,
+        name="top10_concentration",
+        value=sum(views[:10]) / total,
+        # Confidence is how close we got to a full top-100; a top drawn from 25
+        # videos is a weaker description of a niche's shape than one drawn from 100.
+        confidence=min(len(top) / TOP_N, 1.0),
+        inputs_n=len(top),
+        detail={
+            "definition": DEFINITION,
+            "top_n": TOP_N,
+            "videos_ranked": len(top),
+            "top10_views": sum(views[:10]),
+            "total_views": total,
+            "as_of": day.isoformat(),
+            "note": "lifetime views, so older videos rank higher; on-niche only",
+            "inputs": {"tables": ["cluster_members", "videos", "video_snapshots"]},
+        },
+    )
+
+
+def median_top_video_age(session: Session, cluster_id: str, day: date) -> FeatureResult:
+    """Median age of the niche's biggest videos, in years. HIGHER IS MORE EVERGREEN.
+
+    **NOT REGISTERED. Implemented, measured, and deliberately not shipped** — it is
+    structurally censored by how the corpus is collected, and the censoring is
+    invisible in the output.
+
+    Measured 2026-08-27: 2,859 of 2,977 on-niche videos are under 90 days old,
+    because an RSS feed returns a channel's newest 15 entries and the corpus is one
+    day of collection. The metric returned 29-61 days for every niche against a
+    corpus whose mean age is 27 days — it was reporting the collection window and
+    would have read as "every niche is a news treadmill".
+
+    This is data rule 9 in a new place: "a metric that normalises away the dimension
+    you are comparing on comes out flat, and flat reads as a finding rather than as
+    a bug". `uploads_per_week` was redefined as a rate over an observed span for
+    exactly this reason.
+
+    Register it when the corpus has real age spread — the deferral register carries
+    the trigger.
+
+    The evergreen-versus-news proxy, and the closest thing available to the
+    `cost_risk` evergreen score without a collector that does not exist. A niche
+    whose top videos are years old rewards content that keeps earning; one whose
+    top videos are weeks old is a news treadmill.
+
+    Distinct from `openness.winner_age_years`, which is the age of the CHANNELS
+    behind those videos. A young channel can hold an old video and an old channel
+    can hold a fresh one; the two answer different questions and are kept apart
+    deliberately.
+    """
+    top = _top_videos(session, cluster_id, day)
+    if not top:
+        return FeatureResult.empty(
+            GROUP, "median_top_video_age", "no on-niche video with views and a publish date"
+        )
+    ages = [(day - published.date()).days / DAYS_PER_YEAR for _, _, published in top]
+    return FeatureResult(
+        group=GROUP,
+        name="median_top_video_age",
+        value=float(statistics.median(ages)),
+        confidence=min(len(top) / TOP_N, 1.0),
+        inputs_n=len(top),
+        detail={
+            "definition": DEFINITION,
+            "top_n": TOP_N,
+            "videos_ranked": len(top),
+            "youngest_years": round(min(ages), 2),
+            "oldest_years": round(max(ages), 2),
+            "as_of": day.isoformat(),
+            "note": (
+                "ranking on LIFETIME views favours older videos, so this "
+                "over-states evergreen-ness; it is a floor, not an estimate"
+            ),
+            "inputs": {"tables": ["cluster_members", "videos", "video_snapshots"]},
         },
     )

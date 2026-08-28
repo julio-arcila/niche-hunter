@@ -26,7 +26,7 @@ Feeds        : which composite score, if any
 
 ## Defined
 
-Fifteen metrics across four of the six groups (`voice` and `cost_risk` are still
+Sixteen metrics across four of the six groups (`voice` and `cost_risk` are still
 empty). Each was verified to **vary across the five live niches** before
 implementation — a metric that is flat across the units it
 compares is not a comparator, however plausible its formula.
@@ -356,6 +356,28 @@ Failure mode : +/-5 point sampling jitter between fetches moves the ratio; the
 Feeds        : none yet — corroboration display in Slice 3
 ```
 
+### supply.top10_concentration
+```
+Formula      : share of the top-100 on-niche videos' views held by their top 10.
+               HIGHER IS MORE CONCENTRATED. A ratio WITHIN the top 100, not a share
+               of all cluster views, because that denominator moves with how many
+               videos we happen to have collected -- a coverage artefact would read
+               as a change in concentration.
+Inputs       : cluster_members(item_type='video'); videos; video_snapshots
+Join key     : cluster_id, via on-niche video membership
+Confidence   : videos ranked / 100. A top drawn from 25 videos describes a niche's
+               shape more weakly than one drawn from 100.
+Failure mode : ranks on LIFETIME views, so older videos place higher and the
+               measured shape leans toward whatever has had time to accumulate.
+               Returns NULL below 20 videos: a "top 10 share" of a pool of 12 is
+               arithmetic, not a measurement.
+Why it exists: a newcomer competes against the SHAPE of a niche's attention, not
+               only its volume. Ten videos holding most of it means settled
+               winners; a flat distribution means there is still room.
+Measured     : 2026-08-27 -- maritime 0.71 (most concentrated), engineering 0.69,
+               corporate 0.54, aviation 0.45 (most spread).
+```
+
 ### supply.on_niche_share
 ```
 Formula      : videos judged on-niche / videos judged at all, per cluster. Judged
@@ -607,6 +629,20 @@ Two known definitional gaps to resolve when writing these up:
 `supply.top10_concentration`, `supply.median_top_video_age`,
 `supply.format_mix`, `cost_risk.*` (primary-source density and cadence, PD asset
 density, evergreen score, brand-safety lexicon, enforcement trend).
+
+**`supply.median_top_video_age` — implemented, measured, and deliberately NOT
+registered.** It is structurally censored by how the corpus is collected, and the
+censoring is invisible in the output. Measured 2026-08-27: 2,859 of 2,977 on-niche
+videos are under 90 days old, because an RSS feed returns a channel's newest 15
+entries and the corpus is one day of collection. The metric returned 29-61 days for
+every niche against a corpus whose mean age is 27 days -- it was reporting the
+collection window and would have read as "every niche is a news treadmill".
+
+That is data rule 9 in a new place: *"a metric that normalises away the dimension
+you are comparing on comes out flat, and flat reads as a finding rather than as a
+bug."* `uploads_per_week` was redefined as a rate over an observed span for the
+same reason. The code stays; `nh deferrals` carries the trigger that would register
+it (a fifth of on-niche videos older than a year).
 
 Two names removed from this list rather than implemented:
 

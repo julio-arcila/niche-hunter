@@ -52,6 +52,7 @@ METRICS: tuple[Metric, ...] = (
     supply.median_views,
     supply.on_niche_share,
     supply.geo_concentration,
+    supply.top10_concentration,
     openness.breakthrough_rate_cohort,
     openness.views_per_sub,
     openness.winner_age_years,

@@ -276,6 +276,39 @@ def cluster_import(
 
 
 @app.command()
+def deferrals() -> None:
+    """Every unimplemented metric, its blocker, and what would unblock it.
+
+    Exits non-zero when a trigger has fired, so a stale deferral cannot sit in the
+    register unnoticed — the same reason `nh status --check` exists.
+    """
+    from datetime import date as _date
+
+    from nh.jobs.deferrals import DEFERRALS, fires
+
+    today = _date.today()
+    unblocked = []
+    typer.echo(f"{'STATUS':<12}{'METRIC':<52}TRIGGER")
+    for deferral in DEFERRALS:
+        state = fires(deferral, today)
+        label = {True: "UNBLOCKED", False: "blocked", None: "manual"}[state]
+        colour = {True: typer.colors.GREEN, False: None, None: typer.colors.YELLOW}[state]
+        typer.secho(f"{label:<12}{deferral.metric[:50]:<52}{deferral.trigger}", fg=colour)
+        typer.echo(f"            {deferral.blocker[:100]}")
+        if state:
+            unblocked.append(deferral)
+
+    if unblocked:
+        typer.secho(
+            f"\n{len(unblocked)} deferral(s) have come unblocked — implement or "
+            "re-defer with a new reason",
+            fg=typer.colors.GREEN,
+        )
+        raise typer.Exit(1)
+    typer.echo(f"\n{len(DEFERRALS)} deferral(s), none unblocked")
+
+
+@app.command()
 def backfill(
     what: str = typer.Argument(..., help="What to recover. Currently only: descriptions"),
     limit: int = typer.Option(None, "--limit", help="Stop after this many videos."),
