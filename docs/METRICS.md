@@ -36,10 +36,17 @@ country in order to avoid comparing them.
 | `wikipedia` | English readers globally (`en.wikipedia`) | `PROJECT` constant |
 | `youtube_api` | Unfiltered, English-relevance only | `relevanceLanguage: "en"` |
 
-So **`gap` is a US-demand over global-English-supply ratio.** Measured 2026-08-27, the
-US share of member channels runs 0.330 (corporate-collapse, which has more Indian
-channels than American) to 0.839 (true-crime-trials) — a 2.5x spread, so the mismatch is
-a per-niche variable rather than a common-mode bias that cancels in a ranking.
+So a composite mixing them mixes populations. **This does not currently move
+`scorecards.gap`**, which is `demand_rank − supply_rank` — a difference of within-day
+percentile ranks, not a ratio. Measured 2026-08-28: restricting supply to US-domiciled
+channels moves the medians substantially and leaves the ranking of all five niches
+**identical**, so the composition cannot move a rank difference. Consistent with the
+`median_views` entry below, where a 0.42x–3.37x value change also left ranks unmoved.
+
+It becomes live in **Slice 9**, the first time a `geo=US` demand level (Keyword Planner)
+sits beside global-English supply. Note also that `geo_concentration` counts *channels*
+while supply weighs *videos*, so it is not a supply-composition measurement — do not
+reuse its numbers as one (ADR-0035's retracted claim did exactly that).
 
 ## Entry template
 

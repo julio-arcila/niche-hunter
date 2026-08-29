@@ -107,25 +107,43 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="~45 minutes of reading, plus the pre-registration paragraph",
     ),
     Deferral(
-        metric="geo basis stamped into every feature's detail",
+        metric="geo_basis stamped into feature detail, and rendered",
         blocker=(
-            "ADR-0035 decided each metric must carry the population it measures, but "
-            "nothing stamps it yet: a reader of `nh niche show` sees a demand number "
-            "from US search volume beside a supply number from an unfiltered global "
-            "corpus, with nothing on the page saying they are different populations"
+            "ADR-0035 requires every metric to carry the population it measures, but "
+            "nothing stamps it. `nh niche show` prints a demand number and a supply "
+            "number from different populations with nothing saying so"
+        ),
+        kind="manual",
+        trigger="SLICE 9 — it becomes arithmetically live the day a geo=US level ships",
+        consumer="every demand and supply metric; scorecards.gap above all",
+        cost=(
+            "larger than it looks. Not just a constant and a detail key: `cli.py::"
+            "_provenance` renders a FIXED list of named keys, so an unrendered key "
+            "repeats ADR-0031's `currency` bug exactly — fold it into Slice 9's "
+            "existing _provenance task. And `gap` lives in `scorecards`, not "
+            "`features_daily`, so a per-feature detail key never reaches the place "
+            "ADR-0035 decision 2 actually requires it"
+        ),
+    ),
+    Deferral(
+        metric="scorecards.gap — re-specification to compare like with like",
+        blocker=(
+            "no corpus holds both supply geo composition and an outcome. Measured: "
+            "data/backtest.db has country for 0 of 4,527 channels, YouNiverse has no "
+            "country column, and load.py writes NULL by design. The live corpus has "
+            "country but no outcome. So the test that would justify a re-spec has no "
+            "instrument — the same shape as Gate E's emergence claim"
         ),
         kind="manual",
         trigger=(
-            "done when every demand and supply metric stamps `geo_basis` in its detail "
-            "and docs/METRICS.md's per-metric entries name it — not a condition that "
-            "becomes true on its own, which is why this is manual: the confound exists "
-            "today and only work removes it"
+            "a corpus exists carrying per-channel geo AND a forward outcome. Note the "
+            "cheap partial: ~91 quota units of channels.list over the 4,527 backtest "
+            "ids would supply present-day country, but that is 2026 attribute on 2019 "
+            "channels — the leakage class ADR-0026 already documents — and at n=29 "
+            "niches the detectable rho is 0.378, so a null from it would be weak"
         ),
-        consumer="every demand and supply metric; the gap composite above all",
-        cost=(
-            "small — a GEO_BASIS constant per source and one key added to each "
-            "feature's detail dict; no schema change, detail is already JSON"
-        ),
+        consumer="scorecards.gap; nothing else",
+        cost="a pre-registration plus the corpus that does not exist yet",
     ),
     Deferral(
         metric="openness.rss_acceleration",

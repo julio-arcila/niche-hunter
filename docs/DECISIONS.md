@@ -1029,6 +1029,44 @@ the human-validation pass, and the sample must be drawn above whatever threshold
 registered then.
 
 ## ADR-0035 — The four sources measure four different populations, and `gap` mixes them
+2026-08-28. Accepted, then **substantially corrected the same day** after an adversarial
+review. **Read this block before the body: the body's central empirical claim is
+retracted.**
+
+> **RETRACTED — "the mismatch varies per niche, so it does not cancel in a ranking".**
+> Measured 2026-08-28, and it is false for the live pipeline. Recomputing on-niche
+> supply restricted to US-domiciled channels moves the medians substantially
+> (aviation-disasters 3,751 → 5,429; true-crime-trials 17,662 → 26,428) and leaves the
+> **supply ranking identical across all five niches**. `scorecards.gap` is
+> `demand_rank − supply_rank`, a difference of within-day percentile ranks — not the
+> "ratio" the body and METRICS.md called it — so a perturbation that does not reorder
+> cannot move it at all. This was already on record and I missed it: METRICS.md's
+> `median_views` entry notes the Slice 4 redefinition moved supply values **0.42x–3.37x**
+> and "supply RANKS did not change, and `gap` is unchanged for all five clusters".
+> At N=5, ranks are extremely insensitive.
+>
+> **The evidence for the spread was also bad.** The 0.839 endpoint is `true-crime-trials`
+> computed from **31 known-country channels of 34 members** — the smallest, newest
+> cluster, measured on a date inside the ADR-0028 membership freeze. The four established
+> niches span **0.324–0.426, a 1.3x spread, close to common-mode.** And
+> `geo_concentration` counts *channels*, while supply weighs *videos*: measured, US share
+> by on-niche video is materially higher than by channel in every niche. I quoted a
+> display companion's `top_countries` as if it were a supply-composition measurement.
+>
+> **The Gate E sentence is withdrawn.** Gate E's demand was `wiki_weekly_views`
+> (en.wikipedia) and its supply `views_per_new_video` over YouNiverse — both global
+> English, the *most* geo-matched pairing the architecture has. The KP `geo=US` level the
+> body leans on has never computed a number; no feature reads `keyword_metrics` yet. And
+> `reports/backtest_2026-08-28.md` reports demand alone +0.049 and supply alone −0.073:
+> a confound in how two populations are *mixed* cannot explain a null already present in
+> each component before mixing.
+>
+> **What survives, and it is narrower:** the four sources genuinely do measure four
+> different populations, and that becomes arithmetically live in **Slice 9**, which is
+> the first time a `geo=US` demand level sits beside global-English supply. Until then
+> this is a prospective warning, not a diagnosis. The decisions below stand on their own
+> reasoning; only the empirical claim was wrong.
+
 2026-08-28. Accepted. Records a confound that was implicit in the architecture from
 Slice 3 and had never been written down, and decides what to do about it. Prompted by
 the operator asking whether the sources need geo homogeneity — they do not have it.
