@@ -184,9 +184,11 @@ DEFERRALS: tuple[Deferral, ...] = (
     Deferral(
         metric="cost_risk.* (primary-source density and cadence, PD asset density, brand-safety, enforcement trend)",
         blocker=(
-            "sources resolve for 2 of 6 niches — CourtListener and EDGAR work "
-            "unauthenticated, NTSB's CAROL API rejects documented payloads, USCG "
-            "403s, NIST has no API. Present-vs-absent is not high-vs-low"
+            "sources resolve for 2 of 6 niches — EDGAR works unauthenticated; "
+            "CourtListener needs a free account since 2026-05-07 (measured "
+            "2026-08-29: 401 unauthenticated, free tier 125 req/day); NTSB's CAROL "
+            "API rejects documented payloads, USCG 403s, NIST has no API. "
+            "Present-vs-absent is not high-vs-low"
         ),
         kind="manual",
         trigger="a source exists for a majority of seeds; see niche_seeds.primary_sources",

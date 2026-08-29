@@ -6,11 +6,20 @@ Slice 1's convenience. `docs/SOURCES.md` lists `primary/` (ntsb, edgar,
 courtlistener) under "Planned"; no such collector exists yet.
 
 That premise held for two of the five. Tested live 2026-08-27: CourtListener's
-REST API works unauthenticated and carries `dateFiled`; SEC EDGAR's submissions
-and full-text endpoints work unauthenticated; NTSB's CAROL query API is reachable
-but rejects documented-looking payloads and its shape is undocumented; USCG
-returns 403; NIST has no API. Per-seed findings live in `NicheSeed.primary_sources`
-so the research is dated and reviewable rather than folded into a score (ADR-0020).
+REST API appeared to work unauthenticated and carries `dateFiled`; SEC EDGAR's
+submissions and full-text endpoints work unauthenticated; NTSB's CAROL query API is
+reachable but rejects documented-looking payloads and its shape is undocumented;
+USCG returns 403; NIST has no API. Per-seed findings live in
+`NicheSeed.primary_sources` so the research is dated and reviewable rather than
+folded into a score (ADR-0020).
+
+**The CourtListener half of that is no longer true.** Re-tested 2026-08-29
+(03:30 UTC): an unauthenticated GET to `/api/rest/v4/dockets/` returns **401
+"Authentication credentials were not provided"** with `WWW-Authenticate: Bearer`.
+Free Law Project moved API access into memberships on 2026-05-07; free accounts get
+5 req/min, 50/hour, **125/day**. The 2026-08-27 "works unauthenticated" claim
+postdated that change and cannot be reproduced — either it hit a not-yet-enforced
+path or it was wrong. The measurement wins. Details in `docs/SOURCES.md`.
 
 Quota follows directly from what is here: cost is
 ``seeds x keywords x 2 sort orders x pages x 100 units``. Five seeds of three
@@ -162,8 +171,13 @@ SEEDS: tuple[dict[str, Any], ...] = (
                 "name": "CourtListener",
                 "url": "https://www.courtlistener.com/api/rest/v4/",
                 "status": "exists_uncollected",
-                "reviewed_on": "2026-08-27",
-                "note": "unauthenticated REST v4; carries dateFiled, so cadence is a real series",
+                "reviewed_on": "2026-08-29",
+                "note": (
+                    "carries dateFiled, so cadence is a real series — but measured "
+                    "2026-08-29 the API returns 401 unauthenticated; a free account "
+                    "(125 req/day) is now required. The 2026-08-27 'unauthenticated' "
+                    "finding does not reproduce"
+                ),
             }
         ],
         "notes": (
@@ -188,8 +202,12 @@ SEEDS: tuple[dict[str, Any], ...] = (
                 "name": "CourtListener",
                 "url": "https://www.courtlistener.com/api/rest/v4/",
                 "status": "exists_uncollected",
-                "reviewed_on": "2026-08-27",
-                "note": "covers opinions; live trial coverage has no primary-source equivalent",
+                "reviewed_on": "2026-08-29",
+                "note": (
+                    "covers opinions; live trial coverage has no primary-source "
+                    "equivalent. Measured 2026-08-29: 401 unauthenticated — a free "
+                    "account (125 req/day) is now required"
+                ),
             }
         ],
         "notes": (

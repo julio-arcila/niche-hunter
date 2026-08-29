@@ -352,6 +352,30 @@ policy changes what we do; only filing does.
   nothing in the data detects a bad one.
 - **Join key**: `seed_terms.term`, and `wikidata_qid` when populated.
 
+## courtlistener — not ported; access re-measured 2026-08-29
+
+- **The 2026-08-27 finding "works unauthenticated" does not reproduce.** Measured
+  2026-08-29 03:30 UTC, one unauthenticated GET to
+  `https://www.courtlistener.com/api/rest/v4/dockets/?page_size=1` returns
+  **HTTP 401** `{"detail": "Authentication credentials were not provided."}` with
+  `WWW-Authenticate: Bearer realm="api"`. The repo's `nh/seeds.py` recorded a
+  successful unauthenticated live test dated 2026-08-27; that test postdated the
+  policy change below, so either it hit a not-yet-enforced path or the claim was
+  wrong. Either way the measurement is what stands, and `nh/seeds.py` now says so.
+- **Access moved into memberships on 2026-05-07** (Free Law Project announcement,
+  https://free.law/2026/05/07/api-included-in-memberships/). Free accounts:
+  **5 req/min, 50/hour, 125/day**; higher tiers come with paid memberships.
+  Registration is free and self-service; auth is a token in the
+  `Authorization` header.
+- **What it still gives, when authenticated**: REST v4 over opinions, dockets,
+  courts; `dateFiled` on dockets, so filing cadence is a real series. 125/day is
+  plenty for a nightly per-niche cadence count and nothing like enough for a bulk
+  crawl — their bulk data files are the sanctioned path for that.
+- **Consequence**: any future `cost_risk` collector for this source needs a
+  credential in `.env` via `Settings` (never at module scope), and its quota row
+  must count against 125/day. Until someone registers an account, the source is
+  *obtainable, unregistered* — the ADR-0021 distinction applies.
+
 ## Planned
 
 `wikipedia` (pageviews + wikidata, join on `wikidata_qid`), `wayback`
