@@ -227,7 +227,9 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": False,  # blocked: exposition axis awaits human validation (ADR-0034)
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
         "primary_sources": [],
         "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
     },
@@ -241,7 +243,9 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": False,  # blocked: exposition axis awaits human validation (ADR-0034)
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
         "primary_sources": [],
         "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
     },
@@ -255,7 +259,9 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": False,  # blocked: exposition axis awaits human validation (ADR-0034)
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
         "primary_sources": [],
         "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
     },
@@ -269,7 +275,9 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": False,  # blocked: exposition axis awaits human validation (ADR-0034)
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
         "primary_sources": [],
         "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
     },
@@ -283,7 +291,9 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": False,  # blocked: exposition axis awaits human validation (ADR-0034)
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
         "primary_sources": [],
         "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
     },
@@ -297,7 +307,9 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": False,  # blocked: exposition axis awaits human validation (ADR-0034)
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
         "primary_sources": [],
         "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
     },
@@ -311,7 +323,9 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": False,  # blocked: exposition axis awaits human validation (ADR-0034)
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
         "primary_sources": [],
         "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
     },
@@ -325,7 +339,9 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": False,  # blocked: exposition axis awaits human validation (ADR-0034)
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
         "primary_sources": [],
         "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
     },
@@ -339,7 +355,9 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": False,  # blocked: exposition axis awaits human validation (ADR-0034)
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
         "primary_sources": [],
         "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
     },
@@ -353,7 +371,9 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": False,  # blocked: exposition axis awaits human validation (ADR-0034)
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
         "primary_sources": [],
         "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
     },
@@ -367,7 +387,9 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": False,  # blocked: exposition axis awaits human validation (ADR-0034)
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
         "primary_sources": [],
         "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
     },

@@ -1340,3 +1340,74 @@ not include in its update set — `active` today — changes nothing on an exist
 an ADR that says "this niche is retired" is a claim about the database. `youtube_api`'s
 no-seeds warning used to say "run `nh seed` first", which would have sent the next
 operator down this exact dead end; it now names the UPDATE.
+
+## ADR-0040 — The eleven domains activate for discovery; the exposition axis stays unshipped
+2026-08-29. Accepted. Splits ADR-0034's deferral in two, and unblocks the half that was
+blocking itself.
+
+**The circularity.** ADR-0034 deferred the eleven pivot domains behind a human validation
+of the exposition axis: 60-100 rows sampled *above* the 0.55 threshold, drawn from
+pivot-domain videos. Measured today, that sample cannot be drawn. The corpus holds 120
+pivot-domain videos, **19** of which clear 0.55 (48 in the `A_high` band), covering
+**4 of 11** domains — against a requirement of 60-100.
+
+That pool cannot grow by computation, and the reason is structural rather than
+incidental: `phase.py::_video_rows` joins videos to a cluster through their **channel's**
+membership, and channels are clustered from `search.list` discovery hits per seed. A
+niche therefore gains members only through discovery on **its own seeds**. Re-clustering
+the existing 6,976 videos against the eleven lexicons produces nothing — verified: all
+eleven have lexicons of 32-34 terms, seed terms, and an `exposition` entry in `AXES`, and
+still hold **zero** `cluster_members` rows, not even noise rows. Nothing is missing but
+data, and nothing was collecting it.
+
+So the gate was waiting on evidence that only the thing it gated could produce.
+
+**The split.** Activation and shipping are different acts, and this repo already
+separates them twice: ADR-0039 retired discovery while RSS kept polling, and cluster
+retirement stops `features_daily` while snapshots keep accruing. Applied here:
+
+- **Activated**: all eleven seeds, for discovery. They accrue channels, videos and
+  snapshots like any other niche.
+- **Still deferred, unchanged**: the exposition axis ships nothing. `scorecards.*` stay
+  NULL behind Gate E (ADR-0029), the 0.55 threshold remains uncalibrated for exposition
+  niches, and the human validation is still required before any of that moves. The
+  deferral register keeps that entry; only its activation clause is discharged.
+
+**Quota: the old arithmetic was stale in our favour.** ADR-0034 costed all eleven at
+6,600 units against a 9,500 budget *plus* the disaster niches' 3,000 — 9,600, over
+budget, which is why it proposed 2-4 finalists. ADR-0039 took the disasters to 0. All
+eleven now cost **6,600 of 9,500 with 2,900 spare**, so the argument for picking
+finalists before any evidence exists has expired. The operator chose all eleven, being
+explicit (2026-08-29) that the catalogue is for many operators and should be wider, not
+narrower.
+
+**Applied as both a catalogue change and a state change**, per ADR-0039's addendum:
+`nh/seeds.py` flips the eleven to `active: True`, *and*
+`UPDATE niche_seeds SET active = 1 WHERE slug IN (...)` (11 rows) reaches the live row,
+because `apply_seeds` keeps `active` outside its upsert update set and a code edit alone
+would have changed nothing.
+
+**What to expect, and what would falsify this.** The first nightly spends ~6,600 units
+discovering across eleven domains that have never been searched. Two things are worth
+watching before the axis is validated: whether `exposition` niches mark most of their
+videos noise the way ADR-0033 measured a topic niche doing, and whether the above-0.55
+pool actually reaches 60-100 rows across enough domains to draw the sample. If the pool
+does not grow, the constraint was never quota and this decision is wrong.
+
+**Verified immediately after applying, and one thing was better than predicted.**
+Activation alone lit up **four** of the eleven — `trading`, `biohacking`,
+`philosophy-of-science`, `geopolitics` — without a single new unit spent. Those are
+exactly the four domains the 120-video sample covered: an earlier exploratory discovery
+run had left search hits in `raw_records`, and `assign_channels` only reads them for
+*active* seeds, so the channel memberships those hits imply had never been built. This
+does not weaken the mechanism above — those four have members precisely because
+discovery once ran on their seeds — but it does mean the corpus was slightly less empty
+than "zero `cluster_members` rows" suggested. The remaining **seven** got cluster rows
+and were retired as empty the same day, correctly: they have no channels yet and will
+populate after the first nightly.
+
+`features_daily` now carries 23 rows for each of nine clusters, and `scorecards` nine
+rows whose `value`, `sustainability` and `opportunity` are **all NULL** — checked, not
+assumed. The five disaster clusters retired on the same run, which is ADR-0039 working
+as designed: their `features_daily` rows stop while `channel_snapshots` and
+`video_snapshots` keep accruing from RSS.

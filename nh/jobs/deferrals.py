@@ -83,7 +83,7 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="none — implemented and measured, just unregistered",
     ),
     Deferral(
-        metric="exposition axis — human validation, and the eleven domains' activation",
+        metric="exposition axis — human validation before it scores anything",
         blocker=(
             "domain x exposition (P 0.866 / R 0.736 held-out) rests on 107 MACHINE "
             "labels from fable-5 under a written criterion. kappa 0.845 across two "
@@ -98,13 +98,19 @@ DEFERRALS: tuple[Deferral, ...] = (
             "(not uniformly — the 2026-08-28 interrater audit's outstanding "
             "correction), drawn from pivot-domain videos scored by the committed "
             "EXPOSITION literal, and precision clears a bar pre-registered in an ADR "
-            "BEFORE labelling begins. On quota: activating ALL eleven is 6,600 units "
-            "plus the live five's 3,000 = 9,600 against a 9,500 budget, but that "
-            "framing assumed all eleven activate. Measured 2026-08-28, activating "
-            "only 2-4 FINALISTS costs 4,200-5,400 with 4,100+ headroom, so no "
-            "retirement is forced and the disaster niches keep compounding"
+            "BEFORE labelling begins. The ACTIVATION half of this entry is "
+            "discharged (ADR-0040): the eleven are live for discovery, because the "
+            "sample cannot be drawn until they collect — 19 of 120 pivot videos "
+            "clear 0.55 across 4 of 11 domains, against a 60-100 requirement, and a "
+            "niche gains members only through discovery on its own seeds. Quota is "
+            "no longer an argument either way: the disaster niches went to 0 "
+            "(ADR-0039), so all eleven cost 6,600 of 9,500 with 2,900 spare"
         ),
-        consumer="all eleven pivot seeds — inactive, collecting nothing, costing nothing",
+        consumer=(
+            "the exposition half of `relevance` — the eleven seeds are ACTIVE and "
+            "collecting since ADR-0040, but nothing they score ships until this "
+            "clears; scorecards stay NULL behind Gate E regardless"
+        ),
         cost="~45 minutes of reading, plus the pre-registration paragraph",
     ),
     Deferral(
