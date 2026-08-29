@@ -465,6 +465,17 @@ why the `seed_terms.geo == ""` rule is now scoped to request-driving sources.
 - Doc rot to fix in the same PR: `docs/METRICS.md:44` "Eighteen metrics",
   `tests/test_features_leakage.py:16` "all sixteen", plus five METRICS.md entries.
 
+**Multi-geo, decided before the loader is written (2026-08-28).** A `geo=GB` export now
+sits beside the US one and the ingest reported **96/162 matched**: `seed_terms` rows for
+`keyword_planner` carry `geo='US'`, so GB rows attribute to no niche. The planned loader
+keys on `(term, geo, lang)` and would inherit that. The conflation to resolve: a seed
+says *this niche cares about this keyword*, which is geo-independent; `geo` says *which
+export these numbers came from*. Options are (a) seed_terms rows per geo, 66 x N, or
+(b) join on `(term, lang)` and pass geo as a loader argument, which reads truer to what
+a seed means. `reports/geo_value_2026-08-28.md` measured why this matters: the value
+ranking of the eleven **reorders between US and GB**, so a features layer that can only
+see one geo silently picks a market.
+
 **Explicitly not in this slice:** the eleven-domain expansion; `kp_trend_last3_vs_first3`
 (the twelve monthly columns are 0/360, entirely empty) and `tier1_cpc_ratio` (needs ≥2
 geos); any FX conversion; anything ranked — ADR-0029's prohibition stands.
