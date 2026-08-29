@@ -44,6 +44,12 @@ CONFIDENCE_N = 30
 #: 4, so a step change in a stored series is attributable rather than mysterious.
 DEFINITION = "v2-on-niche"
 
+#: `uploads_per_week` only, 2026-08-29: the fixed-window count became a
+#: per-channel rate over the observed span (data rule 9). Values before this tag
+#: are censored by the RSS 15-entry cap and not comparable where
+#: `channels_span_censored` > 0.
+DEFINITION_SPAN_RATE = "v3-span-rate-on-niche"
+
 
 def _confidence(
     sample_n: int, contributing: int, universe: int, relevance: tuple[int, int] | None = None
@@ -78,14 +84,45 @@ def _confidence(
     return adequacy * coverage * decided
 
 
+def _observed_weeks(day: date, window_first_day: date, oldest_known: date) -> float:
+    """Weeks of the window we could actually observe for one channel.
+
+    An RSS feed serves a channel's newest 15 entries and nothing else, so a
+    channel's known history begins at its oldest stored video — anything earlier
+    was discarded before we ever saw it. Counting that channel's uploads over the
+    full window and dividing by the full window censors at the cap (data rule 9).
+    The denominator is therefore the span from `max(window start, oldest known
+    video)` through `day`, inclusive in civil days: fully observed channels keep
+    the whole window and censored ones are read as a rate over what was seen.
+    A genuinely new channel gets the same arithmetic and it is equally right —
+    its observed span *is* its publishing lifetime.
+    """
+    start = max(window_first_day, oldest_known)
+    return ((day - start).days + 1) / 7.0
+
+
 def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureResult:
     """Long-form on-niche uploads entering the niche per week.
 
     A cluster total, not a per-channel average: supply is the volume of content a
-    newcomer competes against. Confidence keys on *coverage* — member channels we
-    know anything about — rather than on contributing channels, so that a niche
-    which genuinely published nothing this window reports a confident zero rather
-    than a doubtful one.
+    newcomer competes against. Summed as **per-channel rates over each channel's
+    observed span within the window** (data rule 9), not a pooled count over the
+    fixed window — the RSS 15-entry cap means many channels' known history starts
+    inside the window, and a fixed-window count censors at the cap. Measured at
+    Slice 2: a fixed-window count landed every niche on 1.17/wk (1.1x spread)
+    against 2.2x spread for the span-based rate. For a channel observed across the
+    whole window the two forms are identical, so nothing changes where the data is
+    complete.
+
+    The span marker is the channel's oldest known video of ANY kind: observation
+    coverage is a property of the feed, not of the niche, and marking it with the
+    oldest *on-niche* video would turn a channel with one on-niche upload into a
+    one-day span at 7/wk.
+
+    Confidence keys on *coverage* — member channels we know anything about —
+    rather than on contributing channels, so that a niche which genuinely
+    published nothing this window reports a confident zero rather than a doubtful
+    one.
     """
     channels = member_channels(session, cluster_id, day)
     if not channels:
@@ -93,46 +130,53 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
 
     since = window_start(day, WINDOW_DAYS)
     until = _day_end(day)
-    uploads, covered = session.execute(
-        sa.select(
-            sa.func.count(Video.video_id),
-            sa.func.count(sa.distinct(Video.channel_id)),
-        )
-        .join(Channel, Channel.channel_id == Video.channel_id)
-        .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
-        .where(
-            Video.is_short.is_(False),
-            Video.published_at.is_not(None),
-            Video.published_at >= since,
-            Video.published_at <= until,
-            # EXISTS rather than a second join: `cluster_members` is already joined
-            # once for channel membership, and an alias here would read as though
-            # the two memberships were the same thing. They are not — one says the
-            # channel belongs to the niche, the other says this video is about it.
-            sa.exists(sa.select(1).where(on_niche_join(cluster_id, day)).correlate(Video)),
-        )
-    ).one()
+    counts = dict(
+        session.execute(
+            sa.select(Video.channel_id, sa.func.count(Video.video_id))
+            .join(Channel, Channel.channel_id == Video.channel_id)
+            .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
+            .where(
+                Video.is_short.is_(False),
+                Video.published_at.is_not(None),
+                Video.published_at >= since,
+                Video.published_at <= until,
+                # EXISTS rather than a second join: `cluster_members` is already
+                # joined once for channel membership, and an alias here would read
+                # as though the two memberships were the same thing. They are not —
+                # one says the channel belongs to the niche, the other says this
+                # video is about it.
+                sa.exists(sa.select(1).where(on_niche_join(cluster_id, day)).correlate(Video)),
+            )
+            .group_by(Video.channel_id)
+        ).all()
+    )
 
-    known = (
-        session.scalar(
-            sa.select(sa.func.count(sa.distinct(Video.channel_id)))
+    oldest = dict(
+        session.execute(
+            sa.select(Video.channel_id, sa.func.min(Video.published_at))
             .join(Channel, Channel.channel_id == Video.channel_id)
             .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
             # Bounded: unbounded, this counted every present-day channel and
             # produced a CONFIDENT ZERO at any historical date — measured, 0.0 at
             # confidence 0.871 for 2019 against 197 channels that did not exist.
-            .where(Video.published_at < _until(day))
-        )
-        or 0
+            .where(Video.published_at.is_not(None), Video.published_at < _until(day))
+            .group_by(Video.channel_id)
+        ).all()
     )
-    if not known:
+    if not oldest:
         return FeatureResult.empty(
             GROUP, "uploads_per_week", "no member channel has any known video"
         )
+    known = len(oldest)
+    censored = sum(1 for first in oldest.values() if first.date() > since.date())
+    value = sum(
+        n / _observed_weeks(day, since.date(), oldest[channel_id].date())
+        for channel_id, n in counts.items()
+    )
     return FeatureResult(
         group=GROUP,
         name="uploads_per_week",
-        value=uploads / (WINDOW_DAYS / 7),
+        value=value,
         # Coverage is channels we can SEE, not channels that published: a niche
         # that genuinely published nothing is a confident zero, and using
         # `covered` here would drive its confidence to 0 and call the finding
@@ -140,15 +184,21 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
         confidence=_confidence(
             known, known, len(channels), relevance_coverage(session, cluster_id, day)
         ),
-        inputs_n=uploads,
+        inputs_n=sum(counts.values()),
         detail={
             "window": [since.date().isoformat(), day.isoformat()],
             "member_channels": len(channels),
             "channels_with_any_video": known,
-            "channels_publishing_in_window": covered,
-            "definition": DEFINITION,
+            "channels_publishing_in_window": len(counts),
+            # How many known channels' observable history starts inside the window
+            # — the population the old fixed-window count under-read. Attribution
+            # for any step change in the stored series at this definition bump.
+            "channels_span_censored": censored,
+            "definition": DEFINITION_SPAN_RATE,
             "note": (
-                "long-form, on-niche only; unknown-format videos excluded until enrichment lands"
+                "long-form, on-niche only; per-channel rate over the observed span "
+                "within the window (data rule 9); unknown-format videos excluded "
+                "until enrichment lands"
             ),
             "inputs": {"tables": ["videos", "cluster_members"]},
         },
