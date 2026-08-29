@@ -212,8 +212,10 @@ DEFERRALS: tuple[Deferral, ...] = (
     Deferral(
         metric="voice.* (question_rate, unanswered_rate, recommendation_threads)",
         blocker=(
-            "Reddit API access was never applied for — not pending, unstarted. "
-            "Approval under the Responsible Builder Policy is required first"
+            "Reddit API access is APPLIED FOR and pending, filed 2026-08-29 under "
+            "the Responsible Builder Policy — a state this entry used to deny, "
+            "saying 'never applied for, not pending, unstarted'. Approval gates "
+            "everything: no credential exists to write a fixture against"
         ),
         kind="setting",
         trigger="NH_REDDIT_CLIENT_ID is set",
