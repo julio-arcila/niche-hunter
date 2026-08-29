@@ -213,3 +213,13 @@ rows, and the two CourtListener `primary_sources` entries updated on their
 seeds. Everything else was read-only against `data/niche_hunter.db`; one
 unauthenticated HTTP request went to CourtListener (A1), and no quota-bearing
 call was made anywhere.
+
+## A note for git archaeology
+
+A concurrent session was committing to this branch during the pass (the Google
+Ads OAuth scaffolding, `9060a8e` and `6942334`). Commit `9060a8e` swept this
+pass's then-uncommitted `nh/features/supply.py` edits into itself, so the B5
+definition change is split across `9060a8e` (unrelated message) and `24ac4d6`
+(the intended commit). The final content is exactly the B5 change described
+above; only the diff's commit attribution is muddled, and it is recorded here
+rather than repaired by rewriting shared history.
