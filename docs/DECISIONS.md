@@ -1406,8 +1406,84 @@ than "zero `cluster_members` rows" suggested. The remaining **seven** got cluste
 and were retired as empty the same day, correctly: they have no channels yet and will
 populate after the first nightly.
 
+**The sharpest confirmation is the above-threshold pool**: it went from **0 to 514** on
+activation alone, without a unit spent. The "19 of 120" figure that motivated this ADR
+was measured on the static scored sample file of 2026-08-28; the live `cluster_members`
+table held **zero** pivot rows at that moment, which is the stronger form of the same
+point. Four domains now clear 0.55 at 196 / 176 / 83 / 59.
+
 `features_daily` now carries 23 rows for each of nine clusters, and `scorecards` nine
 rows whose `value`, `sustainability` and `opportunity` are **all NULL** — checked, not
 assumed. The five disaster clusters retired on the same run, which is ADR-0039 working
 as designed: their `features_daily` rows stop while `channel_snapshots` and
 `video_snapshots` keep accruing from RSS.
+
+## ADR-0041 — Pre-registration: the bar the exposition axis must clear
+2026-08-29. Accepted. Written **before the sample can be drawn**, and the draw condition
+is not yet met. Measured at the moment of writing: **514** above-threshold rows exist,
+but across only **4 of 11** domains (`geopolitics` 196, `trading` 176, `biohacking` 83,
+`philosophy-of-science` 59). Under the per-domain cap below that is a drawable **60**
+against a required 80, so the binding constraint is **domain coverage, not volume** —
+two more domains clearing 15 rows each makes the draw possible, and the other seven
+began collecting only hours ago (ADR-0040). Nothing in this ADR may be revised after the
+labels are written; a revision is a new ADR that says why, and re-labels.
+
+**The test.** A human labels a sample of pivot-domain videos drawn from **above** the
+0.55 threshold, scored by the committed `EXPOSITION` literal. Precision is the share of
+labelled rows the human calls on-niche. The axis ships iff the **95% Wilson lower bound
+on that precision is at least 0.70**.
+
+**Why 0.70, and not parity with EVENT.** EVENT's held-out precision is 0.781 on 298
+human labels, interval [0.732, 0.825]. Parity is not a decidable test at this sample
+size, computed rather than assumed:
+
+| bar (95% Wilson lower bound) | needs observed, n=80 | n=100 |
+|---|---|---|
+| ≥ 0.70 | 65/80 = 0.81 | 79/100 = 0.79 |
+| ≥ 0.75 | 68/80 = 0.85 | 84/100 = 0.84 |
+| ≥ 0.781 (parity) | 70/80 = 0.88 | 87/100 = 0.87 |
+
+Requiring parity as a *lower* bound demands the human labels reproduce the machine
+estimate (0.866) with no headroom, so any regression to the mean fails it. Requiring
+parity as a *point* estimate is not a test at all: at n=80 the interval is ±0.17, so it
+passes on noise — the exact defect the 2026-08-28 interrater audit killed the uniform-50
+sample for, an interval "no gate can act on".
+
+This matters because the deferral's objection is **evidence quality**, not precision
+parity: `domain x exposition` rests on 107 machine labels from one model family, where
+EVENT rests on 298 human ones, and kappa across two raters of the same family cannot
+detect a bias they share. Independent human labels fix that at n=80-100. Whether the true
+precision is 0.78 or 0.82 is not resolvable at any labelling budget a person will spend,
+and pretending otherwise is how a bar becomes theatre.
+
+**The sample, specified now so it cannot be chosen later.**
+- **n**: target 100, minimum 80. Below 80 the draw is postponed, never shrunk.
+- **Frame**: `cluster_members` rows with `item_type = 'video'`, `relevance >= 0.55`, in a
+  cluster whose `AXES` family is `exposition`, as of the draw date.
+- **Per-domain cap of 15**, and **at least 6 domains represented**. Without a cap one
+  well-collected domain becomes the whole test; `trading` and `biohacking` have a head
+  start (ADR-0040) and would otherwise dominate.
+- **Drawn once**, uniformly at random within each domain, with the drawn ids and their
+  scores written to `reports/` *before* labelling. A second draw is a new ADR.
+- **The labeller sees title and description only.** Not the relevance score, not the
+  band, and specifically **not `detail.matched`** — every membership row stores the terms
+  that fired, and a labeller who sees them is scoring the lexicon's reasoning rather than
+  the video, which is the machine-label problem wearing a human face.
+
+**Both branches, decided now.**
+- **Pass** (lower bound ≥ 0.70): the exposition axis is validated for scoring. The eleven
+  keep their `relevance` values and become eligible for the feature layer on the same
+  terms as the event niches. This still ships **no ranking** — `scorecards.value`,
+  `sustainability` and `opportunity` stay NULL behind Gate E (ADR-0029), which this test
+  does not touch.
+- **Fail**: the axis scores nothing. The eleven **stay active and keep collecting** —
+  snapshots are the compounding asset and a scorer's failure is not a reason to stop
+  accruing history (the ADR-0039 principle). The lexicon or the axis is then the subject
+  of the next slice, with this sample's failures as its evidence.
+
+**What this test does NOT establish**, stated so a later reader does not over-read a
+pass: it measures precision above the threshold only. It says nothing about **recall**
+(what the axis misses is unsampled by construction), nothing about whether **0.55 is the
+right cut** for exposition niches, and nothing about **Gate E**, whose null was measured
+on a different grain entirely. A pass means the scorer is not inventing members. It does
+not mean the catalogue ranks anything.
