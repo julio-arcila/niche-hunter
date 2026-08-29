@@ -98,10 +98,11 @@ DEFERRALS: tuple[Deferral, ...] = (
             "(not uniformly — the 2026-08-28 interrater audit's outstanding "
             "correction), drawn from pivot-domain videos scored by the committed "
             "EXPOSITION literal, and precision clears a bar pre-registered in an ADR "
-            "BEFORE labelling begins. Activation additionally needs the quota "
-            "arithmetic to close: 11 pivots (6,600 units) + the live 5 (3,000) = "
-            "9,600 against a 9,500 budget, so it is a retire-or-stage decision, never "
-            "a flag flip"
+            "BEFORE labelling begins. On quota: activating ALL eleven is 6,600 units "
+            "plus the live five's 3,000 = 9,600 against a 9,500 budget, but that "
+            "framing assumed all eleven activate. Measured 2026-08-28, activating "
+            "only 2-4 FINALISTS costs 4,200-5,400 with 4,100+ headroom, so no "
+            "retirement is forced and the disaster niches keep compounding"
         ),
         consumer="all eleven pivot seeds — inactive, collecting nothing, costing nothing",
         cost="~45 minutes of reading, plus the pre-registration paragraph",

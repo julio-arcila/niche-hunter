@@ -544,9 +544,12 @@ ordinary: eleven lexicons and eleven seeds to write, wikipedia demand terms per 
 plus eight other test files to update. The draft family lives in the session scratchpad
 and should be re-derived rather than trusted, since it was never committed.
 
-**Quota is not the constraint:** 11 niches x 3 keywords x 2 sort orders x 100 =
-6,600 units, inside the 9,500 budget. But 11 active *plus* the current 5 would be
-9,600 and would break it, so the pivot must retire the five rather than add alongside.
+**Quota is not the constraint, and the forced retirement was an artifact.** 11 active
+*plus* the current five is 9,600 against a 9,500 budget — but nothing requires activating
+eleven. Measured 2026-08-28: **2 finalists cost 4,200, 3 cost 4,800, 4 cost 5,400**, all
+beside the live five, with 4,100+ units of headroom. Activating only the niches the
+operator will actually make videos about leaves the disaster niches collecting, so the
+compounding snapshot history is not sacrificed to a constraint that only bites at eleven.
 
 
 ### Slice 10 — Trends seed expansion · size S–M · **PLANNED, not started**
