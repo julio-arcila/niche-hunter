@@ -1312,3 +1312,31 @@ forcing `active=True` on the two slugs its own fixtures and scoring titles name.
 still come from the real set because `LEXICONS` is keyed on them and the relevance
 scoring in those tests is real; only `active`, which was never any of production's
 business, is local. An operational decision can no longer redden the clustering suite.
+
+**Addendum, 2026-08-29: the code change alone did nothing for a day.** `nh/seeds.py`
+carried `active: False` for all five, and the live database carried `active = 1` for all
+five, because `apply_seeds` deliberately keeps `active` outside its upsert update set —
+the behaviour `test_reseeding_does_not_reactivate_a_disabled_seed` exists to protect, so
+that a niche someone stopped by hand survives the next `nh seed`. The same property that
+stops a re-seed from restarting a niche stops it from retiring one. **Every nightly
+between this ADR being accepted and this addendum still spent the 3,000 units it says
+were saved.** The state change is a data change and had to be applied as one:
+
+```sql
+UPDATE niche_seeds SET active = 0 WHERE slug IN (
+  'aviation-disasters','maritime-disasters','corporate-collapse',
+  'engineering-failures','true-crime-trials');   -- 5 rows, applied 2026-08-29
+```
+
+Verified after: `nh seed`'s budget reports 0 units, `nh nightly --dry-run` shows
+`youtube_api` still ready — correct, since enrichment and the 83-video backfill backlog
+still run at 1 unit per 50 ids — and the 1,939 channels are untouched. `clusters` stay
+active on purpose: retiring discovery must not also stop `features_daily`, which is
+computed from the RSS snapshots that keep arriving.
+
+The generalisation, which is why this is an addendum and not a fix: **`nh/seeds.py` is
+the seed *catalogue*, not the seed *state*.** Anything in `SEEDS` that `apply_seeds` does
+not include in its update set — `active` today — changes nothing on an existing row, and
+an ADR that says "this niche is retired" is a claim about the database. `youtube_api`'s
+no-seeds warning used to say "run `nh seed` first", which would have sent the next
+operator down this exact dead end; it now names the UPDATE.

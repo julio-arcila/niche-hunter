@@ -249,7 +249,16 @@ class YouTubeApiCollector(Collector):
                 ).where(NicheSeed.active)
             ).all()
         if not rows:
-            self.log.warning("no active niche_seeds — run `nh seed` first")
+            # NOT "run `nh seed`". `apply_seeds` keeps `active` outside its upsert
+            # update set on purpose, so a niche someone deliberately stopped survives
+            # the next re-seed — which also means re-seeding cannot start one. ADR-0039
+            # was written as a code edit alone and therefore did nothing for a day;
+            # sending the next operator to the same dead end would repeat it.
+            self.log.warning(
+                "no active niche_seeds — discovery is idle and will spend 0 search "
+                "units. Enrichment and backfill still run. To resume discovery: "
+                "UPDATE niche_seeds SET active = 1 WHERE slug IN (...)"
+            )
         return [_Seed(*row) for row in rows]
 
     def _search(self, query: str, order: str, region: str | None) -> Iterator[dict[str, Any]]:
