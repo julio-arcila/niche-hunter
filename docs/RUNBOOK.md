@@ -47,6 +47,29 @@ the hour is irrelevant — only that it happens once per 24h.
 no longer exists; those jobs have been failing silently into a directory that is
 also gone. They are the reason the dead-man switch below is not optional.
 
+### Skipping one night
+
+```sh
+echo "why" > .skip-once     # consumed by the next cron fire, then gone
+rm .skip-once               # changed your mind before it fired
+```
+
+`run_nightly.sh` consumes the sentinel and exits 0 *before* collecting, pinging
+healthchecks as a success — a deliberate skip is not a failure and must not page
+anyone. It cannot become a habit, because skipping is what deletes it.
+
+**Do not comment out the crontab line instead.** Nothing in the system ever
+reminds anyone to put it back, and a pipeline that quietly stopped looks exactly
+like a pipeline that is running. ADR-0039 is this repo's standing example: a
+retirement written in code that never reached the database, and spent 3,000
+units a night for a day while everyone believed otherwise.
+
+**When you actually need this**: `QuotaLedger`'s budget is per-**run**, not
+per-day. A manual `nh nightly` and the 09:10 cron fire land in the same Pacific
+quota day, and each believes it has the full 9,500 — so the second spends into
+Google's real 10,000/day cap and takes 403s partway through discovery. The
+quota day resets at midnight Pacific, which is 02:00 local.
+
 ## Alerting: two layers
 
 | Layer | Catches | How |

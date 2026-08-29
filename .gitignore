@@ -50,3 +50,4 @@ logs/*
 .backup/
 
 # Labelling working files; the labelled result belongs in reports/ deliberately.
+.skip-once

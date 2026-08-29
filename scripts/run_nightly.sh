@@ -8,6 +8,26 @@
 # collected anything", and is exactly how a pipeline dies quietly for a week.
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
+# One-shot skip. `skip-once` is CONSUMED here whether or not anything else
+# succeeds, so a skip cannot become a habit: the act of skipping removes the
+# file, and the next cron fire collects normally. This is the safe form of
+# "skip tonight" — commenting out the crontab line is the unsafe form, because
+# nothing in the system ever reminds anyone to put it back (ADR-0039 is this
+# repo's standing example of a change that silently did not take effect).
+#
+# Why it is ever needed: QuotaLedger's budget is per-RUN, not per-day. A manual
+# `nh nightly` and the cron fire in the same Pacific quota day each believe they
+# have the full 9,500, so the second one spends into Google's real daily cap and
+# takes 403s partway through discovery.
+SKIP_ONCE="$(dirname "${BASH_SOURCE[0]}")/../.skip-once"
+if [ -f "$SKIP_ONCE" ]; then
+  skip_reason="$(cat "$SKIP_ONCE" 2>/dev/null)"   # read BEFORE consuming it
+  rm -f "$SKIP_ONCE"
+  log "nightly SKIPPED once by request: ${skip_reason:-no reason recorded}; the next fire runs normally"
+  ping_hc   # a deliberate skip is not a failure — do not page anyone
+  exit 0
+fi
+
 ping_hc /start
 log "nightly starting"
 
