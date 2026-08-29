@@ -1277,3 +1277,38 @@ feature loader defaults to. It must be an explicit argument with no default —
 a default geo is a silently picked market, which `reports/geo_value_2026-08-28.md`
 measured as a real reordering (the LOO-robust part: biohacking's GB rise, and the
 18x GB/US value-ratio spread).
+
+## ADR-0039 — Discovery retires for the five disaster niches; RSS keeps their history compounding
+2026-08-29. Accepted. Implements the quota decision ADR-0036 left open, chosen by the
+operator from four options.
+
+ADR-0036 made a catalogue for many operators the goal and left quota as the binding
+constraint: 3 keywords x 2 sort orders x 100 units means **15 niches** fit a 9,500-unit
+budget, and the five disaster niches were consuming 3,000 of it.
+
+**They are retired from discovery, not deleted.** The operator will not make videos about
+aviation disasters or shipwrecks, so `search.list` spend on them buys nothing — but their
+snapshot history is the compounding asset CLAUDE.md says never to break, and it cannot be
+re-fetched at any price.
+
+**This works because `youtube_rss` does not read seed state.** Verified rather than
+assumed: `_targets()` selects "every known channel not currently circuit-broken" from the
+`channels` table, with no join to `niche_seeds` and no `active` filter. So the 1,939
+known channels keep being polled at **zero quota**, and `channel_snapshots` and
+`video_snapshots` keep accruing. Also verified: cluster retirement stops `features_daily`
+rows, not snapshots — `test_a_retired_cluster_keeps_its_history_but_accrues_no_new_rows`
+is about the feature layer, and would otherwise have defeated the point of this decision.
+
+**Interim state: zero active seeds, and that is expected.** The eleven pivot niches stay
+inactive behind the human-validation deferral (ADR-0034), so nothing discovers tonight.
+That is the intended trade — 3,000 units a night were being spent on niches with no user,
+and RSS keeps the asset growing meanwhile.
+
+**A coupling this exposed, and fixed.** Zero active seeds broke eleven clustering tests,
+which built their fixtures from `SEEDS if active`. That coupling had already broken them
+twice — at ADR-0028's court-cases retirement and at ADR-0033's pivot — so it is now
+removed rather than patched a third time: `tests/test_clustering.py` owns its seed set,
+forcing `active=True` on the two slugs its own fixtures and scoring titles name. Slugs
+still come from the real set because `LEXICONS` is keyed on them and the relevance
+scoring in those tests is real; only `active`, which was never any of production's
+business, is local. An operational decision can no longer redden the clustering suite.

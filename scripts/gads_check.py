@@ -52,11 +52,25 @@ def main() -> int:
         return 1
     print("all five fields present (values not read)\n")
 
+    import pkgutil
+
+    import google.ads.googleads as _pkg
     from google.ads.googleads.client import GoogleAdsClient
     from google.ads.googleads.errors import GoogleAdsException
 
+    # Newest bundled version, not a hardcoded one. v21 was pinned first and returned
+    # 501 "GRPC target method can't be resolved" -- the method exists in the library
+    # but the version is sunset server-side, and Google retires roughly one version a
+    # quarter. Picking the newest at runtime makes that a non-event.
+    versions = sorted(
+        (m.name for m in pkgutil.iter_modules(_pkg.__path__) if m.name.startswith("v")),
+        key=lambda v: int(v[1:]),
+    )
+    api_version = versions[-1]
+    print(f"   using API {api_version} (bundled: {', '.join(versions)})")
+
     try:
-        client = GoogleAdsClient.load_from_storage(str(CONFIG), version="v21")
+        client = GoogleAdsClient.load_from_storage(str(CONFIG), version=api_version)
     except Exception as exc:  # a config boundary: report, never raise into the CLI
         print(f"1. authenticate: FAILED — {type(exc).__name__}: {str(exc)[:200]}")
         return 1

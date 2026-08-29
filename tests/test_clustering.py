@@ -22,11 +22,26 @@ from nh.seeds import SEEDS, apply_seeds
 
 DAY = date(2026, 8, 27)
 
-#: The seed set minus any deactivated by hand. `assign_channels` creates a cluster per
-#: ACTIVE seed, so these tests count against this rather than against SEEDS —
-#: `landmark-court-cases` went inactive on 2026-08-28 (ADR-0028), and that gap between
-#: "defined" and "collected" is exactly what the flag is for.
-LIVE_SEEDS = tuple(seed for seed in SEEDS if seed["active"])
+#: The clustering tests own their seed set instead of reading production's.
+#:
+#: They used to filter `SEEDS` by `active`, which coupled them to an operational
+#: decision they have no stake in — and that coupling broke them three times: when
+#: `landmark-court-cases` was retired (ADR-0028), when the eleven-domain pivot landed
+#: (ADR-0033), and again when discovery was retired for the five disaster niches
+#: (ADR-0039), which left ZERO active seeds and so zero clusters to build.
+#:
+#: What these tests actually need is two niches that have a lexicon, are active in the
+#: test database, and are stable across whatever production is doing tonight. Slugs
+#: still come from the real set because `LEXICONS` is keyed on them and relevance
+#: scoring is real here — but `active` is forced True locally, which is the bit that
+#: was never any of production's business.
+#: The two the rest of this file names in its fixtures and scoring titles — an
+#: aviation title must score against the aviation lexicon for the assertions to mean
+#: anything, so the slugs are not interchangeable.
+_PRIMARY, _SECONDARY = "aviation-disasters", "maritime-disasters"
+LIVE_SEEDS = tuple(
+    {**seed, "active": True} for seed in SEEDS if seed["slug"] in (_PRIMARY, _SECONDARY)
+)
 
 
 def _mark():
@@ -92,14 +107,14 @@ def _channels():
 
 
 def test_one_cluster_per_active_seed_even_with_no_members(engine):
-    apply_seeds(engine)
+    apply_seeds(engine, LIVE_SEEDS)
     with session_scope(engine) as s:
         assign(s, DAY, _mark())
         assert s.scalar(sa.select(sa.func.count()).select_from(Cluster)) == len(LIVE_SEEDS)
 
 
 def test_every_discovered_channel_lands_in_exactly_one_cluster(engine):
-    apply_seeds(engine)
+    apply_seeds(engine, LIVE_SEEDS)
     _discovered(engine, "ch1", "aviation-disasters", "date", 3)
     _discovered(engine, "ch1", "maritime-disasters", "date", 1)
     with session_scope(engine) as s:
@@ -109,7 +124,7 @@ def test_every_discovered_channel_lands_in_exactly_one_cluster(engine):
 
 
 def test_rerunning_moves_a_channel_rather_than_violating_the_unique_key(engine):
-    apply_seeds(engine)
+    apply_seeds(engine, LIVE_SEEDS)
     _discovered(engine, "ch1", "aviation-disasters", "date", 1)
     with session_scope(engine) as s:
         assign(s, DAY, _mark())
@@ -121,7 +136,7 @@ def test_rerunning_moves_a_channel_rather_than_violating_the_unique_key(engine):
 
 
 def test_membership_carries_provenance(engine):
-    apply_seeds(engine)
+    apply_seeds(engine, LIVE_SEEDS)
     _discovered(engine, "ch1", "aviation-disasters", "date", 1)
     with session_scope(engine) as s:
         assign(s, DAY, _mark())
@@ -162,7 +177,7 @@ def _relevance(engine, video_id):
 
 def test_every_video_of_a_member_channel_gets_a_decision(engine):
     """Slice 4's exit criterion: a cluster_id or an explicit reason, never silence."""
-    apply_seeds(engine)
+    apply_seeds(engine, LIVE_SEEDS)
     _discovered(engine, "ch1", "aviation-disasters", "date", 1)
     _video(engine, "v1", "ch1", "Plane crashed on the runway")
     _video(engine, "v2", "ch1", "Maruti Grand Vitara maintenance cost")
@@ -175,7 +190,7 @@ def test_every_video_of_a_member_channel_gets_a_decision(engine):
 
 
 def test_an_on_niche_video_scores_and_is_not_noise(engine):
-    apply_seeds(engine)
+    apply_seeds(engine, LIVE_SEEDS)
     _discovered(engine, "ch1", "aviation-disasters", "date", 1)
     _video(engine, "v1", "ch1", "Plane crashed on the runway after engine failure")
     with session_scope(engine) as s:
@@ -186,7 +201,7 @@ def test_an_on_niche_video_scores_and_is_not_noise(engine):
 
 
 def test_an_off_niche_video_is_marked_noise(engine):
-    apply_seeds(engine)
+    apply_seeds(engine, LIVE_SEEDS)
     _discovered(engine, "ch1", "aviation-disasters", "date", 1)
     _video(engine, "v1", "ch1", "Maruti Grand Vitara maintenance cost review")
     with session_scope(engine) as s:
@@ -199,7 +214,7 @@ def test_an_off_niche_video_is_marked_noise(engine):
 def test_an_unscorable_video_is_null_not_noise(engine):
     """ "We could not read this" and "this is not about the niche" are different
     claims, and only one of them is a finding (data rule 7)."""
-    apply_seeds(engine)
+    apply_seeds(engine, LIVE_SEEDS)
     _discovered(engine, "ch1", "aviation-disasters", "date", 1)
     _video(engine, "v1", "ch1", "क्या पंखा आपको और ज्यादा गरमी का एहसास कराता है")
     with session_scope(engine) as s:
@@ -212,7 +227,7 @@ def test_an_unscorable_video_is_null_not_noise(engine):
 
 def test_the_decision_carries_its_evidence(engine):
     """Production criterion 5: a displayed number reaches its input rows."""
-    apply_seeds(engine)
+    apply_seeds(engine, LIVE_SEEDS)
     _discovered(engine, "ch1", "aviation-disasters", "date", 1)
     _video(engine, "v1", "ch1", "Plane crashed on the runway")
     with session_scope(engine) as s:
@@ -226,7 +241,7 @@ def test_the_decision_carries_its_evidence(engine):
 def test_a_cluster_with_no_on_niche_video_is_retired_not_deleted(engine):
     """features_daily is keyed on cluster_id; deleting the cluster would orphan the
     history that makes a past score readable."""
-    apply_seeds(engine)
+    apply_seeds(engine, LIVE_SEEDS)
     _discovered(engine, "ch1", "aviation-disasters", "date", 1)
     _video(engine, "v1", "ch1", "Maruti Grand Vitara maintenance cost review")
     with session_scope(engine) as s:
@@ -238,7 +253,7 @@ def test_a_cluster_with_no_on_niche_video_is_retired_not_deleted(engine):
 
 def test_a_cluster_reactivates_when_it_gains_an_on_niche_video(engine):
     """A niche that goes quiet for a week must come back on its own."""
-    apply_seeds(engine)
+    apply_seeds(engine, LIVE_SEEDS)
     _discovered(engine, "ch1", "aviation-disasters", "date", 1)
     _video(engine, "v1", "ch1", "Maruti Grand Vitara maintenance cost review")
     with session_scope(engine) as s:
@@ -259,7 +274,7 @@ def test_a_cluster_whose_seed_was_switched_off_is_retired(engine):
     features_daily row and a percentile rank every night, forever."""
     from nh.db.models import NicheSeed
 
-    apply_seeds(engine)
+    apply_seeds(engine, LIVE_SEEDS)
     _discovered(engine, "ch1", "aviation-disasters", "date", 1)
     _video(engine, "v1", "ch1", "Plane crashed on the runway after engine failure")
     with session_scope(engine) as s:

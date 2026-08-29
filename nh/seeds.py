@@ -60,7 +60,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": True,
+        "active": False,  # discovery retired 2026-08-29 (ADR-0039); RSS still polls
         "primary_sources": [
             {
                 "name": "NTSB CAROL",
@@ -82,7 +82,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": True,
+        "active": False,  # discovery retired 2026-08-29 (ADR-0039); RSS still polls
         "primary_sources": [
             {
                 "name": "US Coast Guard NCOE",
@@ -104,7 +104,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": True,
+        "active": False,  # discovery retired 2026-08-29 (ADR-0039); RSS still polls
         "primary_sources": [
             {
                 "name": "SEC EDGAR",
@@ -130,7 +130,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": True,
+        "active": False,  # discovery retired 2026-08-29 (ADR-0039); RSS still polls
         "primary_sources": [
             {
                 "name": "NIST investigations",
@@ -196,7 +196,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": True,
+        "active": False,  # discovery retired 2026-08-29 (ADR-0039); RSS still polls
         "primary_sources": [
             {
                 "name": "CourtListener",
