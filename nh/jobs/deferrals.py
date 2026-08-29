@@ -107,6 +107,27 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="~45 minutes of reading, plus the pre-registration paragraph",
     ),
     Deferral(
+        metric="geo basis stamped into every feature's detail",
+        blocker=(
+            "ADR-0035 decided each metric must carry the population it measures, but "
+            "nothing stamps it yet: a reader of `nh niche show` sees a demand number "
+            "from US search volume beside a supply number from an unfiltered global "
+            "corpus, with nothing on the page saying they are different populations"
+        ),
+        kind="manual",
+        trigger=(
+            "done when every demand and supply metric stamps `geo_basis` in its detail "
+            "and docs/METRICS.md's per-metric entries name it — not a condition that "
+            "becomes true on its own, which is why this is manual: the confound exists "
+            "today and only work removes it"
+        ),
+        consumer="every demand and supply metric; the gap composite above all",
+        cost=(
+            "small — a GEO_BASIS constant per source and one key added to each "
+            "feature's detail dict; no schema change, detail is already JSON"
+        ),
+    ),
+    Deferral(
         metric="openness.rss_acceleration",
         blocker="needs a view series per video; video_snapshots has one day",
         kind="query",

@@ -22,6 +22,25 @@ cannot be reviewed, backtested, or compared across a schema change.
 Every `features_daily` row stores `value`, `confidence` and `inputs_n`. Absent
 inputs produce NULL, never 0.
 
+
+## Geo basis — which population each source measures
+
+Recorded because the four sources are **not** scoped to the same people (ADR-0035), and
+a reader must not have to know that `en.wikipedia` is a language while `geo=US` is a
+country in order to avoid comparing them.
+
+| Source | Population | Set by |
+|---|---|---|
+| `keyword_planner` | United States | `--geo` per export |
+| `trends` | Worldwide | `geo=""`, per ADR-0024 |
+| `wikipedia` | English readers globally (`en.wikipedia`) | `PROJECT` constant |
+| `youtube_api` | Unfiltered, English-relevance only | `relevanceLanguage: "en"` |
+
+So **`gap` is a US-demand over global-English-supply ratio.** Measured 2026-08-27, the
+US share of member channels runs 0.330 (corporate-collapse, which has more Indian
+channels than American) to 0.839 (true-crime-trials) — a 2.5x spread, so the mismatch is
+a per-niche variable rather than a common-mode bias that cancels in a ranking.
+
 ## Entry template
 
 ```

@@ -1027,3 +1027,74 @@ activation retires or stages, and is never a flag flip.
 was chosen on disaster labels; the operating point is a product decision that belongs with
 the human-validation pass, and the sample must be drawn above whatever threshold is
 registered then.
+
+## ADR-0035 — The four sources measure four different populations, and `gap` mixes them
+2026-08-28. Accepted. Records a confound that was implicit in the architecture from
+Slice 3 and had never been written down, and decides what to do about it. Prompted by
+the operator asking whether the sources need geo homogeneity — they do not have it.
+
+**Measured, not asserted.** Each source is scoped to a different population:
+
+| Source | Population it actually measures |
+|---|---|
+| `keyword_planner` | **United States** — `geo=US`, set per export |
+| `trends` | **Worldwide** — `geo=""`, and ADR-0024 keeps `seed_terms.geo` empty for it |
+| `wikipedia` | **`en.wikipedia`** — English readers globally; a language, not a country |
+| `youtube_api` | **No region filter** — only `relevanceLanguage: "en"` |
+
+`supply.geo_concentration` already measures the consequence, and it is large. Against a
+stated `seed_geo` of `US`, on 2026-08-27:
+
+```
+aviation-disasters     0.423   US 63 · IN 50 · PK 13 · GB 5
+maritime-disasters     0.432   US 51 · IN 22 · GB  9 · PK 6
+corporate-collapse     0.330   IN 73 · US 61 · GB  6 · PK 5
+engineering-failures   0.361   US 56 · IN 48 · PK 11 · GB 5
+true-crime-trials      0.839   US 26 · IN  3 · BD  1 · GB 1
+```
+
+`corporate-collapse` has **more Indian member channels than American ones** while its
+demand is read off US search volume and English Wikipedia.
+
+**Why this is worse than a constant bias.** If every niche diverged equally, the error
+would be common-mode and would largely cancel in a cross-niche *ranking*, which is what
+`gap` is for. It does not: the US share runs **0.330 to 0.839, a 2.5x spread**, so the
+mismatch between the demand population and the supply population is itself a
+per-niche variable. It enters the ranking as signal that has nothing to do with
+opportunity. This is a live candidate explanation for part of Gate E's null that the
+2026-08-28 failure analysis did not isolate, and it is recorded here as such rather
+than claimed as the cause.
+
+**What already protects us, partly.** ADR-0015 put *level* on Wikipedia and *shape* on
+Trends because momentum and seasonality are scale-invariant. A worldwide trend shape is
+a valid shape whatever population produced it. The mixing bites on **level**, and level
+is precisely what the Keyword Planner now supplies at `geo=US` while supply is counted
+over an unfiltered global English corpus.
+
+**Decisions.**
+
+1. **The geo basis of every metric is recorded, not inferred.** Each source declares the
+   population it measures, and any feature built on it carries that basis into its
+   `detail`. A reader must not have to know that `en.wikipedia` is a language and
+   `geo=US` is a country to avoid comparing them.
+2. **No cross-basis arithmetic without the basis stated.** `gap` may continue to be
+   computed — it is the project's central quantity — but it is a US-demand over
+   global-English-supply ratio and must say so wherever it is displayed.
+3. **Geo scaling is per-market instantiation, and is deferred.** The schema already
+   supports it: `keyword_metrics` is unique over `(keyword, geo, lang, observed_date,
+   source)` and `seed_terms` carries `geo`, both chosen so a second market sits beside
+   the first. But a second market needs its own manual KP export, its own language's
+   Wikipedia articles (`es.wikipedia` is a different project, not a geo filter), and its
+   own YouTube keywords, since `relevanceLanguage` is the real constraint there. Only
+   Trends is cheap per geo. **Do not open a second market until the first validates** —
+   Gate E has already failed once, and a second market multiplies surface without
+   testing the hypothesis.
+4. **Homogenising by narrowing is rejected.** Restricting YouTube to US channels would
+   discard half the observed supply in four of five niches, and that supply is real
+   competition for the same English-language viewer. The divergence is a finding about
+   these niches, not noise to filter out.
+
+**Not decided here:** whether `gap` should be re-specified to compare like with like — a
+US-demand-over-US-supply ratio, using `geo_concentration` to reweight. That is a change
+to the central metric and belongs with a pre-registered test, not an ADR written after a
+null.
