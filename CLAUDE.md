@@ -87,25 +87,45 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
-- Phase: **Gate E returned FAIL on 2026-08-28** — rho 0.091, permutation p 0.4988,
-  29 of 36 niches, detectable rho 0.378. A null, not an underpowered run. Branch
-  `slice-6-calibration`. `reports/backtest_2026-08-28.md` carries the verdict and a
-  hand-written failure analysis.
-- The instrument was checked before the null was accepted: `gap` is not flat (sd
-  0.402), the outcome is not flat (within-date sd 0.079, 6.5x range), and nothing
-  hides under niche size (rho -0.019). Demand alone +0.049, supply alone -0.073 —
-  neither input carries signal, so the failure is not in how they are combined.
-- **Do not build the dashboard.** Of the roadmap's two pre-committed branches, the
-  evidence points to narrowing the claim to "surfaces evidence for a human to judge":
-  zero of 4,517 niche-dates show negative growth, so the corpus tested relative growth
-  among channels that had already succeeded and cannot express emergence at all.
-- Known defect from this run: `winner_age_years` and `top10_concentration` were in
-  `replay.BACKTEST_METRICS` but `video_snapshots` is empty in `data/backtest.db` by
-  design, so both were 100% NULL and openness never entered the backtest.
-- Outstanding from the 2026-08-28 audit (`reports/relevance_interrater_2026-08-28.md`,
-  fix plan in the session artifact): the human relevance check — sample from ABOVE the
-  0.55 threshold, 60-100 rows, not the uniform 50; `uploads_per_week`'s 29-day window
-  and its spec-divergent confidence; the court-cases successors, which have seeds and
-  demand terms but **no lexicon**, so they can never gain members and will stay retired.
+- Phase: **Slice 9 shipped; the exposition-axis labelling is the open task.** Branch
+  `slice-11-eleven-domain-pivot`. Suite green at **716**.
+- **THE ONE THING WAITING ON A HUMAN — do not do this for them.**
+  `reports/exposition_labelling_2026-08-29.jsonl` holds **99 unlabelled rows**. The
+  operator labels them (said 2026-08-29 they would do it the next day). Fill `label`
+  with 1/0. The criterion, the bar and both branches are fixed in
+  `reports/exposition_draw_2026-08-29.md` and **ADR-0041**, written before the sample
+  existed. **Ships iff the 95% Wilson lower bound >= 0.70, i.e. 79 of 99 correct.**
+  A model must not label these: the whole objection is that the existing evidence is
+  107 machine labels from one model family, and kappa between two raters of that family
+  cannot detect a bias they share. When the file comes back: compute the interval, write
+  the result report, and if it fails say what that means about the lexicon.
+- **Do not revise ADR-0041 or the criterion.** Not the bar, not the sampling rule, not
+  the unjudgeable-counts-as-0 rule. Revision after labels is a new ADR that says why,
+  and a re-label. Parity with EVENT's 0.781 was already considered and rejected as
+  undecidable at this n (needs 87/100); do not relitigate it.
+- **The eleven domains are ACTIVE and collecting** (ADR-0040), applied as both a
+  catalogue change and an `UPDATE` — `apply_seeds` keeps `active` outside its upsert
+  update set, so a code edit alone never reaches an existing row. That mistake already
+  happened once (ADR-0039 addendum) and is the repo's standing example. Discovery costs
+  6,600 of 9,500 units. The five disaster niches are retired from discovery at 0 units
+  while RSS keeps compounding their history.
+- Nothing ranked ships, and the exposition test does not change that.
+  `scorecards.value` / `sustainability` / `opportunity` stay NULL behind **Gate E's
+  2026-08-28 null** (rho 0.091, p 0.4988, detectable rho 0.378 — a null, not an
+  underpowered run; demand alone +0.049 and supply alone -0.073, so the failure is not
+  in how they are combined). **Do not build the dashboard.**
+- `QuotaLedger`'s budget is per-**RUN**, not per-day. A manual `nh nightly` plus the
+  09:10 cron land in the same Pacific quota day and each believes it has the full 9,500.
+  `echo "why" > .skip-once` skips one fire and is consumed by it; never comment out the
+  crontab line. Quota day resets midnight Pacific = 02:00 local.
+- Known defects, unfixed: the `court-cases` successors have seeds and demand terms but
+  **no lexicon**, so they can never gain members and stay retired. `winner_age_years`
+  and `top10_concentration` were in `replay.BACKTEST_METRICS` while `video_snapshots` is
+  empty in `data/backtest.db` by design, so openness never entered the backtest.
+  `tests/test_lexicon_families.py` has a pre-existing ruff I001, untouched deliberately
+  on a shared branch.
+- Blocked on other people: Reddit Data API (applied 2026-08-29, pending) and Google Ads
+  Basic access (applied). `nh deferrals` is the register and is expected to be true —
+  three entries were caught lying this session; read it, don't assume it.
 - Never point a backtest command at the live corpus. `load.refuse_live` requires
   "backtest" in the database URL; `NH_DATABASE_URL=sqlite:///data/backtest.db`.
