@@ -34,7 +34,14 @@ country in order to avoid comparing them.
 | `keyword_planner` | United States | `--geo` per export |
 | `trends` | Worldwide | `geo=""`, per ADR-0024 |
 | `wikipedia` | English readers globally (`en.wikipedia`) | `PROJECT` constant |
-| `youtube_api` | Unfiltered, English-relevance only | `relevanceLanguage: "en"` |
+| `youtube_api` | Search as served for the seed's stated market (US today), English relevance | `regionCode` from `niche_seeds.geo` + `relevanceLanguage: "en"` (ADR-0037) |
+
+The `youtube_api` row previously read "Unfiltered, English-relevance only", which
+was never true: a `search.list` request without `regionCode` is served with a
+**US default** (documented on the response's `regionCode` property), so the basis
+was inferred rather than recorded. Since ADR-0037 (2026-08-29) discovery sends the
+seed's stated geo explicitly and stamps it into the raw payload; all live seeds
+state US, so no behavioural change is expected — see the ADR for the caveat.
 
 So a composite mixing them mixes populations. **This does not currently move
 `scorecards.gap`**, which is `demand_rank − supply_rank` — a difference of within-day

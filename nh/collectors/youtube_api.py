@@ -85,6 +85,14 @@ class _Seed:
     id: int
     slug: str
     keywords: list[str]
+    #: The market the seed is about (`niche_seeds.geo`), sent as `regionCode`.
+    #: Discovery was never geo-neutral: the API's own reference documents that a
+    #: request without `regionCode` is served with `regionCode=US` — the response
+    #: property's stated default — so omitting the parameter meant *inferring* a
+    #: US basis instead of recording one (ADR-0035 rule 1, ADR-0037). Sending the
+    #: seed's stated geo pins the basis explicitly; a seed that states none sends
+    #: nothing and accepts the server default.
+    geo: str | None
 
 
 def _topics(item: dict[str, Any]) -> list[str] | None:
@@ -149,7 +157,7 @@ class YouTubeApiCollector(Collector):
         for seed in self._seeds():
             for query in seed.keywords:
                 for order in ("date", "viewCount"):
-                    for item in self._search(query, order):
+                    for item in self._search(query, order, seed.geo):
                         video_ids.setdefault(item["id"]["videoId"])
                         channel_ids.setdefault(item["snippet"]["channelId"])
                         yield Raw(
@@ -159,6 +167,10 @@ class YouTubeApiCollector(Collector):
                                 "seed_id": seed.id,
                                 "query": query,
                                 "order": order,
+                                # Provenance for the geo basis (ADR-0037): what was
+                                # actually sent, so a replay does not have to guess.
+                                # None means the server's documented US default.
+                                "region": seed.geo or None,
                                 "item": item,
                             },
                         )
@@ -232,13 +244,15 @@ class YouTubeApiCollector(Collector):
     def _seeds(self) -> list[_Seed]:
         with session_scope(self.engine) as session:
             rows = session.execute(
-                sa.select(NicheSeed.id, NicheSeed.slug, NicheSeed.keywords).where(NicheSeed.active)
+                sa.select(
+                    NicheSeed.id, NicheSeed.slug, NicheSeed.keywords, NicheSeed.geo
+                ).where(NicheSeed.active)
             ).all()
         if not rows:
             self.log.warning("no active niche_seeds — run `nh seed` first")
         return [_Seed(*row) for row in rows]
 
-    def _search(self, query: str, order: str) -> Iterator[dict[str, Any]]:
+    def _search(self, query: str, order: str, region: str | None) -> Iterator[dict[str, Any]]:
         since = self.observed_at - timedelta(days=self.settings.yt_discover_days)
         token: str | None = None
         for _ in range(self.settings.yt_search_pages):
@@ -259,6 +273,15 @@ class YouTubeApiCollector(Collector):
                 "relevanceLanguage": "en",
                 "fields": SEARCH_FIELDS,
             }
+            if region:
+                # The seed's stated market, made explicit (ADR-0037). Omitting the
+                # parameter is NOT neutral: the API serves the query with a US
+                # default anyway (documented on the response's regionCode field),
+                # from whatever IP the cron happens to run on. This is a viewpoint
+                # parameter — "results viewable in, and ranked for, this market" —
+                # not a filter on creator geography; global English supply stays in
+                # the pool and geo_concentration keeps measuring the divergence.
+                params["regionCode"] = region
             if token:
                 params["pageToken"] = token
             try:

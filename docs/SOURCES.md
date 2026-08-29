@@ -64,6 +64,14 @@ start the snapshot clock.*
   `order=date` is the unbiased pool including flops (the denominator for
   breakthrough rate); `order=viewCount` is what is winning now (the numerator).
   Dropping either silently breaks the openness metric.
+- **`regionCode` is sent per seed (ADR-0037, 2026-08-29).** Omitting it was
+  never neutral: the API serves a region-less query with a **US default**
+  (documented on the response's `regionCode` property), from whatever IP the
+  cron runs on. Discovery now sends `niche_seeds.geo` when the seed states a
+  market and records what was sent in the raw `search_hit` payload
+  (`region`, None = server default). It is a viewpoint parameter — results
+  viewable in and ranked for that market — not a filter on creator geography;
+  `supply.geo_concentration` still measures the divergence.
 - **Join key**: `video_id`, `channel_id`.
 
 ## trends — ported ✅ (partially) `nh/collectors/trends.py`

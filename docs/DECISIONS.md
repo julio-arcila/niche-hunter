@@ -1186,3 +1186,56 @@ multi-niche plan is downstream of it.
 seeds without one can never gain members) and each family still needs a validated relevance
 axis (ADR-0033/0034). Those are per-niche costs that no scheduling trick removes, and the
 human-validation deferral now gates a catalogue rather than four finalists.
+
+## ADR-0037 — Discovery sends the seed's stated geo as `regionCode`, because omitting it was never neutral
+2026-08-29. Accepted. **Supersedes one sentence of ADR-0024** — "`niche_seeds.geo`
+is a stated intent that nothing sends anywhere" — and corrects the geo-basis row
+for `youtube_api` in ADR-0035's table and METRICS.md, which read "No region
+filter". Prompted by the Slice 11 extraction audit asking whether `search.list`
+should carry `regionCode` at all.
+
+**The premise of the question was wrong, and Google's own reference says so.** The
+response's `regionCode` property is documented as "the region code that was used
+for the search query… The default value is US." A request without the parameter is
+not unscoped — it is served **as a US query by a server-side default**, from
+whatever IP the cron runs on (this one is in Colombia). So the true choice was
+never "geo-scoped vs neutral"; it was "basis stated by us vs basis inferred by
+Google's default and subject to drift". ADR-0035's rule 1 — the geo basis of every
+metric is *recorded, not inferred* — decides that on its own: discovery now sends
+`regionCode` from `niche_seeds.geo` when the seed states a market, and sends
+nothing when it does not. The raw `search_hit` payload records what was sent
+(`region`, None for the server default), so the basis is provenance, not
+archaeology. We could not check the stored payloads for the served default because
+`SEARCH_FIELDS` strips the response envelope — one more reason to stamp it
+ourselves.
+
+**Why per-seed, not a constant and not a run argument.** A constant re-buries
+curation in code and contradicts ADR-0036 — a catalogue for many operators is
+plausibly a catalogue across markets, and the market a niche is about is already a
+per-seed field with exactly the right meaning. A run argument is the worst of the
+three: the same seed discovered under different regions on different nights, with
+nothing on the row saying so — a corpus forked invisibly per invocation. Per-seed
+is also the only sourcing under which ADR-0035's deferred per-market
+instantiation (rule 3) needs no further design here: a future `geo="GB"` seed
+family discovers as a GB viewer from its first night.
+
+**What this does NOT do.** It is not the supply-narrowing ADR-0035 rule 4
+rejected. `regionCode` returns "results for videos that can be viewed in the
+specified country" — nearly everything — ranked for that market; it filters
+neither creator domicile nor audience location (both owner-only, per the source
+audit's ceiling #2). Global English supply stays in the pool and
+`supply.geo_concentration` keeps measuring the divergence rather than having it
+hidden by the request. The honest basis statement for `youtube_api` becomes:
+*search results as served for the seed's stated market (US today), English
+relevance* — which is also what it was before, minus the pretence of neutrality.
+
+**Continuity of the series.** All five live seeds state `geo="US"`, equal to the
+documented server default, so the expected behavioural change tonight is zero.
+That identity is **inferred from the documentation, not measured** — sending
+explicit US could in principle differ from the default path — so it is recorded
+here as the thing to watch: a step change in nightly `discoveries` volume dated to
+this ADR is attributable, and the payload's `region` stamp marks the boundary
+either way. The alternative — leaving the basis implicit so it could drift with
+Google's default or the cron's IP without any mark in the data — is the recognised
+shape of an undetectable series corruption, and that, not tidiness, is why this
+ships now rather than with Slice 9.
