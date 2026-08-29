@@ -476,6 +476,17 @@ def _provenance(m) -> str:
         bits.append(f"{n} broke through")
     if (w := detail.get("window")) is not None:
         bits.append(f"window {w[0]}..{w[1]}")
+    # A detail key that changes what a number MEANS has to be rendered here, or the
+    # number reads as something it is not. `currency` was missed once: a COP bid of
+    # 64,083 printed under a heading called "money" in a repo whose convention says
+    # USD is a four-orders-of-magnitude misreading available at a glance, and a low
+    # confidence beside it does not prevent that (ADR-0031). `geo` is the same shape
+    # of bug — the four sources measure four different populations (ADR-0035), so a
+    # number that describes one market must say which.
+    if (g := detail.get("geo")) is not None:
+        bits.append(f"geo {g or 'worldwide'}")
+    if (c := detail.get("currency")) is not None:
+        bits.append(f"bids in {c}")
     if (p := detail.get("p90_views")) is not None:
         bits.append(f"p90={p:,.0f}")
     tables = ", ".join(detail.get("inputs", {}).get("tables", []))

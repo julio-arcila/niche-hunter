@@ -155,20 +155,53 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="small — the prototype's function ports nearly unchanged",
     ),
     Deferral(
-        metric="money.* (vw_cpc, priced_share, median_bid_high, competition_index_mean, tier1_cpc_ratio)",
-        blocker="no Google Ads access; NH_GADS_CUSTOMER_ID empty and google-ads.yaml absent",
-        kind="date",
-        trigger="2026-09-24",
-        consumer="scorecards.value, and through it opportunity",
-        cost="medium — ADR-0016 pre-specifies the storage contract; CSV path needs one export per country",
+        metric="money.tier1_cpc_ratio",
+        blocker=(
+            "the ratio needs a tier-1 market to compare against a non-tier-1 one, and "
+            "both ingested exports are tier-1. The legacy formula's TIER1 is "
+            "US/GB/CA/AU, so US (96 rows) and GB (66 rows) give a numerator with no "
+            "denominator. The other four money.* metrics shipped 2026-08-29 and are no "
+            "longer deferred"
+        ),
+        kind="query",
+        trigger="keyword_metrics holds both a tier-1 and a non-tier-1 geo",
+        consumer="the money picture; nothing composite while ADR-0029 stands",
+        cost="small — one more manual CSV export from a non-tier-1 market, then a metric",
     ),
     Deferral(
-        metric="demand.total_monthly_searches, demand.kp_trend_last3_vs_first3",
-        blocker="same Keyword Planner access",
-        kind="date",
-        trigger="2026-09-24",
-        consumer="demand corroboration; nothing structural",
-        cost="small once the collector exists",
+        metric="demand.kp_trend_last3_vs_first3",
+        blocker=(
+            "the twelve monthly columns are empty in every export so far — measured "
+            "0/360 across the 2026-08 US and GB files — and `keyword_metrics` has no "
+            "column to store them in even if they arrive. total_monthly_searches "
+            "shipped 2026-08-29 and is no longer deferred"
+        ),
+        # Manual, not query: nothing in the schema holds monthly columns, so no SQL
+        # can answer this. An earlier plan proposed a query trigger here, which would
+        # have matched no branch in `_query_fires` and returned None forever —
+        # indistinguishable from manual, but pretending to be checkable.
+        kind="manual",
+        trigger="an export whose twelve monthly columns are populated; check the next CSV by eye",
+        consumer="demand momentum from search rather than from pageviews",
+        cost="a schema column and a migration, then the metric",
+    ),
+    Deferral(
+        metric="per-market KP metric variants (total_monthly_searches_gb, vw_cpc_gb, ...)",
+        blocker=(
+            "ADR-0035 rule 3: do not open a second market until the first validates. "
+            "The 66 GB rows ARE ingested and the loader reads them today — "
+            "`keyword_planner_rows(session, cluster, day, 'GB')` returns them — so "
+            "nothing decays while this waits; only the registration is withheld"
+        ),
+        kind="manual",
+        trigger=(
+            "the US instance has been judged useful by its operator, or a second "
+            "market becomes the subject of a decision. reports/geo_value_2026-08-28.md "
+            "measured that the value ranking reorders between US and GB, which is why "
+            "these will matter"
+        ),
+        consumer="a catalogue serving operators in more than one market (ADR-0036)",
+        cost="tiny — `_geo(fn, 'GB', suffix='_gb')` per metric; the loader already takes geo",
     ),
     Deferral(
         metric="voice.* (question_rate, unanswered_rate, recommendation_threads)",
@@ -248,6 +281,16 @@ def _query_fires(trigger: str, engine: Engine | None) -> bool | None:
                 )
             ).one()
             return bool(total) and (known or 0) / total >= 0.80
+        if "tier-1 and a non-tier-1 geo" in trigger:
+            # The legacy `cpc_geo_spread` compares tier-1 against the rest, so the
+            # question is whether both CLASSES are present, not how many geos are.
+            tier1 = ("US", "GB", "CA", "AU")
+            geos = {
+                g
+                for (g,) in session.execute(sa.text("SELECT DISTINCT geo FROM keyword_metrics"))
+                if g
+            }
+            return bool(geos & set(tier1)) and bool(geos - set(tier1))
         if "distinct observed_dates" in trigger:
             days = session.scalar(
                 sa.text("SELECT count(DISTINCT observed_date) FROM video_snapshots")

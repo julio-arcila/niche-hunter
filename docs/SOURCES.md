@@ -417,9 +417,13 @@ Checked against all 162 stored `keyword_metrics` rows (96 US + 66 GB,
   emits a fixed round-dollar bid estimate when a keyword lacks auction depth,
   converted to the account currency at a fixed rate. Same failure shape as the
   identical `$1.21` RPM default the disclosure pass caught.
-- **So the collision is systematic but bounded and detectable**: 7 of 107 priced
-  rows (6.5%), across both geos and both bid columns, always one of two exact
-  values. Inference, labelled as such: other exports may carry other round-dollar
+- **So the collision is systematic but bounded and detectable**: 8 of 107 priced
+  rows (7.5%) and 10 of 214 bid *cells*, across both geos and both bid columns,
+  always one of two exact values. Counted **per cell**, because they do not come
+  in pairs: `humanism` GB pairs a sentinel `bid_low` (6,408.34) with a real
+  `bid_high` (47,045.50), and only two rows are sentinel in both columns. An
+  earlier count here said 7 rows, which missed exactly that row while its own
+  prose named it. Inference, labelled as such: other exports may carry other round-dollar
   defaults; the durable test is exact cross-keyword equality (or exact roundness
   in USD at the account's implied rate), not the two literals.
 - **Consequences.** (1) `history-of-ideas`' US value is 70% `humanism`, which

@@ -430,7 +430,7 @@ Ships:
 `nh kp ingest` writes 30 append-only `keyword_metrics` rows and matches 30/30 seed
 terms on `(keyword, geo, lang)`. No feature reads the table.*
 
-**Ships five metrics**, registered in `nh/features/run.py::METRICS` (16 → 21):
+**Ships five metrics**, registered in `nh/features/run.py::METRICS` (17 → 22):
 `demand.total_monthly_searches`, `money.priced_share`, `money.competition_index_mean`,
 `money.vw_cpc`, `money.median_bid_high` — behind a shared
 `inputs.keyword_planner_rows(session, cluster_id, day, geo)` returning mapped terms and
@@ -441,9 +441,10 @@ a number was measured in is a property of the observation. `geo` must be an expl
 argument with no default — a defaulted geo silently picks a market, and
 `reports/geo_value_2026-08-28.md` measured market choice as a real reordering. Two more
 constraints from the same slice's verification: **sentinel bids are unpriced** —
-64,083.40 and 6,408.34 COP are imputed round-USD defaults on 7 of 107 priced rows (see
-SOURCES.md), and `median_bid_high`/`vw_cpc` must exclude them or one fake $16 dominates
-a 1–6-keyword niche.
+64,083.40 and 6,408.34 COP are imputed round-USD defaults on 8 of 107 priced rows (see
+SOURCES.md), and `median_bid_high`/`vw_cpc` must exclude them **per cell, not per row** —
+`humanism` GB carries a sentinel `bid_low` beside a real `bid_high`, so a per-row rule
+would discard a genuine measurement — or one fake $16 dominates a 1–6-keyword niche.
 
 **Constraints that decide the implementation:**
 

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from nh.collectors.trends import window_ratio
 from nh.db.models import DemandSeries, DemandSnapshot
-from nh.features.inputs import demand_terms
+from nh.features.inputs import KP_ADEQUATE_KEYWORDS, demand_terms, keyword_planner_rows
 from nh.features.types import FeatureResult
 
 GROUP = "demand"
@@ -379,5 +379,59 @@ def wiki_seasonality(session: Session, cluster_id: str, day: date) -> FeatureRes
             "month_index": {m: round(v, 3) for m, v in sorted(index.items())},
             "as_of": end.isoformat(),
             "inputs": {"tables": ["demand_snapshots", "seed_terms", "clusters"]},
+        },
+    )
+
+
+def total_monthly_searches(
+    session: Session, cluster_id: str, day: date, *, geo: str
+) -> FeatureResult:
+    """Absolute search volume across the niche's curated keywords, in one market.
+
+    The first absolute demand figure this project has that is not Wikipedia pageviews —
+    and the first that is scoped to a country rather than to a language (ADR-0035).
+
+    Every value is a power-of-ten bucket MIDPOINT, not a count: measured 2026-08-28, a
+    zero-spend export takes only six distinct values across 152 priced rows. So this is
+    order-of-magnitude arithmetic and nothing downstream may de-bucket it. A keyword the
+    export carried no volume for is absent, never zero — 10 of 162 live rows are NULL,
+    and treating them as zero would understate a niche for the crime of being unmeasured.
+    """
+    kp = keyword_planner_rows(session, cluster_id, day, geo)
+    if not kp.rows:
+        reason = (
+            "no keyword_planner term mapped to this cluster"
+            if not kp.curated
+            else f"no Keyword Planner reading for geo {geo!r} on or before this day"
+        )
+        return FeatureResult.empty(GROUP, "total_monthly_searches", reason, geo=geo)
+
+    volumes = [r.avg_monthly_searches for r in kp.rows if r.avg_monthly_searches is not None]
+    if not volumes:
+        return FeatureResult.empty(
+            GROUP,
+            "total_monthly_searches",
+            "keywords observed but the export carried no volume for any of them",
+            geo=geo,
+            keywords_observed=len(kp.rows),
+        )
+    coverage = min(len(kp.rows) / kp.curated, 1.0) if kp.curated else 0.0
+    return FeatureResult(
+        group=GROUP,
+        name="total_monthly_searches",
+        value=sum(volumes),
+        confidence=coverage * min(len(volumes) / KP_ADEQUATE_KEYWORDS, 1.0),
+        inputs_n=len(volumes),
+        detail={
+            "geo": geo,
+            "keywords_with_volume": len(volumes),
+            "curated": kp.curated,
+            "window": (
+                [kp.rows[0].period_start.isoformat(), kp.rows[0].observed_date.isoformat()]
+                if kp.rows[0].period_start
+                else None
+            ),
+            "note": "power-of-ten bucket midpoints; order-of-magnitude at best, never de-bucket",
+            "inputs": {"tables": ["keyword_metrics", "seed_terms"]},
         },
     )

@@ -13,6 +13,7 @@ a row that did not exist at the decision date.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 
 import sqlalchemy as sa
@@ -25,6 +26,7 @@ from nh.db.models import (
     Cluster,
     ClusterMember,
     Discovery,
+    KeywordMetric,
     SeedTerm,
     Video,
     VideoSnapshot,
@@ -379,3 +381,85 @@ def demand_terms(
             .order_by(SeedTerm.term)
         )
     )
+
+
+#: A Keyword Planner basket's honest sample unit is the KEYWORD, and the first US
+#: export carried 30 of them. Deliberately not `money.CONFIDENCE_N`, which is
+#: documented as per-video ("videos are the honest n") and named for
+#: `midroll_eligible_share`: reusing 100 here would pin every KP confidence near
+#: 0.30 forever regardless of how well curated the niche is.
+KP_ADEQUATE_KEYWORDS = 30
+
+
+@dataclass(frozen=True, slots=True)
+class KpInputs:
+    """What one cluster's Keyword Planner basket looks like in one market.
+
+    `curated` is the denominator that makes coverage meaningful: how many keywords
+    this niche *claims*, against how many we could actually observe. It counts seed
+    terms, not rows, so a market with no export reads as 0/6 rather than as a niche
+    that happens to have no keywords.
+    """
+
+    rows: list[KeywordMetric]
+    curated: int
+
+
+def keyword_planner_rows(session: Session, cluster_id: str, day: date, geo: str) -> KpInputs:
+    """The latest Keyword Planner reading per curated term, in one market, as of `day`.
+
+    **`geo` has no default, deliberately (ADR-0038).** A seed term asserts "this niche
+    cares about this keyword", which is geo-independent curation; which market a number
+    was measured in is a property of the *observation* and lives on
+    `keyword_metrics.geo`. A default here would silently pick a market on the caller's
+    behalf, which is the conflation ADR-0038 removed.
+
+    Joins on `(lower(term), lang)` — the same key `nh kp ingest`'s match report uses, so
+    the report cannot claim a coverage the features do not get. `demand_terms` is
+    deliberately not reused: it returns bare strings, dropping the `lang` this join needs,
+    and has no notion of `day`.
+
+    **The day bound is `observed_date <= day`, and it is approximate on purpose.**
+    `observed_date` is the last day of the twelve-month period the numbers describe
+    (ADR-0027's third reading), so it precedes the export by up to a month and
+    `period_start` may be ~365 days earlier. Bounding on provenance `at` instead would be
+    stricter but would break the feature layer's uniform time axis, where every metric
+    bounds on the date a value describes rather than the date we fetched it — the same
+    approximation the Wikipedia backfill already accepts.
+
+    When a second monthly export lands, the newer period wins per term and the older row
+    stays for history: `keyword_metrics` is append-only and never overwritten.
+    """
+    terms = session.execute(
+        sa.select(SeedTerm.term, SeedTerm.lang)
+        .join(Cluster, Cluster.seed_id == SeedTerm.seed_id)
+        .where(
+            Cluster.cluster_id == cluster_id,
+            SeedTerm.source == "keyword_planner",
+            SeedTerm.active.is_(True),
+        )
+    ).all()
+    if not terms:
+        return KpInputs(rows=[], curated=0)
+
+    wanted = {(t.lower(), ln) for t, ln in terms}
+    ranked = (
+        sa.select(
+            KeywordMetric,
+            sa.func.row_number()
+            .over(
+                partition_by=(sa.func.lower(KeywordMetric.keyword), KeywordMetric.lang),
+                order_by=KeywordMetric.observed_date.desc(),
+            )
+            .label("rn"),
+        )
+        .where(KeywordMetric.geo == geo, KeywordMetric.observed_date <= day)
+        .subquery()
+    )
+    latest = session.scalars(
+        sa.select(KeywordMetric).from_statement(
+            sa.select(ranked).where(ranked.c.rn == 1).order_by(ranked.c.keyword)
+        )
+    ).all()
+    rows = [r for r in latest if (r.keyword.lower(), r.lang) in wanted]
+    return KpInputs(rows=rows, curated=len(terms))

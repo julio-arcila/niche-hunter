@@ -74,8 +74,9 @@ Feeds        : which composite score, if any
 
 ## Defined
 
-Eighteen metrics across four of the six groups (`voice` and `cost_risk` are still
-empty). Each was verified to **vary across the five live niches** before
+Twenty-three metrics across four of the six groups (`voice` and `cost_risk` are still
+empty). Twenty-two are registered in `nh/features/run.py::METRICS`; `supply.pressure_index`
+is computed cross-cluster after them and `supply.views_per_new_video` is backtest-only. Each was verified to **vary across the five live niches** before
 implementation — a metric that is flat across the units it
 compares is not a comparator, however plausible its formula.
 
@@ -302,6 +303,84 @@ Failure mode : depends entirely on the enrichment backfill. Before it runs the
 Feeds        : money composite in Slice 5; display-only in Slice 2
 ```
 
+### money.priced_share
+```
+Formula      : among the cluster's curated keyword_planner terms with a
+               keyword_metrics reading in `geo` and observed_date <= day, the share
+               carrying at least one REAL bid cell. A bid cell is real when it is
+               non-NULL and not one of the two imputed sentinels (see below).
+Inputs       : keyword_metrics(bid_low, bid_high, geo, observed_date); seed_terms
+Join key     : cluster_id, then (lower(term), lang) against keyword_metrics
+Confidence   : curation coverage x sample adequacy =
+               min(observed/curated, 1) x min(n/30, 1). Coverage is the
+               relevance_coverage analogue for a source with no videos: what we can
+               fail to see is a curated keyword. 30 = KP_ADEQUATE_KEYWORDS, the
+               first export's basket size. NOT money.CONFIDENCE_N, which is
+               documented per-video and would pin this near 0.30 forever.
+               At today's 6-keyword baskets this caps near 0.20 BY CONSTRUCTION.
+Failure mode : zero is a MEASUREMENT here, not an absence — keywords observed, none
+               bid on. That is honest only because the denominator is day-bounded;
+               before any export exists the metric returns NULL instead. The two
+               cases are pinned by a matching pair of tests.
+Feeds        : nothing. scorecards.value stays deferred behind ADR-0029.
+```
+
+### money.competition_index_mean
+```
+Formula      : mean of competition_index (0-100, verbatim from the export) over the
+               cluster's observed keywords in `geo` as of day. Keywords without an
+               index are excluded from both sides.
+Inputs       : keyword_metrics(competition_index, geo, observed_date); seed_terms
+Join key     : cluster_id, then (lower(term), lang)
+Confidence   : as priced_share.
+Failure mode : this is advertiser competition for SEARCH ads. It says nothing about
+               how much video already exists in the niche — that is supply.*, a
+               different auction in a different market. A reader who conflates them
+               will think a cheap niche is an empty one.
+Feeds        : nothing yet.
+```
+
+### money.vw_cpc
+```
+Formula      : volume-weighted mean bid, sum(v*p)/sum(v), where v is
+               avg_monthly_searches and p is the mean of whichever of (bid_low,
+               bid_high) are real for that keyword. A keyword missing either a real
+               price or a volume is excluded from BOTH sides, never counted as zero.
+Inputs       : keyword_metrics(avg_monthly_searches, bid_low, bid_high, currency);
+               seed_terms
+Join key     : cluster_id, then (lower(term), lang)
+Confidence   : as priced_share, with n = keywords contributing to the weighting.
+Failure mode : the weights are power-of-ten bucket MIDPOINTS (measured: six distinct
+               values across 152 priced rows), so the weighting is order-of-magnitude
+               at best. Value is in the ACCOUNT's currency, stored verbatim — COP on
+               every row today — and no exchange rate is applied (ADR-0031). Rows
+               spanning more than one currency return NULL rather than an average.
+Feeds        : nothing yet.
+```
+
+### money.median_bid_high
+```
+Formula      : median of REAL top-of-page high bids across the cluster's observed
+               keywords in `geo` as of day.
+Inputs       : keyword_metrics(bid_high, currency, geo, observed_date); seed_terms
+Join key     : cluster_id, then (lower(term), lang)
+Confidence   : as priced_share, with n = keywords carrying a real high bid.
+Failure mode : an advertiser's SEARCH-ad bid, NOT YouTube RPM — a different auction
+               with different inventory and different bidders. The RPM disclosure
+               pass of 2026-08-28 returned n=0 across nine measurement units, so this
+               proxy is what exists; treat it as a tier signal, never as a price.
+Registered   : 2026-08-29. SENTINEL BIDS: two values, 64,083.40 and 6,408.34 COP,
+               are imputed estimator defaults rather than measurements — exactly
+               US$16.00 and US$1.60 at one implied rate, on eight unrelated keywords
+               across both markets (10 cells of 107 priced rows) while every other
+               priced cell is non-round. They are excluded PER CELL, not per row:
+               `humanism` GB carries a sentinel low beside a real 47,045.50 high, and
+               a per-row rule would discard a genuine measurement. Detection is two
+               exact literals in money.SENTINEL_BIDS and deliberately NOT a roundness
+               heuristic, which would silently drop real round bids.
+Feeds        : nothing yet.
+```
+
 ### demand.wiki_weekly_views
 ```
 Formula      : sum of daily Wikipedia pageviews over the cluster's mapped articles,
@@ -473,6 +552,30 @@ Failure mode : +/-5 point sampling jitter between fetches moves the ratio; the
                (aviation disasters documentary = NaN) must be replaced in
                seed_terms, never padded here.
 Feeds        : none yet — corroboration display in Slice 3
+```
+
+### demand.total_monthly_searches
+```
+Formula      : sum of avg_monthly_searches over the cluster's curated
+               keyword_planner terms with a reading in `geo` and observed_date <=
+               day, taking the newest reading per term. Keywords the export carried
+               no volume for are EXCLUDED, never counted as zero.
+Inputs       : keyword_metrics(avg_monthly_searches, geo, observed_date); seed_terms
+Join key     : cluster_id, then (lower(term), lang) — geo resolves on the
+               observation, never on the seed (ADR-0038)
+Confidence   : curation coverage x min(n/30, 1), as the money KP metrics.
+Failure mode : every value is a power-of-ten bucket MIDPOINT, not a count — measured
+               2026-08-28, a zero-spend export takes only six distinct values (50,
+               500, 5k, 50k, 500k, 5M) across 152 priced rows. This is
+               order-of-magnitude arithmetic and NOTHING downstream may de-bucket it.
+               It is also GOOGLE SEARCH volume, not YouTube search volume, which no
+               source publishes; and it is scoped to a COUNTRY while every other
+               demand metric here is scoped to a LANGUAGE (ADR-0035). 10 of 162 live
+               rows carry no volume at all; treating those as zero would understate a
+               niche for the crime of being unmeasured (data rule 7).
+Registered   : 2026-08-29, US only. 66 GB rows are ingested and loader-readable but
+               unregistered — ADR-0035 rule 3, and the deferral register carries why.
+Feeds        : nothing. Corroborates the Wikipedia demand level; does not replace it.
 ```
 
 ### supply.views_per_new_video
@@ -774,16 +877,16 @@ is only the I/O around it that needs replacing.
 | demand | `season_strength`, `season_index`, `peak_month` | `niche_hunter_trends.py` `trend_features` | no |
 | demand | `breakout_z`, `breakout` | `niche_hunter_trends.py` `trend_features` (z > 2.5) | no |
 | demand | `volatility` | `niche_hunter_trends.py` `trend_features` | no |
-| demand | `total_monthly_searches` | `niche_hunter_kp.py` `niche_features` | no |
+| demand | `total_monthly_searches` | `niche_hunter_kp.py` `niche_features` | **yes** |
 | demand | `kp_trend_last3_vs_first3` | `niche_hunter_kp.py` `niche_features` | no |
 | voice | `question_rate` | `niche_hunter_reddit.py` `question_clusters` | no |
 | voice | `unanswered_rate` | `niche_hunter_reddit.py` `supply_signals` | no |
 | voice | `recommendation_threads` | `niche_hunter_reddit.py` `supply_signals` | no |
 | voice | `top_shared_video_ids` | `niche_hunter_reddit.py` `supply_signals` | no |
-| money | `vw_cpc` | `niche_hunter_kp.py` `niche_features` (volume-weighted) | no |
-| money | `priced_share` | `niche_hunter_kp.py` `niche_features` | no |
-| money | `median_bid_high` | `niche_hunter_kp.py` `niche_features` | no |
-| money | `competition_index_mean` | `niche_hunter_kp.py` `niche_features` | no |
+| money | `vw_cpc` | `niche_hunter_kp.py` `niche_features` (volume-weighted) | **yes** |
+| money | `priced_share` | `niche_hunter_kp.py` `niche_features` | **yes** |
+| money | `median_bid_high` | `niche_hunter_kp.py` `niche_features` | **yes** |
+| money | `competition_index_mean` | `niche_hunter_kp.py` `niche_features` | **yes** |
 | money | `tier1_cpc_ratio` | `niche_hunter_kp.py` `cpc_geo_spread` | no |
 | money | `tier1_share` (search geo) | `niche_hunter_trends.py` `geo_tier1_share` | no |
 | money | `rpm_disclosure_calibration` | `niche_hunter_reddit.py` `rpm_disclosures` (needs n≥5) | no |

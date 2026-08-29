@@ -13,8 +13,9 @@ Every existing feature test builds ONE world and asserts ONE number, which canno
 catch this. These are differential: two worlds, or two days, and the metric must
 respond correctly to the difference.
 
-Both are parametrised over `nh.features.run.METRICS`, so they cover all sixteen
-today and every metric added later. That is the property worth having — a leak is
+All three are parametrised over `nh.features.run.METRICS`, so they cover every
+registered metric and every metric added later — stated without a count, because the
+count went stale twice. That is the property worth having — a leak is
 invisible from the site where it is introduced.
 """
 
@@ -28,9 +29,11 @@ from nh.features.run import METRICS
 from tests.conftest_features import (
     CLUSTER,
     DAY,
+    KP_BASKET,
     RUN,
     _at,
     add_channel,
+    add_keyword_metrics,
     make_cluster,
     session_for,
 )
@@ -122,6 +125,10 @@ def _world(engine, *, include_future: bool) -> None:
     # is the case that isolates the video-level bound from the channel-level one.
     add_channel(engine, "UCold", subs=2_000, videos=0, age_days=0, day=DAY)
     _set_country(engine, {"UCa": "US", "UCb": "IN", "UCold": "US"})
+    # Keyword Planner rows in BOTH worlds. Without them the five KP metrics return
+    # empty() everywhere and their fifteen cases below pass without testing anything —
+    # the same vacuity that let a day-blind metric ship twice here.
+    add_keyword_metrics(engine)
     if include_future:
         # Published after DAY, snapshotted after DAY, discovered after DAY.
         add_channel(
@@ -139,6 +146,18 @@ def _world(engine, *, include_future: bool) -> None:
         # video-level one — measured, removing `on_niche_join`'s `published_at`
         # clause caused zero failures until this was added.
         _add_future_videos(engine, "UCold", n=6, views=4_000_000)
+        # A re-export dated after DAY, with every number changed. `keyword_metrics` is
+        # append-only, so this does not overwrite the readable row — it sits beside it,
+        # and a metric that takes the newest row without bounding on `day` will read it
+        # and disagree with world A.
+        add_keyword_metrics(
+            engine,
+            observed_offset_days=-60,
+            basket=tuple(
+                (kw, (v or 0) * 10 + 1, (i or 0) + 7, (lo or 0) + 5, (hi or 0) + 5)
+                for kw, v, i, lo, hi in KP_BASKET
+            ),
+        )
 
 
 @pytest.mark.parametrize("metric", METRICS, ids=lambda m: m.__name__)
