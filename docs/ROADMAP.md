@@ -433,11 +433,17 @@ terms on `(keyword, geo, lang)`. No feature reads the table.*
 **Ships five metrics**, registered in `nh/features/run.py::METRICS` (16 → 21):
 `demand.total_monthly_searches`, `money.priced_share`, `money.competition_index_mean`,
 `money.vw_cpc`, `money.median_bid_high` — behind a shared
-`inputs.keyword_planner_rows(session, cluster_id, day)` returning mapped terms and the
-latest reading per term as of `day`. It must select `(term, geo, lang)` tuples, not
-bare terms: the unique key is `(keyword, geo, lang, observed_date, source)` and a second
-geo's export will coexist. Seed terms carry `geo="US"` for exactly this reason, which is
-why the `seed_terms.geo == ""` rule is now scoped to request-driving sources.
+`inputs.keyword_planner_rows(session, cluster_id, day, geo)` returning mapped terms and
+the latest reading per term as of `day` **in the requested market**. The join is
+`(term, lang)` against seed terms with `geo` resolved against `keyword_metrics.geo`
+(ADR-0038, decided 2026-08-29): a seed term is geo-independent curation, and the market
+a number was measured in is a property of the observation. `geo` must be an explicit
+argument with no default — a defaulted geo silently picks a market, and
+`reports/geo_value_2026-08-28.md` measured market choice as a real reordering. Two more
+constraints from the same slice's verification: **sentinel bids are unpriced** —
+64,083.40 and 6,408.34 COP are imputed round-USD defaults on 7 of 107 priced rows (see
+SOURCES.md), and `median_bid_high`/`vw_cpc` must exclude them or one fake $16 dominates
+a 1–6-keyword niche.
 
 **Constraints that decide the implementation:**
 
@@ -465,16 +471,18 @@ why the `seed_terms.geo == ""` rule is now scoped to request-driving sources.
 - Doc rot to fix in the same PR: `docs/METRICS.md:44` "Eighteen metrics",
   `tests/test_features_leakage.py:16` "all sixteen", plus five METRICS.md entries.
 
-**Multi-geo, decided before the loader is written (2026-08-28).** A `geo=GB` export now
-sits beside the US one and the ingest reported **96/162 matched**: `seed_terms` rows for
-`keyword_planner` carry `geo='US'`, so GB rows attribute to no niche. The planned loader
-keys on `(term, geo, lang)` and would inherit that. The conflation to resolve: a seed
-says *this niche cares about this keyword*, which is geo-independent; `geo` says *which
-export these numbers came from*. Options are (a) seed_terms rows per geo, 66 x N, or
-(b) join on `(term, lang)` and pass geo as a loader argument, which reads truer to what
-a seed means. `reports/geo_value_2026-08-28.md` measured why this matters: the value
-ranking of the eleven **reorders between US and GB**, so a features layer that can only
-see one geo silently picks a market.
+**Multi-geo: RESOLVED 2026-08-29 by ADR-0038 — option (b).** A `geo=GB` export beside
+the US one had the ingest reporting **96/162 matched**, because `seed_terms` rows for
+`keyword_planner` carried `geo='US'` and the match keyed on `(keyword, geo, lang)`. The
+conflation: a seed says *this niche cares about this keyword* (geo-independent), while
+`geo` says *which export these numbers came from* (a property of the observation).
+Option (a) — seed rows per geo, 66×N — was rejected as duplicated curation that misses
+every new market until re-seeded. Shipped: KP seed terms back to `geo=''`, the ingest
+match report on `(keyword, lang)` with per-geo coverage lines, and the loader contract
+above. Measured after the re-seed: **162/162** stored rows match a seed term.
+`reports/geo_value_2026-08-28.md` measured why the explicit geo argument matters: the
+value ranking of the eleven **reorders between US and GB**, so a features layer that can
+only see one geo silently picks a market.
 
 **Explicitly not in this slice:** the eleven-domain expansion; `kp_trend_last3_vs_first3`
 (the twelve monthly columns are 0/360, entirely empty) and `tier1_cpc_ratio` (needs ≥2

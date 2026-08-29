@@ -1239,3 +1239,41 @@ either way. The alternative — leaving the basis implicit so it could drift wit
 Google's default or the cron's IP without any mark in the data — is the recognised
 shape of an undetectable series corruption, and that, not tidiness, is why this
 ships now rather than with Slice 9.
+
+## ADR-0038 — A seed term is geo-independent curation; the market lives on the observation
+2026-08-29. Accepted. Decides the conflation `reports/geo_value_2026-08-28.md`
+flagged and ROADMAP Slice 9 left open, choosing its option (b): **features join
+seed terms to `keyword_metrics` on `(term, lang)`, and the market is a loader
+argument resolved against `keyword_metrics.geo`** — never against the seed term.
+
+The two fields answer different questions. A `seed_terms` row asserts *this niche
+cares about this keyword* — curation, true in every market where the language
+holds. `keyword_metrics.geo` records *which export this number came from* — a
+property of the observation, set by `nh kp ingest --geo` and part of that table's
+unique key precisely so a second market's numbers sit beside the first. The
+Keyword Planner seed terms had been stamped `geo="US"` to make the ingest match
+report agree with a `(keyword, geo, lang)` join, and the GB export then matched
+**96/162**: sixty-six real observations attributable to niches by any honest
+join, reported as orphans. Option (a) — duplicate seed rows per geo — cures the
+report by multiplying curation 66×N and guarantees the next market repeats the
+same miss until someone remembers to re-seed.
+
+So `seed_terms.geo` returns to `''` for `keyword_planner`, which restores the
+field to one meaning across all sources — for request-driving sources it is the
+geo *sent* (still `''`, ADR-0024), and for KP nothing is sent at all. `''` on a
+KP term means "curation, no market", not "worldwide observation"; the worldwide
+reading belongs to `keyword_metrics.geo=''`, where an export run without a
+location really would land. The ingest match report now matches on
+`(keyword, lang)` and reports per-geo coverage — the earlier correction's
+principle survives inverted: a report *stronger* than the real join is as false
+a signal as one weaker, and 96/162 was exactly that. A second language market is
+not this case: `es` keywords are different terms with `lang='es'`, and the
+`(term, lang)` join carries them without any of this.
+
+Measured after the re-seed, live database: 96 `keyword_planner` seed terms at
+`geo=''`, and all **162/162** stored keyword rows (96 US + 66 GB) match a seed
+term on `(keyword, lang)`. What this does NOT settle: which geo the Slice 9
+feature loader defaults to. It must be an explicit argument with no default —
+a default geo is a silently picked market, which `reports/geo_value_2026-08-28.md`
+measured as a real reordering (the LOO-robust part: biohacking's GB rise, and the
+18x GB/US value-ratio spread).

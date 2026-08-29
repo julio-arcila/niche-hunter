@@ -791,29 +791,36 @@ def kp_ingest(
     # lives in `inputs_n`. A keyword Google reshaped into a close variant should not
     # be dropped at ingest.
     #
-    # The check matches on (keyword, geo, lang) — the same key a feature joins on,
-    # and the same key `keyword_metrics` is unique over. An earlier version compared
-    # keyword strings alone and reported "30/30" while the real join returned 0,
-    # because the seed terms had defaulted to geo="" against rows ingested as
-    # geo="US". A match report that is weaker than the join it stands for is a false
-    # green, which is worse than no report.
+    # The check matches on (keyword, lang) — the join the features will actually
+    # use (ADR-0038): a seed term is geo-independent curation, and the market a
+    # number was measured in is `keyword_metrics.geo`, chosen per feature call.
+    # The principle stands from the earlier correction — a match report weaker OR
+    # STRONGER than the real join is a false signal. The previous key,
+    # (keyword, geo, lang), was stronger: it required seed_terms to duplicate per
+    # market, and reported 96/162 on the first two-geo ingest for rows the join
+    # would in fact have attributed.
     with session_scope(engine) as session:
         seeded = {
-            (t.lower(), g or "", ln)
-            for t, g, ln in session.execute(
-                sa.select(SeedTerm.term, SeedTerm.geo, SeedTerm.lang).where(
-                    SeedTerm.source == "keyword_planner"
-                )
+            (t.lower(), ln)
+            for t, ln in session.execute(
+                sa.select(SeedTerm.term, SeedTerm.lang).where(SeedTerm.source == "keyword_planner")
             )
         }
         stored = list(
             session.execute(sa.select(KeywordMetric.keyword, KeywordMetric.geo, KeywordMetric.lang))
         )
-    matched = sum(1 for k, g, ln in stored if (k.lower(), g or "", ln) in seeded)
-    typer.echo(f"  matched a seed term: {matched}/{len(stored)}  (on keyword+geo+lang)")
+    matched = sum(1 for k, _, ln in stored if (k.lower(), ln) in seeded)
+    by_geo: dict[str, list[int]] = {}
+    for k, g, ln in stored:
+        hit = (k.lower(), ln) in seeded
+        counts = by_geo.setdefault(g or "worldwide", [0, 0])
+        counts[0] += hit
+        counts[1] += 1
+    typer.echo(f"  matched a seed term: {matched}/{len(stored)}  (on keyword+lang; ADR-0038)")
+    for g, (hit, total) in sorted(by_geo.items()):
+        typer.echo(f"    geo {g}: {hit}/{total}")
     if matched < len(stored):
         typer.echo("  unmatched keywords are stored anyway; features decide what counts")
-        typer.echo("  if this is 0, check that seed_terms.geo matches the --geo you ingested")
 
 
 if __name__ == "__main__":  # pragma: no cover
