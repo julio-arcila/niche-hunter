@@ -147,3 +147,22 @@ def test_uploads_per_week_divides_by_the_span_it_actually_counted(engine):
 
     assert result.inputs_n == 28
     assert result.value == pytest.approx(7.0)
+    assert result.detail["channels_span_censored"] == 0
+
+
+def test_a_channel_first_observed_inside_the_window_is_a_rate_over_its_span(engine):
+    """The RSS-censoring fix itself (data rule 9). A feed serves a channel's newest
+    15 entries, so a channel whose known history starts inside the window was not
+    observed for the whole window. 14 uploads across a 14-day observed span is a
+    7.0/wk cadence; the old fixed-window count read the same channel as 14 / 4wk =
+    3.5 — every high-cadence channel halved or worse toward the cap, which is how
+    a 90-day count once landed every niche on 1.17/wk (Slice 2 measurement)."""
+    make_cluster(engine)
+    add_channel(engine, CHANNEL, videos=0, day=DAY - timedelta(days=400))
+    _plant(engine, list(range(0, 14)))  # oldest known video 13 days old
+
+    result = supply.uploads_per_week(session_for(engine), CLUSTER, DAY)
+
+    assert result.inputs_n == 14
+    assert result.value == pytest.approx(7.0)  # NOT 3.5: rate over 2 observed weeks
+    assert result.detail["channels_span_censored"] == 1

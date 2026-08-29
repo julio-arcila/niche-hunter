@@ -81,11 +81,27 @@ compares is not a comparator, however plausible its formula.
 
 ### supply.uploads_per_week
 ```
-Formula      : count of videos with published_at in (day-28d, day], is_short IS FALSE,
-               belonging to the cluster's member channels, divided by 4.0. A cluster
-               TOTAL, not a per-channel average: supply is the volume of competing
-               long-form content entering the niche. Per-channel median cadence is
-               recorded in detail.per_channel_median for reference.
+Formula      : sum over member channels of (on-niche long-form uploads with
+               published_at in the 28-day window ending on day) divided by the
+               channel's OBSERVED span in weeks, where the span runs from
+               max(window start, the channel's oldest known video of any kind)
+               through day, inclusive in civil days. A cluster TOTAL, not a
+               per-channel average: supply is the volume of competing long-form
+               content entering the niche. For a channel observed across the whole
+               window this is exactly count/4.0; for a channel whose known history
+               starts inside the window — the RSS 15-entry cap discards everything
+               older — it reads as a rate over what was actually seen instead of
+               censoring at the cap (data rule 9).
+               CHANGED 2026-08-29 (definition "v3-span-rate-on-niche"): until then
+               the shipped code divided a fixed-window count by 4.0, despite rule 9
+               and this entry's own failure mode saying it must not — and despite
+               two doc passages claiming the rate form had already shipped. Values
+               rise wherever detail.channels_span_censored > 0; not comparable
+               across 2026-08-29.
+               The span marker is the oldest known video of ANY kind, not the
+               oldest on-niche one: observation coverage is a property of the feed,
+               and an on-niche marker would turn a channel with one on-niche upload
+               into a one-day span at 7/wk.
 Inputs       : videos(published_at, is_short, channel_id); cluster_members
                (item_type='channel'); window (day-28d, day].
 Join key     : cluster_id, via videos.channel_id -> cluster_members.item_id, AND
@@ -112,14 +128,27 @@ CHANGED 2026-08-27 (Slice 4, definition "v2-on-niche"): the numerator counts onl
                videos judged on-niche, and confidence gained a relevance_coverage
                leg. Values fell 15-30% for every cluster. Not comparable across
                2026-08-27.
-Failure mode : RSS feeds cap at 15 entries, so a channel uploading >15 times in 28
-               days is undercounted. MUST NOT be computed as a count over a fixed
-               window using RSS rows -- measured, that censors at the cap and every
-               niche converges on 1.17/wk (1.1x spread) against 2.2x for the
-               span-based form. Unknown-format videos are excluded, biasing low
-               until the enrichment backfill completes. No member channels -> NULL.
+Failure mode : the span form assumes a censored channel's cadence was constant
+               across the window -- an extrapolation, honest about rate but not a
+               realized count. A channel observed for a single day contributes a
+               noisy rate (n*7 per upload); no floor constant is added to damp it,
+               by the ADR-0023 zero-tuned-constants argument, so a very young
+               corpus is volatile at the channel level and detail records
+               channels_span_censored for exactly that reading. A channel uploading
+               >15 times BETWEEN polls still loses the overflow permanently -- the
+               span form fixes censoring of the window, not feed overflow. Unknown-
+               format videos are excluded, biasing low until the enrichment
+               backfill completes. No member channels -> NULL.
 Feeds        : scorecards.supply; gap from Slice 3
-Measured     : 2.2x spread across the five seeds (2.31 to 5.01 /wk)
+Measured     : 2026-08-29, span form vs fixed-window form on the live corpus at
+               day 2026-08-28: 17-52% of each cluster's known channels are
+               span-censored, and the span form reads 1.6x-2.1x the fixed count
+               (aviation-disasters 174.8 vs 100.0/wk; true-crime-trials 328.1 vs
+               158.5/wk) -- the fixed form was underreading every niche's cadence,
+               worst where cadence is highest. Spread across the five active
+               niches: 81.1-328.1/wk (4.0x). The Slice 2 measurement that forced
+               rule 9: a 90-day fixed count landed EVERY niche on 1.17/wk (1.1x
+               spread) against 2.2x for the span form.
 ```
 
 ### supply.median_views
@@ -791,8 +820,10 @@ collection window and would have read as "every niche is a news treadmill".
 
 That is data rule 9 in a new place: *"a metric that normalises away the dimension
 you are comparing on comes out flat, and flat reads as a finding rather than as a
-bug."* `uploads_per_week` was redefined as a rate over an observed span for the
-same reason. The code stays; `nh deferrals` carries the trigger that would register
+bug."* `uploads_per_week` became a rate over an observed span on **2026-08-29** —
+this sentence claimed that redefinition a day before it existed, which rule 9 and
+the metric's own entry record; the claim is true of the code only from that date.
+The code stays; `nh deferrals` carries the trigger that would register
 it (a fifth of on-niche videos older than a year).
 
 Two names removed from this list rather than implemented:

@@ -505,10 +505,11 @@ def median_top_video_age(session: Session, cluster_id: str, day: date) -> Featur
     This is data rule 9 in a new place: "a metric that normalises away the dimension
     you are comparing on comes out flat, and flat reads as a finding rather than as
     a bug". An earlier version of this sentence claimed `uploads_per_week` "was
-    redefined as a rate over an observed span for exactly this reason"; it never was.
-    That metric still ships as a fixed 28-day window count, with the RSS censoring
-    documented in its own failure mode rather than fixed — corrected 2026-08-28,
-    along with the same false claim in .claude/rules/data.md rule 9.
+    redefined as a rate over an observed span for exactly this reason"; at the time
+    it never had been, and the false claim was corrected here and in data rule 9 on
+    2026-08-28. On 2026-08-29 the redefinition actually shipped (definition
+    "v3-span-rate-on-niche"), so the claim is true of the code from that date; the
+    history stays recorded because two docs asserted it a day before it existed.
 
     Register it when the corpus has real age spread — the deferral register carries
     the trigger.

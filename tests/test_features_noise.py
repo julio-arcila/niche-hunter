@@ -13,6 +13,8 @@ notices if a seventh join site is written by hand.
 
 from __future__ import annotations
 
+import pytest
+
 from nh.db.session import session_scope
 from nh.features import money, openness, supply
 from nh.features.inputs import (
@@ -79,7 +81,9 @@ def test_uploads_per_week_excludes_noise(engine):
     add_channel(engine, "UCnoise", videos=4, age_days=1, noise=True)
     with session_scope(engine) as s:
         result = supply.uploads_per_week(s, CLUSTER, DAY)
-    assert result.value == 1.0  # 4 uploads over 28 days, noise channel's 4 ignored
+    # UCreal alone: 4 uploads over its 5-day observed span = 4/(5/7). The noise
+    # channel's 4 are ignored — included, the value would double.
+    assert result.value == pytest.approx(5.6)
 
 
 def test_median_views_excludes_noise(engine):

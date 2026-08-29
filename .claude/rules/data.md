@@ -40,13 +40,17 @@ no source serves history. These rules exist to protect that.
    inside 90 days, and a 90-day upload count lands on 1.17/wk for *every* niche
    (1.1x spread) against 2.2x for the same quantity computed as a rate over the
    observed span. Rate-from-observed-span is the pattern **for any new count over
-   a window the feed cannot fill.** Note what ships today: `uploads_per_week` is
-   still a fixed-window count, with the censoring documented in its own failure
-   mode rather than fixed -- an earlier version of this rule and of
-   `median_top_video_age`'s docstring both said the metric "was redefined as a
-   rate over an observed span", which was never true of the shipped code. More
-   generally: a metric that normalises away the dimension you are comparing on
-   comes out flat, and flat reads as a finding rather than as a bug.
+   a window the feed cannot fill.** History of this rule vs the code: an early
+   version of this rule and of `median_top_video_age`'s docstring said
+   `uploads_per_week` "was redefined as a rate over an observed span", which was
+   false when written -- the shipped code was a fixed-window count until
+   **2026-08-29**, when the span form actually landed (definition
+   "v3-span-rate-on-niche", per-channel rate over `max(window start, oldest known
+   video)`..day, summed). The false claim was caught on 2026-08-28 and the code
+   was brought to the rule a day later; stored values before the bump are censored
+   wherever `detail.channels_span_censored` > 0. More generally: a metric that
+   normalises away the dimension you are comparing on comes out flat, and flat
+   reads as a finding rather than as a bug.
 10. **No destructive SQL.** `DROP` / `TRUNCATE` / unscoped `DELETE FROM` are
    blocked by `scripts/hooks/block_dangerous_sql.sh`. Schema changes go through
    an Alembic migration with a working `downgrade()`.

@@ -17,19 +17,24 @@ from nh.features.supply import (
 from tests.conftest_features import CLUSTER, DAY, RUN, add_channel, make_cluster, session_for
 
 
-def test_uploads_per_week_divides_the_window_not_the_channel_count(engine):
-    """A cluster total: supply is the volume a newcomer competes against."""
+def test_uploads_per_week_sums_channel_rates_not_a_channel_average(engine):
+    """A cluster total: supply is the volume a newcomer competes against.
+
+    Each channel's oldest known video is 23 days old, so each is a rate over its
+    24-day observed span (data rule 9): 4 / (24/7) = 7/6 per channel. The total is
+    the sum, 7/3 — a per-channel average would halve it.
+    """
     make_cluster(engine)
     add_channel(engine, "a", videos=4, age_days=20)
     add_channel(engine, "b", videos=4, age_days=20)
-    assert uploads_per_week(session_for(engine), CLUSTER, DAY).value == 2.0  # 8 over 4 weeks
+    assert uploads_per_week(session_for(engine), CLUSTER, DAY).value == pytest.approx(7 / 3)
 
 
 def test_uploads_outside_the_window_are_not_counted(engine):
     make_cluster(engine)
-    add_channel(engine, "recent", videos=4, age_days=20)
-    add_channel(engine, "stale", videos=40, age_days=200)
-    assert uploads_per_week(session_for(engine), CLUSTER, DAY).value == 1.0
+    add_channel(engine, "recent", videos=4, age_days=20)  # observed span 24d -> 4/(24/7)
+    add_channel(engine, "stale", videos=40, age_days=200)  # all outside; contributes 0
+    assert uploads_per_week(session_for(engine), CLUSTER, DAY).value == pytest.approx(7 / 6)
 
 
 def test_a_niche_that_published_nothing_is_a_confident_zero_not_null(engine):
