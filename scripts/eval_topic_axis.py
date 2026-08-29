@@ -18,31 +18,51 @@ import json
 import random
 from pathlib import Path
 
-from nh.clustering.lexicon import LEXICONS, weights
+from nh.clustering.lexicon import EXPOSITION, LEXICONS, weights
 from nh.clustering.relevance import _axis
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 
-#: criterion: "an explanation, lecture, analysis, debate or critique within the domain"
-EXPOSITION: tuple[str, ...] = (
-    "explained", "explain", "explains", "explaining", "why", "how", "what is", "what are",
-    "introduction", "intro to", "lecture", "analysis", "analyse", "analyzed", "critique",
-    "debate", "understanding", "understand", "theory", "evidence", "research", "study",
-    "mechanism", "framework", "breakdown", "deep dive", "discussion", "essay", "guide",
-    "history of", "meaning", "argument", "case for", "case against", "review of",
-)
 #: criterion decisions 3, 9, 10, 13 -- selling, tools, signals, branded products
 SELLING: tuple[str, ...] = (
-    "profit", "profitable", "made $", "$", "income", "signals", "signal", "free course",
-    "join my", "link in bio", "subscribe", "discount", "promo", "sponsor", "buy now",
-    "get rich", "millionaire", "secret", "exposed", "shocking", "insane", "crazy",
+    "profit",
+    "profitable",
+    "made $",
+    "$",
+    "income",
+    "signals",
+    "signal",
+    "free course",
+    "join my",
+    "link in bio",
+    "subscribe",
+    "discount",
+    "promo",
+    "sponsor",
+    "buy now",
+    "get rich",
+    "millionaire",
+    "secret",
+    "exposed",
+    "shocking",
+    "insane",
+    "crazy",
 )
 TOOLING: tuple[str, ...] = (
-    "tradingview", "setup", "tutorial", "install", "bot", "app review", "software review",
+    "tradingview",
+    "setup",
+    "tutorial",
+    "install",
+    "bot",
+    "app review",
+    "software review",
     "how to use",
 )
 TEASE: tuple[str, ...] = (
-    "what happens next", "you won't believe", "this changes everything", "must watch",
+    "what happens next",
+    "you won't believe",
+    "this changes everything",
+    "must watch",
     "gone wrong",
 )
 
@@ -88,9 +108,9 @@ THRESHOLDS = [i / 20 for i in range(20)]
 
 
 def prf(pred: list[bool], data: list[dict]) -> tuple[float, float, float]:
-    tp = sum(1 for p, d in zip(pred, data) if p and d["y"])
-    fp = sum(1 for p, d in zip(pred, data) if p and not d["y"])
-    fn = sum(1 for p, d in zip(pred, data) if not p and d["y"])
+    tp = sum(1 for p, d in zip(pred, data, strict=True) if p and d["y"])
+    fp = sum(1 for p, d in zip(pred, data, strict=True) if p and not d["y"])
+    fn = sum(1 for p, d in zip(pred, data, strict=True) if not p and d["y"])
     prec = tp / (tp + fp) if tp + fp else 0.0
     rec = tp / (tp + fn) if tp + fn else 0.0
     return prec, rec, (2 * prec * rec / (prec + rec) if prec + rec else 0.0)
@@ -118,6 +138,9 @@ def evaluate(data: list[dict], splits: int = 200, seed: int = 20260828) -> None:
 
 
 if __name__ == "__main__":
-    for label_file in ("relevance_axis_fable_v4_2026-08-28.jsonl", "relevance_axis_fable_v2_2026-08-28.jsonl"):
+    for label_file in (
+        "relevance_axis_fable_v4_2026-08-28.jsonl",
+        "relevance_axis_fable_v2_2026-08-28.jsonl",
+    ):
         print(f"\n{label_file}")
         evaluate(load(label_file))

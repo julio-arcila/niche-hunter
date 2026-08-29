@@ -83,6 +83,30 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="none — implemented and measured, just unregistered",
     ),
     Deferral(
+        metric="exposition axis — human validation, and the eleven domains' activation",
+        blocker=(
+            "domain x exposition (P 0.866 / R 0.736 held-out) rests on 107 MACHINE "
+            "labels from fable-5 under a written criterion. kappa 0.845 across two "
+            "rules and two raters bounds rule stability but cannot detect a bias two "
+            "models share. EVENT's 0.781 rests on 298 human labels, so shipping the "
+            "eleven now would put a weaker-evidenced scorer beside a stronger one "
+            "under the same `relevance` column"
+        ),
+        kind="manual",
+        trigger=(
+            "a human labels 60-100 rows sampled FROM ABOVE the shipping threshold "
+            "(not uniformly — the 2026-08-28 interrater audit's outstanding "
+            "correction), drawn from pivot-domain videos scored by the committed "
+            "EXPOSITION literal, and precision clears a bar pre-registered in an ADR "
+            "BEFORE labelling begins. Activation additionally needs the quota "
+            "arithmetic to close: 11 pivots (6,600 units) + the live 5 (3,000) = "
+            "9,600 against a 9,500 budget, so it is a retire-or-stage decision, never "
+            "a flag flip"
+        ),
+        consumer="all eleven pivot seeds — inactive, collecting nothing, costing nothing",
+        cost="~45 minutes of reading, plus the pre-registration paragraph",
+    ),
+    Deferral(
         metric="openness.rss_acceleration",
         blocker="needs a view series per video; video_snapshots has one day",
         kind="query",

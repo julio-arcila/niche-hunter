@@ -970,3 +970,60 @@ explainer/analysis markers scored against fresh hand labels.
 **A note on how this was found.** The dilution risk recorded in ROADMAP Slice 11 was
 reasoned and wrong; this blocker was invisible until eleven real lexicons were scored
 against real titles. Both facts argue the same thing: the cheap measurement goes first.
+
+## ADR-0034 — The second relevance axis is per family: disasters ask "did something fail", topics ask "is this explaining something"
+2026-08-28. Accepted. Resolves the question ADR-0033 left open and changes the definition
+of `relevance`, which every `supply.*` number depends on.
+
+ADR-0033 measured the blocker: `EVENT`, the global second axis, matches **1 of 120** real
+discovered videos from the eleven pivot domains, and `score()` is a geometric mean, so
+119 of 120 scored 0.0 however well their domain axis fitted. This decides the fix.
+
+**The axis is selected per family from a frozen registry (`lexicon.AXES`), not from a
+seed field and not by inference.** A seed field would put part of the scoring definition
+in a database row applied by `nh seed`, free to drift out from under `LEXICON_VERSION`,
+and the backtest niches have no seeds at all yet must be scorable. Inference from lexicon
+content fails on this repo's own data: the live lexicons deliberately share 2–8 terms with
+`EVENT`, so any overlap rule is a silent flip waiting on an innocent vocabulary edit.
+
+**There is no default, and that is the load-bearing choice.** A niche whose family is
+unset is skipped with a logged warning, never guessed. Defaulting to `event` would
+reproduce ADR-0033's measured failure *invisibly* — every video marked noise, the cluster
+retired as empty, a pipeline collecting nothing while looking like one that works. A test
+asserts `set(AXES) == set(LEXICONS)`, so a seventeenth lexicon cannot land without
+declaring its family.
+
+**`EVENT` is untouched — same name, same 82 terms, same measurement.** `EXPOSITION` enters
+under its own name with its own: held-out P 0.866 / R 0.736 / F1 0.794 against a
+domain-alone baseline of 0.549 / 0.807 / 0.652, winning 168 of 200 splits, replicated
+across two rules and two raters at kappa 0.845. **The two figures are not comparable** —
+298 human labels at base rate 0.286 against 107 machine labels at 0.523 — and this ADR
+records that as a decision rather than a footnote, because a reader who compares 0.866 to
+0.781 will reach a false conclusion. `scripts/eval_topic_axis.py` reproduces it.
+
+**No live number moves, and that is proved rather than sampled.** `score()` is a
+deterministic pure function of `(title, description, weights, axis)`, so equal weights
+plus an equal axis gives equal output for every input. The test asserts dict equality over
+all 82 distinct `EVENT` terms for each of the five live niches — the same shape as
+`test_removing_court_cases_moved_no_surviving_weight`, a property over the whole
+vocabulary rather than a golden handful.
+
+**`LEXICON_VERSION` bumps to `2026-08-28.3` anyway.** The version exists so a row's
+decision stays attributable to the vocabulary that produced it, and the axis registry is
+now part of that definition. Bumping at introduction rather than at activation means the
+first exposition-scored row ever written carries a version that actually contains
+`EXPOSITION`; deferring it would hang the bump on a hand-edited seed flag that touches no
+versioned file. `Score.detail` now keys the second axis by its name, so every stored row
+says which axis judged it.
+
+**The eleven stay inactive**, behind a registered manual deferral. Activation requires a
+human to label 60–100 rows sampled *from above* the threshold — the outstanding correction
+from the 2026-08-28 interrater audit — against a precision bar pre-registered before
+labelling starts. It also requires a quota decision that no validation result supplies:
+11 pivots (6,600 units) plus the live five (3,000) is 9,600 against a 9,500 budget, so
+activation retires or stages, and is never a flag flip.
+
+**Deliberately not decided here:** whether 0.55 is the right threshold for this family. It
+was chosen on disaster labels; the operating point is a product decision that belongs with
+the human-validation pass, and the sample must be drawn above whatever threshold is
+registered then.

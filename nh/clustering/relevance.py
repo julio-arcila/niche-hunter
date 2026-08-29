@@ -191,12 +191,22 @@ def score(
     title: str | None,
     description: str | None,
     weights: dict[str, float],
-    event: dict[str, float] | None = None,
+    axis: dict[str, float] | None = None,
+    axis_name: str = "event",
 ) -> Score:
     """Relevance of one video's text to one cluster's niche.
 
-    `event` defaults to `lexicon.event_weights()`. It is a parameter rather than an
-    import so the function stays pure and a test can vary one axis at a time.
+    The second axis is **per family** (ADR-0034), and which one applies is the caller's
+    decision: disaster niches ask "did something fail" (`EVENT`), topic niches ask "is
+    this explaining something" (`EXPOSITION`). Passing it keeps this function pure and
+    lets a test vary one axis at a time — the same reason it was already a parameter.
+
+    `axis_name` is not decoration: it becomes the key under which the second axis lands
+    in `detail`, so a stored row records which axis judged it and a later reader can
+    tell a pre-change row from a post-change one without git archaeology.
+
+    Defaults are exactly today's behaviour — `EVENT`, reported under `"event"` — so
+    every existing caller and every stored row is unaffected.
     """
     if not (title or "").strip():
         return Score(None, reason="unscorable: no title")
@@ -207,14 +217,14 @@ def score(
         # An English lexicon cannot read this. Scoring it 0 would call it off-niche.
         return Score(None, reason="unscorable: non-Latin script")
 
-    if event is None:
+    if axis is None:
         from nh.clustering.lexicon import event_weights
 
-        event = event_weights()
+        axis = event_weights()
     domain, domain_terms = _axis(title, description or "", weights)
-    failure, event_terms = _axis(title, description or "", event)
+    second, second_terms = _axis(title, description or "", axis)
     return Score(
-        sqrt(domain * failure),
-        domain_terms | {f"~{t}": w for t, w in event_terms.items()},
-        detail={"domain": round(domain, 4), "event": round(failure, 4)},
+        sqrt(domain * second),
+        domain_terms | {f"~{t}": w for t, w in second_terms.items()},
+        detail={"domain": round(domain, 4), axis_name: round(second, 4)},
     )

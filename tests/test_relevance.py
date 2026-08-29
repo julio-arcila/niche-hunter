@@ -10,7 +10,14 @@ from __future__ import annotations
 
 import pytest
 
-from nh.clustering.lexicon import _COMMON, LEXICON_VERSION, LEXICONS, weights
+from nh.clustering.lexicon import (
+    LEXICONS,
+    LEXICON_VERSION,
+    _COMMON,
+    event_weights,
+    exposition_weights,
+    weights,
+)
 from nh.clustering.relevance import (
     DESCRIPTION_CAP,
     RELEVANCE_HIGH,
@@ -211,3 +218,42 @@ def test_the_thresholds_carry_their_measured_provenance():
     """A constant chosen against labels must not drift into one chosen against a
     metric. The docstring beside these is where the evidence lives."""
     assert 0.0 <= RELEVANCE_LOW < RELEVANCE_HIGH < 1.0
+
+
+def test_a_topic_title_scores_zero_under_event_and_nonzero_under_exposition():
+    """ADR-0033's blocker, frozen as a standing regression.
+
+    The score is a geometric mean, so a second axis that matches nothing zeroes a
+    perfect domain match. Measured on 120 real discovered videos from the pivot
+    domains, the EVENT axis matched 1 of 120 titles — which is why all eleven were
+    landed inactive rather than switched on.
+    """
+    title = "Falsifiability and the scientific method explained"
+    domain = weights(LEXICONS)["philosophy-of-science"]
+
+    assert score(title, "", domain, event_weights(), "event").value == 0.0
+    assert score(title, "", domain, exposition_weights(), "exposition").value > 0.0
+
+
+def test_detail_names_the_axis_that_produced_the_row():
+    """Constraint from ADR-0034: a stored row must say which axis judged it, so a
+    reader can tell a pre-change row from a post-change one without git archaeology.
+    The event-family assertion is unchanged and is itself part of the no-movement
+    evidence — the default call still writes exactly `event`."""
+    title = "Falsifiability and the scientific method explained"
+    domain = weights(LEXICONS)["philosophy-of-science"]
+
+    assert set(score(title, "", domain, exposition_weights(), "exposition").detail) == {
+        "domain",
+        "exposition",
+    }
+    assert set(score(title, "", domain).detail) == {"domain", "event"}
+
+
+def test_the_default_second_axis_is_still_event():
+    """The whole per-family change must be invisible to every existing caller. All of
+    them pass positionally, so the default is what keeps the live five bit-identical."""
+    title = "Plane crashed on the runway after engine failure"
+    domain = weights(LEXICONS)["aviation-disasters"]
+
+    assert score(title, "", domain) == score(title, "", domain, event_weights(), "event")

@@ -11,7 +11,17 @@ from __future__ import annotations
 
 import pytest
 
-from nh.clustering.lexicon import _COMMON, LEXICONS, weights
+from nh.clustering.lexicon import (
+    AXES,
+    EVENT,
+    EXPOSITION,
+    LEXICONS,
+    _COMMON,
+    event_weights,
+    exposition_weights,
+    second_axis,
+    weights,
+)
 
 #: The live weights for a handful of load-bearing terms, frozen. If this moves, the
 #: relevance scorer moves, and every stored supply number stops being comparable.
@@ -171,3 +181,117 @@ def test_family_size_changes_how_aggressively_terms_are_zeroed():
     assert trio["a"]["shared"] == 0.5  # in two of three
 
     assert weights()["engineering-failures"]["collapse"] == 0.5  # two of five
+
+
+# --------------------------------------------------------------------------
+# The second axis is per family (ADR-0034)
+# --------------------------------------------------------------------------
+
+LIVE_EVENT_NICHES = (
+    "aviation-disasters",
+    "maritime-disasters",
+    "corporate-collapse",
+    "engineering-failures",
+    "true-crime-trials",
+)
+
+
+def test_every_lexicon_declares_its_second_axis():
+    """`AXES` is total over `LEXICONS`, so a new lexicon cannot land without saying
+    which question its second axis asks.
+
+    There is no default, deliberately. Defaulting to `event` would reproduce ADR-0033's
+    measured failure invisibly: a topic niche scored against failure vocabulary marks
+    every video noise, its cluster retires as empty, and the pipeline collects nothing
+    while looking like one that works. An unset family must fail loudly instead.
+    """
+    assert set(AXES) == set(LEXICONS)
+    assert set(AXES.values()) <= {"event", "exposition"}
+
+
+def test_the_live_five_keep_the_event_axis_term_for_term():
+    """The no-movement proof for the eleven-domain pivot, and it is a proof rather
+    than a sample.
+
+    `score()` is a deterministic pure function of (title, description, weights, axis) —
+    pinned separately by `test_scoring_is_deterministic`. So equal domain weights plus
+    an equal second axis gives equal output for EVERY input, past and future: the same
+    relevance, the same `is_noise`, and therefore the same downstream `supply.*` figure.
+    Asserting dict equality over all 82 distinct EVENT terms is what makes that
+    antecedent hold, in the same style `test_removing_court_cases_moved_no_surviving_weight`
+    freezes the retired lexicon as a literal rather than trusting a golden handful.
+    """
+    for slug in LIVE_EVENT_NICHES:
+        name, axis = second_axis(slug)
+        assert name == "event", slug
+        assert axis == dict.fromkeys(EVENT, 1.0), slug
+
+
+def test_an_axis_is_never_family_weighted():
+    """Axis vocabulary is shared by every niche in its family by construction, so
+    `1/k` would drive every term to 0.0 and collapse the axis entirely. Neither axis
+    takes the family as input, and adding lexicons must not move either one."""
+    before_event, before_expo = event_weights(), exposition_weights()
+    weights({**LEXICONS, **{f"bt-{i}": ("crash", "explained") for i in range(30)}})
+
+    assert event_weights() == before_event
+    assert exposition_weights() == before_expo
+    assert set(event_weights().values()) == {1.0}
+    assert set(exposition_weights().values()) == {1.0}
+
+
+def test_the_exposition_markers_are_the_measured_list():
+    """Frozen as a literal, like `RETIRED_COURT_CASES` above, because the held-out
+    0.866 in `reports/relevance_axis_topic_2026-08-28.md` is a claim about THIS list.
+    Silent broadening would leave the citation attached to a list nobody measured —
+    which already happened once, when the evaluated markers lived only in a session
+    scratchpad and the report cited them anyway."""
+    assert EXPOSITION == (
+        "explained",
+        "explain",
+        "explains",
+        "explaining",
+        "why",
+        "how",
+        "what is",
+        "what are",
+        "introduction",
+        "intro to",
+        "lecture",
+        "analysis",
+        "analyse",
+        "analyzed",
+        "critique",
+        "debate",
+        "understanding",
+        "understand",
+        "theory",
+        "evidence",
+        "research",
+        "study",
+        "mechanism",
+        "framework",
+        "breakdown",
+        "deep dive",
+        "discussion",
+        "essay",
+        "guide",
+        "history of",
+        "meaning",
+        "argument",
+        "case for",
+        "case against",
+        "review of",
+    )
+    assert len(set(EXPOSITION)) == len(EXPOSITION)
+
+
+def test_a_niche_with_no_lexicon_has_no_axis_to_declare():
+    """`landmark-court-cases` is retired and ADR-0028 removed its lexicon. The registry
+    is keyed on LEXICONS, not on seeds, so it is absent here — and `second_axis` says
+    so loudly rather than returning a default."""
+    import pytest
+
+    assert "landmark-court-cases" not in AXES
+    with pytest.raises(KeyError):
+        second_axis("landmark-court-cases")
