@@ -316,7 +316,8 @@ policy changes what we do; only filing does.
 ## keyword_planner — `legacy/niche_hunter_kp.py` → `nh/collectors/keyword_planner.py`
 
 - **Auth**: Google Ads account (zero-spend is fine) + Manager (MCC) account +
-  developer token. Test-account-only until Basic access is approved.
+  developer token + **Basic access** — planning services are closed below Basic;
+  see the runbook below.
 - **Quota**: 15,000 ops/day on Basic access. Cache 7 days.
 - **Gives**: absolute monthly search volume, top-of-page bid low/high, average
   CPC, competition index 0–100, 12 months of monthly volumes, per-country runs.
@@ -326,8 +327,101 @@ policy changes what we do; only filing does.
   differently — use CPC as an advertiser-value proxy, never as a YouTube RPM
   number. Metrics are grouped by close variants, so plurals and misspellings
   collapse. Long-tail terms often have no bid data; aggregate at niche level,
-  never per keyword. The API returns numeric volumes where the UI shows ranges.
+  never per keyword. ~~The API returns numeric volumes where the UI shows
+  ranges~~ — **unverified for a zero-spend account**; see the API-access runbook
+  below.
 - **Join key**: `keyword+geo+lang`.
+
+### API access runbook — verified against Google's own docs, 2026-08-29
+
+The operator's account is a **regular** Ads account and no manager account
+exists, so the sequence below has not started. Every step is from
+developers.google.com (get-started/dev-token, api-policy/access-levels) unless
+labelled otherwise.
+
+1. **Create a manager (MCC) account.** Required, not optional: the developer
+   token lives only in a manager account's API Center, and "it cannot be a
+   Google Ads test manager account". Creation is free and self-service
+   (ads.google.com → tools → manager accounts) but wants an email address **not
+   previously associated with Google Ads**. The existing regular account is then
+   *linked under* the manager — it is not converted, and its zero-spend history
+   is untouched.
+2. **Get the developer token** from the manager account's API Center by
+   completing the API access form: accurate company details and a functioning
+   website URL are required. The token is granted immediately, at **Explorer**
+   access by default (occasionally Test-Account-only instead).
+3. **Explorer access does not open Keyword Planner.** This is the step
+   practitioner write-ups skip. Explorer allows production calls at 2,880
+   ops/day, but its restriction list *names the planning services*:
+   `KeywordPlanIdeaService`, `KeywordPlanService`, `ReachPlanService`,
+   `AudienceInsightsService` are all excluded. A token in hand generates no
+   keyword data until Basic clears.
+4. **Apply for Basic access** in the API Center: drop-down next to *Access
+   level* → *Apply for Basic Access*. Prerequisites Google states: a valid,
+   monitored API contact email, and all active Ads accounts linked under the
+   manager. Review is "typically 5 business days" — the "24–48h" in
+   `reports/source_audit_2026-08-28.md` was a practitioner report, and Google's
+   own figure is the one to plan on. Basic gives 15,000 ops/day,
+   test + production.
+5. **Plumbing besides the token** (implementation, same docs): OAuth2
+   credentials from a Google Cloud project, `login_customer_id` set to the
+   manager account id, requests issued against the linked regular account's
+   customer id. `GenerateKeywordHistoricalMetrics` requires a keyword plan
+   object per request (confirmed by the API team on the support forum).
+
+**Does Basic access return numeric volumes for a zero-spend account? UNRESOLVED
+— and it is the deciding uncertainty, so the honest state is recorded rather
+than a side picked.** Google's reference defines `avg_monthly_searches` as an
+int64 twelve-month average and documents no spend gate on the API; but the UI's
+"limited data view" for low-spend accounts (bucketed ranges) *is* documented,
+and practitioner reports disagree on whether the API is behind the same gate.
+Our own measured evidence points the wrong way for optimism: this zero-spend
+account's UI CSV export already returns power-of-ten bucket midpoints (50 / 500
+/ 5,000 / 50,000 / 500,000) rather than ranges, i.e. the bucketing follows the
+**account**, not the surface — inference: the API on this account plausibly
+returns the same bucket values, just typed as integers. The test is one
+`GenerateKeywordHistoricalMetrics` call on day one of Basic access, compared
+against the stored CSV buckets for the same keywords. **What the API buys even
+if volumes stay bucketed** — and it is a lot: the twelve monthly columns
+(0/360 empty in every CSV export, the whole input of `kp_trend_last3_vs_first3`),
+per-geo runs as a request parameter instead of a manual export each, and
+`ReachPlanService` CPM forecasts. So the application is worth filing on either
+branch of the uncertainty; only the `geo_value` bucketing-noise problem waits on
+the test.
+
+`reports/geo_value_2026-08-28.md` flagged `inflation` and `humanism` sharing an
+identical US `bid_high` of 64,083 COP and guessed close-variant collapse.
+Checked against all 162 stored `keyword_metrics` rows (96 US + 66 GB,
+2026-07-31 period; 107 rows carry a `bid_high`):
+
+- **The shared value is not a pair, it is a sentinel.** 64,083.40 COP appears on
+  **five** rows — `human impact on the environment`, `humanism`, `inflation`,
+  `philosophy of mind` (US) and `epistemology` (GB) — and its exact tenth,
+  6,408.34 COP, on two more (`scientific method` US, `occult` GB `bid_high`;
+  also `humanism` GB `bid_low`). At one implied rate of 4,005.2125 COP/USD those
+  are exactly **US$16.00 and US$1.60**; none of the other 100 priced rows is a
+  round dollar figure at that rate. One row is fully degenerate:
+  `human impact on the environment` (US) has `bid_low = bid_high = 64,083.40`.
+- **Close-variant grouping is disproven.** The five sharers are semantically
+  unrelated, and their volumes (5,000 vs 500,000), `bid_low`s (94.61 vs
+  5,742.30) and competition indexes all differ — a close-variant collapse merges
+  whole metric rows, not one column. This is an **estimator default**: Google
+  emits a fixed round-dollar bid estimate when a keyword lacks auction depth,
+  converted to the account currency at a fixed rate. Same failure shape as the
+  identical `$1.21` RPM default the disclosure pass caught.
+- **So the collision is systematic but bounded and detectable**: 7 of 107 priced
+  rows (6.5%), across both geos and both bid columns, always one of two exact
+  values. Inference, labelled as such: other exports may carry other round-dollar
+  defaults; the durable test is exact cross-keyword equality (or exact roundness
+  in USD at the account's implied rate), not the two literals.
+- **Consequences.** (1) `history-of-ideas`' US value is 70% `humanism`, which
+  carries the $16 sentinel — the figure stays unquotable, now with a measured
+  reason. (2) Any Slice 9 money metric over `bid_high`/`bid_low`
+  (`median_bid_high`, `vw_cpc`) must treat sentinel-valued bids as **unpriced
+  (NULL), never as a price** — at 1–6 priced keywords per niche, one imputed $16
+  dominates a median. (3) `bid_high` remains usable for tiering and for
+  cross-niche comparison *after* sentinel rows are excluded; 100 of 107 priced
+  rows look like real, distinct auction estimates.
 
 ## wikipedia — ported ✅ `nh/collectors/wikipedia.py`
 
