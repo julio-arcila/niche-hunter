@@ -1136,3 +1136,53 @@ over an unfiltered global English corpus.
 US-demand-over-US-supply ratio, using `geo_concentration` to reweight. That is a change
 to the central metric and belongs with a pre-registered test, not an ADR written after a
 null.
+
+## ADR-0036 — The product serves many operators, not one: no vetoes, more niches, and quota becomes the binding constraint
+2026-08-28. Accepted. **Supersedes the single-operator premise** that the whole of
+2026-08-28's decision work rested on, including `reports/niche_choice_procedure_2026-08-28.md`
+and `reports/niche_veto_resolution_2026-08-28.md`.
+
+The operator stated it plainly: *"I don't want vetos. in fact I want more niches because
+it will be used for more people."* Everything built today assumed one person choosing 2–4
+niches they would personally make videos about, and reasoned from *their* sustainable
+weekly output. That premise is withdrawn.
+
+**What this invalidates.** The veto questions measured one person's capacity — 25 titles in
+30 minutes, does episode 20 get cheaper, do you make video #30. For a tool serving many
+operators, those are the *user's* question at use time, not a filter applied at seeding
+time. The portfolio rules (one Tier-A pick, one fit-first pick, no more than two per
+audience cluster) were a hedging strategy for a single bet and do not apply to a catalogue.
+Finalist selection is likewise moot: there are no finalists, there is coverage.
+
+**What survives unchanged.** ADR-0029's prohibition — nothing ranked ships while Gate E's
+null stands. The narrowed claim, "surfaces evidence for a human to judge", survives and
+in fact fits better: many humans, each judging their own fit, is exactly what an evidence
+surface is for. The source ceilings in `reports/source_audit_2026-08-28.md` are unaffected;
+they are properties of the sources. And the production-economics ranking survives as
+*displayable evidence per niche* rather than as an elimination — "this niche's catalogue
+depreciates" is useful to a user choosing it, and it was never a fact about the operator.
+
+**Quota is now the binding constraint, and it bites immediately.** Measured 2026-08-28
+against the 9,500-unit daily search budget, at 3 keywords x 2 sort orders x 100 units:
+
+```
+5 live +11 niches =  9,600   OVER by 100
+5 live +16 niches = 12,600   OVER by 3,100
+5 live +21 niches = 15,600   OVER by 6,100
+```
+
+Dropping to 2 keywords per niche buys exactly one step — 5 live + 16 = 9,400, and 21 is
+over again. So **keyword trimming does not scale and the constraint is structural.** Any
+catalogue beyond ~16 niches needs a different discovery design, and the honest options are:
+(a) **rotate** — discover each niche every Nth night, trading freshness for breadth, which
+suits a catalogue nobody reads in real time; (b) **retire the five disaster niches from
+discovery** while keeping their RSS polling, which costs zero quota and preserves the
+snapshot history that is the compounding asset; (c) apply for a **YouTube quota increase**,
+which requires a compliance audit; or (d) accept a hard cap on catalogue size. Not decided
+here — it is the first question the next slice must answer, because every other
+multi-niche plan is downstream of it.
+
+**A second constraint that does not shrink:** each niche still needs a lexicon (ADR-0028 —
+seeds without one can never gain members) and each family still needs a validated relevance
+axis (ADR-0033/0034). Those are per-niche costs that no scheduling trick removes, and the
+human-validation deferral now gates a catalogue rather than four finalists.
