@@ -44,26 +44,7 @@ asset is snapshot history; never break the collectors.
 - `uv run alembic upgrade head` / `alembic revision --autogenerate -m "..."`
 - `docker compose up -d db` — only when NH_DATABASE_URL points at Postgres
 
-## Architecture in one paragraph
-Collectors subclass `nh/collectors/base.py::Collector` and implement two methods:
-`fetch()` owns all network and yields `Raw` payloads verbatim; `normalize()` is
-pure and returns a `Batch` of upserts and snapshots. Everything else —
-provenance, raw-before-normalized, idempotent upserts, append-only snapshots,
-quota, `job_runs`, surviving an outage — lives once in `Collector.run()`. Raw
-payloads land in `raw_records` (JSONB/JSON), normalized rows in typed tables,
-time series in append-only `*_snapshots`. `nh/clustering` assigns every item a
-`cluster_id`. `nh/features/*` compute one row per cluster per day into
-`features_daily`. `nh/scoring` builds `scorecards` and `alerts`. `nh/api` is a
-thin FastAPI read layer; `nh/web` is Streamlit v1.
-
 ## Non-negotiables (details in .claude/rules/data.md)
-- Every write carries `at` (UTC), `source`, `run_id`. Snapshots are append-only —
-  `AppendOnlyViolation` is raised at flush time if you try to update one.
-- Idempotent upserts: re-running a day is safe. Never `INSERT OR REPLACE`.
-- Absent data is NULL, never 0 — use `nh.collectors.parse.*`. Every feature row
-  has `confidence` and `inputs_n`.
-- Respect per-source quotas in .claude/rules/sources.md. Log quota per run.
-- No live API calls in tests. Record fixtures to tests/fixtures/<source>/.
 - Never edit .env or secrets. Never run DROP/TRUNCATE/DELETE-without-WHERE.
 - A new metric starts as an entry in docs/METRICS.md, then code, then a test.
 
