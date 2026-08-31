@@ -1719,6 +1719,57 @@ WHERE slug = 'philosophy-of-science'`. Its snapshots keep accruing meanwhile —
 polls every known channel regardless of seed state (ADR-0039), so the history is not lost,
 only the discovery spend.
 
+### Addendum, 2026-08-31 — the day this retirement stranded is deleted, not marked
+
+The retirement landed **between** two feature passes on the same day, so 2026-08-31 held
+one cluster's rows from an older run under an older definition. The independent review
+found it, and the state was worse than "mixed":
+
+```
+features_daily  2026-08-31  philosophy-of-science   run a6d35aee   v2-on-niche      23 rows
+features_daily  2026-08-31  the other ten           run 5f8c2fd7   v3-non-ballast  230 rows
+scorecards      2026-08-31  philosophy-of-science   run 5f8c2fd7   <- the converged run
+```
+
+The scorecard carries the **converged** run id over features from the older one. That is
+not a stale row; the provenance actively lies, and provenance is the one thing data rule 1
+says every row must carry truthfully.
+
+**Deleted, 23 + 1 rows, scoped:**
+
+```sql
+DELETE FROM features_daily WHERE cluster_id='philosophy-of-science' AND day='2026-08-31';
+DELETE FROM scorecards     WHERE cluster_id='philosophy-of-science' AND day='2026-08-31';
+```
+
+Both pass `scripts/hooks/block_dangerous_sql.sh`, which blocks unscoped deletes and never
+this. Verified after: `SELECT DISTINCT run_id, json_extract(detail,'$.definition')` over
+the day returns a single run and a single definition family; ten clusters, 230 rows, ten
+scorecards. The cluster's earlier consistent day (2026-08-29, 23 rows) is untouched.
+
+**Why deletion and not a marker.** `features_daily` is recomputable by design, which is
+ADR-0043's own argument, and **snapshots are untouched** — the asset data rule 4 protects
+is not in either table. The cluster was retired that same day, so its absence from that
+day is the correct steady state rather than a hole. And a marker could only ever be
+partial: the six supply rows self-describe through `v2-on-niche`, but `geo_concentration`,
+the sixteen metrics carrying no definition at all, and the confidence-formula change from
+ADR-0047 carry nothing, so marking would have labelled a quarter of the problem and left
+the rest looking clean.
+
+The rows are archived outside the repo before the delete, per the read-before-destroy
+habit; they are not committed, because a recomputable artifact in git is the mixed state
+in a second place.
+
+**The general defect this is an instance of is now detected**, which matters more than
+the deletion: a retirement applied mid-day leaves the pipeline's own outputs inconsistent,
+and until 2026-08-31 nothing looked. `nh status --check` now fails when the newest feature
+day carries more than one `run_id`, or when a scorecard names a run its own features did
+not come from — a **problem**, not a warning, because a row that does not describe how it
+was computed breaks data rule 1 and the fix is same-day. Newest day only: older days may
+legitimately hold a run per definition step, and re-litigating history on every ping is how
+a gate stops being read. Both halves are pinned by tests reproducing this exact day, and
+mirrored into `.claude/agents/data-qa.md`, which looks further back than the gate does.
+
 ## ADR-0045 — The exposition human-label requirement fires when a score is CITED, not while it merely exists
 2026-08-31. Accepted. Narrows the trigger of the exposition deferral. **Weakens an
 evidence standard, deliberately**, and says so rather than dressing it as a clarification.
