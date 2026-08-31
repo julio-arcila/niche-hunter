@@ -2514,3 +2514,95 @@ and this paragraph is written before the draw so that reading cannot be invented
 Both samples passing validates the scorer's precision above the threshold and its rejections
 below it. It says nothing about Gate E's 2026-08-28 null, and nothing ranked ships either
 way. `scorecards.opportunity` stays NULL.
+
+## ADR-0051 — Every active domain keeps one discovery query outside the explained register
+2026-08-31. Accepted. Amends the query sets ADR-0049 last touched; does not change the
+quota, the seed count, any lexicon, or ADR-0049's held control.
+
+### The finding
+
+Measured on the live seed rows, 2026-08-31: **25 of 30 active discovery queries contain an
+explained-register token**, and six domains were at 3 of 3 — `ai-and-software`,
+`anthropocene-anthropology`, `biohacking`, `esoterism-spirituality`, `macro-economy` and
+`logic-linguistics-gnoseology`. Discovery was searching for a **format** almost as hard as
+for a subject.
+
+That matters because of what the exposition axis then does with the result.
+`nh/clustering/relevance.py` scores relevance as the geometric mean of a domain axis and an
+**exposition** axis, and the exposition axis asks "is this an explanation". So the corpus
+was selected by a query for explainers and then scored on being explainers. The 0.866
+held-out figure and every `on_niche_share` above it are measured on a **preimage of the
+query set**, not on an independent sample of the domain — a video that is on-domain but
+lectured, debated or argued is largely not in the corpus to be got wrong.
+
+An independent reviewer also noted the sharper half: **ADR-0049's control cannot see this.**
+`logic-linguistics-gnoseology` is held untouched as a control, and it is itself 3/3
+"explained" — a control for query *change* and, explicitly, **not** one for register. It
+could not detect convergence even in principle.
+
+### What changes
+
+One query per domain moves into a different register, in the five 3/3 domains other than
+the held control:
+
+| domain | was | now |
+|---|---|---|
+| `esoterism-spirituality` | hermeticism **explained** | hermeticism **lecture** |
+| `anthropocene-anthropology` | anthropocene **explained** | anthropocene **debate** |
+| `macro-economy` | monetary policy **explained** | monetary policy **debate** |
+| `ai-and-software` | machine learning **explained** | machine learning **lecture** |
+| `biohacking` | longevity research **explained** | longevity research **lecture** |
+
+**Only the register token moves; the topic is held fixed.** That is the design, not
+laziness: the two arms of each domain now differ in exactly one dimension, so a yield
+difference between them is attributable to register alone. A replacement that also changed
+the subject would confound the very thing this exists to measure.
+
+**None of ADR-0049's five replacements is touched.** Three of them
+(`occult philosophy explained`, `human origins explained`,
+`llm application development explained`) sit in domains changed here, and their yield is
+being re-measured a week from 2026-08-31; swapping one would have destroyed that
+measurement. Register-free queries go from **5 of 30 to 10 of 30**.
+
+### This is deliberately not yield-optimised
+
+The probe arm is **expected to return less**, and that is written here so a later reader
+cannot mistake lower yield for a failed change. `search.list` relevance-ranks against the
+query string, so a lecture query returns fewer tidy explainer thumbnails; that is the
+point. What it buys is the ability to tell two hypotheses apart:
+
+- the domain genuinely is mostly explainers, or
+- the corpus is mostly explainers because the queries asked for them.
+
+Two arms per domain is the minimum that makes those distinguishable, and per-arm yield
+folds into ADR-0049's week-later re-measure at no extra cost. It also keeps non-preimage
+inflow alive, so a future recall draw (ADR-0050) can stratify on it.
+
+### Mechanics
+
+Edited `nh/seeds.py` and ran `uv run nh seed`. **No hand `UPDATE`**: `keywords` is inside
+`apply_seeds`' upsert update set, unlike `active`, so the code edit does reach an existing
+row — verified in the database, all five rows carry the new strings, and this is the
+distinction ADR-0049 established against the ADR-0039 trap. Quota unchanged: 30 queries x 2
+sort orders x 100 = **6,000 of 9,500**, confirmed by `nh seed` after.
+
+### The floor is a test, and it carries one exemption
+
+`tests/test_seeds.py::test_every_active_domain_keeps_a_query_outside_the_explained_register`
+asserts that every active domain holds at least one register-free query. A test rather than
+a note because the pressure runs one way: every yield measurement rewards the register that
+yields, so the floor erodes one locally-correct query at a time.
+
+The exemption is `logic-linguistics-gnoseology`, asserted as an exact set so a second one
+must be a deliberate edit to the literal. It is exempt because ADR-0049 holds it whole and
+its baseline is the only one that re-measure has. **It expires when that re-measure lands** —
+at which point it takes a register-free query like every other domain.
+
+### What this does not claim
+
+It does not repair the 0.866, the 107 machine labels, or any stored score: everything
+already collected was collected under the old query set and stays a preimage of it. The
+benefit is entirely prospective, exactly as ADR-0049's was, and it is diagnostic rather than
+corrective — it makes a confound **measurable**, not absent. And discovery is only 7.5% of
+video member rows; the rest arrive by RSS from channels already admitted, which the register
+of a query never touches.
