@@ -39,6 +39,8 @@ asset is snapshot history; never break the collectors.
 - `uv run nh sources` — ported / configured / quota per source
 - `uv run nh seed` — write the niche seeds; prints the nightly quota cost
 - `uv run nh status [--check]` — what got collected; --check gates the cron ping
+- `uv run nh niche show <slug> [--unvalidated]` — every metric, with confidence and basis
+- `uv run nh niche trace <slug> <metric>` — the input rows behind one number (ADR-0052)
 - `uv run nh prune [--dry-run]` — storage report + bounded retention on raw payloads
 - `uv run nh doctor` — database reachable, schema present
 - `uv run alembic upgrade head` / `alembic revision --autogenerate -m "..."`
@@ -68,9 +70,9 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
-- Phase: **Slices 9 and 11 shipped; Slice 7 (evidence surface) is rescoped and next.**
-  All of ADR-0038..0051 is on `main`; work since is on `adr-0052-evidence-surface`. Suite
-  green at **792**. TWO drawn samples still wait on a human labeller, and one has a
+- Phase: **Slice 7 (evidence surface) in progress — read layer done, web layer next.**
+  All of ADR-0038..0051 is on `main`; ADR-0052 and `nh/api/` are on
+  `adr-0052-evidence-surface`. Suite green at **920**. TWO drawn samples still wait on a human labeller, and one has a
   2026-09-14 deadline. The ROADMAP headers for slices 9 and 11 said "PLANNED, not started"
   until 2026-08-31, three days after both shipped — read `nh/seeds.py` and
   `features/run.py::METRICS`, not the roadmap, for what exists.
@@ -200,6 +202,16 @@ reviewer. Summarize exploration briefly.
   what the deferral covers, holding `EXPOSITION_VALIDATED: bool | None` on the
   `BALLAST_VALIDATED` pattern — a human's verdict, and explicitly **no env-var escape
   hatch**, which would be a file the code reads standing in for one.
+- **`nh/api/` is the read layer every surface goes through**, and the gate lives in it,
+  not in a presenter: `jobs/niche.py::load` withholds by DEFAULT, so forgetting the
+  argument fails safe. `nh niche show` was ALREADY citing — it printed `gap=0.50` and all
+  eight scorer-dependent metrics for unvalidated clusters — which is why the gate shipped
+  before any web page. `--unvalidated` shows them: a human asking once, recording nothing.
+  `drilldown.REGISTRY` maps every metric to its input rows and is tested to return
+  **non-empty** — an empty result satisfies "did not raise" forever. `nh niche trace` is
+  its first consumer. Gated metrics still show their ROWS, deliberately: the aggregate
+  claim is withheld, the evidence to check it is not — but do not browse them before
+  labelling a sample.
 - **Which metrics the scorer decided is DERIVED, never tabulated.** Run all 22 twice, once
   at `RELEVANCE_HIGH` and once at an impossible threshold, and diff. Measured: **14 are
   independent** (all `demand.*`, `breakthrough_rate_cohort`, `views_per_sub`, the four KP

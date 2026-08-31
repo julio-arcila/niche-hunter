@@ -481,6 +481,61 @@ def niche_show(
     )
 
 
+@niche_app.command("trace")
+def niche_trace(
+    slug: str = typer.Argument(..., help="Cluster id, e.g. history-of-ideas."),
+    metric: str = typer.Argument(..., help="Metric name, e.g. wiki_yoy."),
+    day: datetime | None = typer.Option(None, "--day", formats=["%Y-%m-%d"]),
+    limit: int = typer.Option(20, "--limit", help="Rows to print."),
+) -> None:
+    """The input rows behind one number — Slice 7's exit criterion, from a terminal.
+
+    "Every displayed number reaches its input rows" is a promise a surface can appear to
+    keep by linking to a plausible query nobody ran, so the registry behind this is tested
+    to return non-empty rows for every registered metric. This command is that registry's
+    first consumer, and it works before any page is drawn.
+    """
+    from nh.api import basis as basis_mod
+    from nh.api import drilldown, gates, queries
+    from nh.db.session import get_engine, session_scope
+
+    with session_scope(get_engine()) as session:
+        on = day.date() if day else queries.latest_day(session, slug)
+        if on is None:
+            typer.echo(f"no features for {slug} — run `nh compute`", err=True)
+            raise typer.Exit(2)
+        headers, rows = drilldown.rows_behind(session, metric, slug, on)
+
+    if not headers:
+        typer.echo(f"no drilldown registered for {metric}", err=True)
+        typer.echo(f"known: {', '.join(sorted(drilldown.REGISTRY))}", err=True)
+        raise typer.Exit(2)
+
+    typer.echo(f"{metric} · {slug} · {on}")
+    typer.echo(f"population: {basis_mod.basis(metric)}")
+    # The rows are NOT gated even when the metric is, and the asymmetry is deliberate:
+    # `gates` withholds the scorer's aggregate CLAIM, while these are the observations a
+    # person needs in order to judge whether that claim is any good. Withholding the audit
+    # trail would make the thing unvalidatable, which is the opposite of the intent.
+    #
+    # There is a real cost and it is named rather than assumed away: a video-grain row
+    # carries `relevance`, so anyone about to label ADR-0041's or ADR-0050's sample should
+    # not browse it first. That is the same contamination rule ADR-0042 wrote for the
+    # 2026-08-30 transcript.
+    if not gates.citable(metric, slug):
+        typer.echo(
+            "note: this metric's VALUE is withheld (ADR-0052); its input rows are shown "
+            "so the scorer can be checked. Do not read them before labelling a sample."
+        )
+    # The count is the honest part: `LIMIT` caps what the query returned, and the metric's
+    # own `inputs_n` states the true n. Saying "showing X of the first Y" rather than
+    # "of N" avoids implying this is the whole population when it is not.
+    typer.echo(f"showing {min(limit, len(rows))} of {len(rows)} fetched\n")
+    typer.echo(" · ".join(str(h) for h in headers))
+    for row in rows[:limit]:
+        typer.echo(" · ".join("—" if v is None else str(v) for v in row))
+
+
 def _provenance(m) -> str:
     """The one-line trail under each metric: why this number, from what."""
     detail = m.detail or {}

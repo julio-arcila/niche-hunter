@@ -262,3 +262,36 @@ def test_a_validated_axis_prints_everything(exposition, monkeypatch):
     out = runner.invoke(app, ["niche", "show", "history-of-ideas"]).stdout
     assert "0.23" in out and "gap=0.50" in out
     assert "means withheld, not missing" not in out
+
+
+# --- `nh niche trace` — the exit criterion from a terminal ---------------------------
+
+
+def test_trace_prints_the_rows_behind_a_number(exposition, monkeypatch):
+    from tests.conftest_features import add_demand, make_cluster
+
+    monkeypatch.setattr("nh.api.queries.demand_terms", lambda s, c, src: ["Test_Article"])
+    make_cluster(exposition, "traced")
+    add_demand(exposition, cluster_id="traced")
+    out = runner.invoke(app, ["niche", "trace", "history-of-ideas", "wiki_yoy"]).stdout
+
+    assert "population:" in out
+    assert "English readers globally" in out, "ADR-0035: a number must name who it counts"
+
+
+def test_trace_on_a_gated_metric_shows_rows_and_names_the_cost(exposition):
+    """The asymmetry is deliberate: `gates` withholds the scorer's aggregate CLAIM, while
+    these rows are what a person needs to judge whether the claim is any good. Withholding
+    the audit trail would make the thing unvalidatable, which is backwards. The real cost —
+    a video row carries `relevance`, so a would-be labeller must not browse it first — is
+    named rather than assumed away."""
+    out = runner.invoke(app, ["niche", "trace", "history-of-ideas", "on_niche_share"]).stdout
+    assert "withheld" in out and "before labelling" in out
+
+
+def test_trace_on_an_unknown_metric_lists_what_it_knows(exposition):
+    result = runner.invoke(app, ["niche", "trace", "history-of-ideas", "invented"])
+    assert result.exit_code == 2
+    assert "no drilldown registered" in result.output
+    assert "wiki_yoy" in result.output, "a dead end must say what the live ends are"
+    assert "Traceback" not in result.output
