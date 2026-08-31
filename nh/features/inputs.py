@@ -5,14 +5,30 @@ videos" comes here. One definition, so supply and openness cannot quietly drift
 apart — two metrics disagreeing about which videos count is the kind of bug that
 survives review because both numbers look reasonable in isolation.
 
-Everything is parameterised by `day` and nothing reads the clock. That is
-re-run determinism now (the same day recomputes to the same values) and the
-anti-leakage property Slice 6's backtest will depend on: a feature must never see
-a row that did not exist at the decision date.
+Everything is parameterised by `day` and nothing reads the clock **except
+`ballast_active()`, and that exception is stated here rather than left to be
+discovered**. That is re-run determinism now (the same day recomputes to the same
+values) and the anti-leakage property Slice 6's backtest will depend on: a feature
+must never see a row that did not exist at the decision date.
+
+The exception, precisely, because a rule that quietly stops being true has lost its
+force — the same reasoning `.claude/rules/python.md` applies to its bare-except
+count. `ballast_active()` (ADR-0050) reads `date.today()` to decide whether ADR-0047's
+exclusion is still in force. It is **not** a leak: it cannot let a feature see a row
+that postdates `day`, because it only ever switches a whole *definition* on or off,
+the same class of change as moving `BALLAST_DECIDED`, and `supply.definition()` stamps
+which side of it a row came from. What it does cost is that the same historical `day`
+can recompute to two different values on two sides of 2026-09-14. That is real, and
+two things bound it: `pinned_ballast()` holds the switch fixed for the length of a run,
+so no single run or replay can flip mid-way; and every affected row records the
+definition it was computed under. Setting `BALLAST_VALIDATED` removes the clock read
+entirely, which is the intended end state.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 
@@ -138,6 +154,10 @@ def member_channels(session: Session, cluster_id: str, day: date | None = None) 
     `member_join` query, and its clamp comment says coverage above 1.0 "means those
     two populations have drifted apart again — a bug in the query, not a value". Two
     predicates would be exactly that drift.
+
+    Through `exclude_ballast`, not `_ballast_channels` directly. It called the subquery
+    directly until ADR-0050's sunset was reviewed, which meant this one population went
+    on being filtered after the switch went false — see `exclude_ballast`.
     """
     return list(
         session.scalars(
@@ -145,7 +165,7 @@ def member_channels(session: Session, cluster_id: str, day: date | None = None) 
             .join(Channel, Channel.channel_id == ClusterMember.item_id)
             .where(
                 member_join(ClusterMember.item_id, cluster_id, day=day),
-                ClusterMember.item_id.notin_(_ballast_channels(cluster_id, day)),
+                exclude_ballast(ClusterMember.item_id, cluster_id, day),
             )
         )
     )
@@ -256,6 +276,12 @@ BALLAST_SUNSET = date(2026, 9, 14)
 BALLAST_VALIDATED: bool | None = None
 
 
+#: Set only by `pinned_ballast`, and consulted before everything else. Run-scoped, so a
+#: run that straddles midnight on the sunset date cannot compute half its clusters one
+#: way and half the other.
+_PINNED: bool | None = None
+
+
 def ballast_active(today: date | None = None) -> bool:
     """Whether ADR-0047's exclusion applies at all (ADR-0050).
 
@@ -265,10 +291,44 @@ def ballast_active(today: date | None = None) -> bool:
     *definition* is in force, the same class of change as moving `BALLAST_DECIDED`, and
     `supply.definition()` stamps it into every row so a stored series self-describes
     across the step.
+
+    Precedence, and it is not arbitrary: an explicit run-scoped pin beats a recorded
+    human verdict beats the calendar. Each step is more specific about *this* run than
+    the one below it, and the clock — the only one that can change under the caller's
+    feet — is last.
     """
+    if _PINNED is not None:
+        return _PINNED
     if BALLAST_VALIDATED is not None:
         return BALLAST_VALIDATED
     return (today or date.today()) < BALLAST_SUNSET
+
+
+@contextmanager
+def pinned_ballast(active: bool | None = None) -> Iterator[bool]:
+    """Hold the ballast switch fixed for the length of one run.
+
+    Resolves `ballast_active()` **once**, at entry, and holds it. Without this a run
+    that starts at 23:58 on 2026-09-13 computes its first clusters under v3 and the rest
+    under v2, inside one `run_id` — the mixed-day defect ADR-0044's addendum repairs,
+    arriving from a new direction and on a schedule nobody chose. `nh nightly`'s phase
+    loop and `backtest.replay` both wrap themselves in it.
+
+    It does not make a replay reproducible across the sunset, and does not pretend to:
+    two replays of the same historical `day` on opposite sides of 2026-09-14 give
+    different numbers, because the definition genuinely changed between them and every
+    affected row says so in `detail.definition`. What it removes is the case where one
+    run disagrees with itself, which nothing records and nothing could.
+
+    Pass `active` explicitly to replay a historical day under a chosen definition.
+    """
+    global _PINNED
+    resolved = ballast_active() if active is None else active
+    previous, _PINNED = _PINNED, resolved
+    try:
+        yield resolved
+    finally:
+        _PINNED = previous
 
 
 def not_ballast(cluster_id: str, day: date | None = None):
@@ -290,9 +350,28 @@ def not_ballast(cluster_id: str, day: date | None = None):
     ADR-0050 commits to is this one line and no migration — which is the property that
     let ADR-0047 ship on structure while its evidence was still outstanding.
     """
+    return exclude_ballast(Video.channel_id, cluster_id, day)
+
+
+def exclude_ballast(column, cluster_id: str, day: date | None = None):
+    """The ballast exclusion clause on whichever column names the channel.
+
+    **Every** exclusion goes through here, and that is the point rather than tidiness.
+    A review found `member_channels` calling `_ballast_channels` directly, so it kept
+    excluding after `ballast_active()` went false while `views_per_new_video` — computed
+    from those very channels — stamped `v2-on-niche` on the row. A row that lies about
+    its own definition is the exact failure ADR-0050 was written to prevent, reproduced
+    inside ADR-0050. The clause differs only in which column carries the channel id
+    (`Video.channel_id` on the video side, `ClusterMember.item_id` on the member side),
+    so there is nothing for a second copy to buy.
+
+    `tests/test_features_supply.py::test_nothing_calls_the_ballast_subquery_around_the_switch`
+    fails on a new direct call site, because the way this defect arrived is that somebody
+    added one and every review read the diff rather than the call graph.
+    """
     if not ballast_active():
         return sa.true()
-    return Video.channel_id.notin_(_ballast_channels(cluster_id, day))
+    return column.notin_(_ballast_channels(cluster_id, day))
 
 
 def on_niche_join(cluster_id: str, day: date | None = None):

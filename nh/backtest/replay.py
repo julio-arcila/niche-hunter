@@ -29,7 +29,7 @@ from nh.db.models import Scorecard
 from nh.db.provenance import stamp
 from nh.db.session import session_scope
 from nh.features import demand, openness, supply
-from nh.features.inputs import member_channels
+from nh.features.inputs import member_channels, pinned_ballast
 from nh.features.run import Metric, compute
 from nh.scoring.scorecard import build
 
@@ -122,19 +122,30 @@ def replay(
     at: datetime | None = None,
     metrics: tuple[Metric, ...] = BACKTEST_METRICS,
     supply_from: str = SUPPLY_FROM,
+    ballast: bool | None = None,
 ) -> tuple[int, int]:
-    """Replay every date. Idempotent — `compute` and `build` both upsert on the day."""
+    """Replay every date. Idempotent — `compute` and `build` both upsert on the day.
+
+    `ballast` pins ADR-0047's exclusion for the whole replay (ADR-0050). Left `None` it
+    resolves once from `ballast_active()` and holds, so a long replay cannot cross the
+    sunset mid-run and compute its early dates under one definition and its late ones
+    under another. Pass it explicitly to replay history under a chosen definition — the
+    honest way to compare the two, since three of nine `BACKTEST_METRICS` route through
+    the predicate and the difference is a definition change, not noise.
+    """
     refuse_live(engine)
     at = at or datetime.now(UTC)
     rows = cards = 0
-    for i, day in enumerate(dates, start=1):
-        r, c = replay_day(
-            engine, day, run_id=run_id, at=at, metrics=metrics, supply_from=supply_from
-        )
-        rows += r
-        cards += c
-        if i % 25 == 0 or i == len(dates):
-            log.info("replayed %s/%s dates (%s rows, %s cards)", i, len(dates), rows, cards)
+    with pinned_ballast(ballast) as active:
+        log.info("replay ballast exclusion %s", "ON (v3)" if active else "OFF (v2)")
+        for i, day in enumerate(dates, start=1):
+            r, c = replay_day(
+                engine, day, run_id=run_id, at=at, metrics=metrics, supply_from=supply_from
+            )
+            rows += r
+            cards += c
+            if i % 25 == 0 or i == len(dates):
+                log.info("replayed %s/%s dates (%s rows, %s cards)", i, len(dates), rows, cards)
     return rows, cards
 
 

@@ -533,6 +533,15 @@ def geo_concentration(session: Session, cluster_id: str, day: date) -> FeatureRe
         confidence=known / len(members),
         inputs_n=known,
         detail={
+            # Both value AND confidence are computed entirely from `member_channels`,
+            # which is ballast-filtered — so this metric moved when ADR-0047 landed and
+            # carried nothing saying so. Measured on the live corpus: history-of-ideas
+            # 0.3939 over 110 members under v3, 0.3782 over 236 under v2. It was missed
+            # by the ADR-0047 stamping pass because it has no relevance query of its
+            # own, which is exactly why the stamp belongs to the POPULATION and not to
+            # the query that happens to be visible in the function.
+            "definition": definition(),
+            "ballast": _ballast_detail(session, cluster_id, day),
             "seed_geo": seed_geo,
             "member_channels": len(members),
             "with_known_country": known,

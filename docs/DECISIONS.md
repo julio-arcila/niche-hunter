@@ -2406,9 +2406,30 @@ so the frame cannot drift from the predicate the metric uses.
 Measured 2026-08-31: **9,585 rows over 585 channels across ten clusters** (history-of-ideas
 2,021/126; metaphysical-battles 1,621/95; trading 237/16 at the small end).
 
-Deliberately **not** the whole below-threshold population. Mid-band undecided rows test
-where `RELEVANCE_HIGH` sits, and nothing in ADR-0042..0049 touched the threshold. The tuned
-claim is ADR-0047's, so the frame is ADR-0047's exclusion set exactly.
+Deliberately **not** the whole below-threshold population — and the gap is quantified here
+rather than described, because "not the whole population" is the kind of phrase that hides
+its own size. Ballast channels carry **10,857** video rows in total, of which:
+
+| | rows | in the frame? |
+|---|---|---|
+| decided noise | **9,585** (88.3%) | yes — this sample |
+| undecided mid-band | 978 | no |
+| unscorable (`relevance IS NULL`) | 294 | no |
+| on-niche | **0** | n/a — zero by construction, which is numerator invariance |
+
+So **11.7% of what ADR-0047 removes is not represented**, and the two excluded slices are
+excluded for different reasons. Mid-band rows test where `RELEVANCE_HIGH` sits, and nothing
+in ADR-0042..0049 touched the threshold; the tuned claim is ADR-0047's, so the frame is the
+part of its exclusion set that ADR-0047's own logic rests on.
+
+The 294 unscorable rows are the weaker case and are called out because **neither sample can
+reach them**: ADR-0041 draws above the threshold and this one draws decided noise, so a row
+the lexicon could not read is permanently untested by both while still leaving the
+denominator. Most of them are ADR-0046's language gate doing its job — a Spanish title on a
+ballast channel is correctly *not* a judgement — but "most" is an argument, not a
+measurement, and this ADR does not measure it. A future draw stratified on `relevance IS
+NULL` is the honest way to close it; the estimate produced here applies to the 88.3% and
+should be quoted that way.
 
 ### Design
 
@@ -2508,6 +2529,42 @@ archetypes explicitly call a video **in any language** on-niche if it is about t
 So a failure concentrated in those two domains is the language gate's known limit surfacing,
 **not** ballast's logic failing. The per-domain split is published for exactly this reason,
 and this paragraph is written before the draw so that reading cannot be invented afterwards.
+
+### Addendum, same day — what the review of this ADR found in this ADR
+
+An independent reviewer was asked to attack the sunset specifically, and two of its
+findings were real. Both are recorded here rather than quietly fixed, because they are the
+same defect this ADR was written about, arriving one level up.
+
+**1. The revert did not reach the channel population.** `member_channels` called
+`_ballast_channels` directly instead of going through the switch, so after the sunset it
+would have gone on excluding ballast channels while `views_per_new_video` — computed from
+exactly those channels — stamped `v2-on-niche` on the row. Measured before the fix:
+members stayed at **110** across the flip while the definition tag moved. A row that lies
+about its own definition is precisely what this ADR's own text called "the worst of both".
+Fixed by routing every exclusion through one `exclude_ballast(column, ...)`, and pinned by
+a test that fails on any new direct call site — because the way it arrived is that somebody
+added a call site and every review read the diff rather than the call graph. After the fix
+the revert reaches everything: members 110 -> 236, `geo_concentration` 0.3939 -> 0.3782,
+`views_per_new_video` 764.5 -> 680.0.
+
+**2. `ballast_active()` reads the wall clock, and `inputs.py` promised it never would.**
+That promise ("Everything is parameterised by `day` and nothing reads the clock") is now
+false as written, so it is amended to state the one exception precisely — the reasoning
+`.claude/rules/python.md` already applies to its bare-except count: a rule that miscounts
+its own exceptions has lost its force. The exception is **not** a leak (it cannot show a
+feature a row that postdates `day`; it switches a whole definition), but it does mean the
+same historical day can recompute differently on two sides of 2026-09-14. Two things bound
+it: `pinned_ballast()` resolves the switch **once per run** and holds it, so no nightly or
+replay can flip mid-way and write two definitions under one `run_id`; and `replay(...,
+ballast=)` takes an explicit pin, which is what makes a deliberate v2-vs-v3 comparison
+possible at all. Three of nine `BACKTEST_METRICS` route through the predicate.
+
+Also from that review, and fixed: `geo_concentration`'s value and confidence come entirely
+from `member_channels`, so it moved when ADR-0047 landed and carried **no definition stamp
+at all**. Every metric that moves with the switch now carries one — audited by running all
+four feature modules under both pins and diffing, which is how this was found rather than
+by reading.
 
 ### What this does not claim
 

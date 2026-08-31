@@ -275,6 +275,30 @@ def _check_one_run_per_day(engine: Engine | None, result: CheckResult) -> None:
                 )
 
 
+def _warn_on_a_dropped_stamp(
+    result: CheckResult,
+    today: date,
+    seen: set[tuple[date, str]],
+    stamped: dict[tuple[date, str], int],
+) -> None:
+    """The first-night tolerance, and the case it must not swallow.
+
+    Silent while NO row carries `detail.ballast` — the stamp landed 2026-08-31 and the
+    first nightly after it is the first day any row has one, so demanding it earlier
+    would fail every run until then and be silenced rather than fixed. But once some
+    rows carry it, a cluster missing it means the stamp was dropped, and that is a
+    different thing from "not yet arrived".
+    """
+    if not stamped:
+        return
+    for day, cluster_id in sorted(seen):
+        if day == today and (day, cluster_id) not in stamped:
+            result.warnings.append(
+                f"{cluster_id} has no detail.ballast on {day} while other rows do — "
+                f"the size of the ADR-0047 cut is unrecorded for it"
+            )
+
+
 def _check_ballast_drift(engine: Engine | None, result: CheckResult) -> None:
     """Warn when a cluster's ballast cut changes size overnight (ADR-0047, ADR-0050).
 
@@ -311,13 +335,7 @@ def _check_ballast_drift(engine: Engine | None, result: CheckResult) -> None:
             stamped[(day, cluster_id)] = int(ballast["channels"])
 
     today = days[0]
-    if stamped:  # the first-night tolerance: silent until ANY row carries the stamp
-        for day, cluster_id in sorted(seen):
-            if day == today and (day, cluster_id) not in stamped:
-                result.warnings.append(
-                    f"{cluster_id} has no detail.ballast on {day} while other rows do — "
-                    f"the size of the ADR-0047 cut is unrecorded for it"
-                )
+    _warn_on_a_dropped_stamp(result, today, seen, stamped)
 
     if len(days) < 2:
         return
