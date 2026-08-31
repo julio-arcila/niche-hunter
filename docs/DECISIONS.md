@@ -1594,3 +1594,57 @@ subject-failures and exposition-failures, which is this ADR's one substantive ga
 **What this still does not establish**, restated because a re-specification is exactly
 when a reader over-reads: precision above the threshold only. Nothing about recall,
 nothing about whether 0.55 is the right cut, nothing about Gate E.
+
+## ADR-0043 — The eleven compute features before validation, and that is accepted rather than gated
+2026-08-30. Accepted. Corrects a claim in **ADR-0041** and the wording of the exposition
+deferral. Changes no code.
+
+**What was found.** `nh/features/run.py:115` selects every `Cluster.active` cluster and
+has **no axis-validation filter of any kind**. So when ADR-0040 activated the eleven for
+*discovery*, they also entered `features_daily` and `scorecards` on the very next run.
+Measured: nothing before 2026-08-29, then 253 feature rows and 11 scorecards per scored
+day, `philosophy-of-science` among them reporting `gap 0.2`, `supply 0.0`, `openness
+0.51`, `stage cooling`.
+
+`active` is **one flag doing two jobs** — gating discovery and gating scoring — and
+ADR-0040 meant to turn on only the first. That is the same shape as the ADR-0039
+addendum, which is this repo's standing example of a state change reaching further than
+intended, and it was invisible for the same reason: nothing failed.
+
+**Two documents were wrong about this, and both are corrected here.** The deferral
+register's entry was titled "human validation before it scores anything", and its
+`consumer` field said "nothing they score ships until this clears". ADR-0041's pass
+branch said a pass makes the eleven "eligible for the feature layer on the same terms as
+the event niches", which only means something if they are not eligible now. They were
+eligible the whole time. CLAUDE.md already warns that `nh deferrals` is expected to be
+true and that three entries were once caught lying; this is a fourth, found by asking
+whether the pipeline actually honours the register rather than assuming it.
+
+**The decision: accept, do not gate.** The alternative — a validation-state column and a
+filter in the feature phase — was considered and rejected as the more expensive answer to
+a cheaper problem:
+
+- **Features are recomputable by design.** The snapshots underneath them are the
+  compounding asset and are untouched; a failed axis costs a recompute, not history. This
+  is the same reasoning that lets `nh prune` bound `raw_records` but never snapshots.
+- **What the deferral protects is TRUST, not computation.** `scorecards.value`,
+  `sustainability` and `opportunity` are NULL behind Gate E (ADR-0029), no ranking ships,
+  no evidence page cites these numbers, and none of that depends on whether the rows
+  exist.
+- **Gating would need state that does not exist.** There is no column recording that an
+  axis has been validated, and inventing one to enforce a deferral that costs nothing to
+  leave open is the kind of machinery ADR-0023 argues against.
+
+**The cost of accepting, stated so it is not discovered later.** The stored rows carry
+**no marker** that they predate validation. `detail.definition` records the metric
+definition, not the scorer's status. Anyone reading a `features_daily` or `scorecards`
+series that spans this period must check the day against this ADR themselves. That is a
+real weakness of accepting rather than gating, and it is the reason to prefer gating if
+this ever recurs for a scorer whose output *does* ship.
+
+**Not licensed by this.** The eleven's numbers are not validated and are not more
+trustworthy for being computed. On both machine labelling runs `philosophy-of-science`
+scored 4 of 9 above threshold, failing almost entirely on SUBJECT
+(`reports/exposition_result_2026-08-30.md`), and its supply figures rest on a corpus
+where 60.9% of member channels have never produced an on-niche video
+(`reports/supply_audit_2026-08-30.md`). Computing a number is not evidence for it.

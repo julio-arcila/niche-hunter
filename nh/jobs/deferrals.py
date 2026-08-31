@@ -83,7 +83,7 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="none — implemented and measured, just unregistered",
     ),
     Deferral(
-        metric="exposition axis — human validation before it scores anything",
+        metric="exposition axis — human validation before anything is TRUSTED from it",
         blocker=(
             "domain x exposition (P 0.866 / R 0.736 held-out) rests on 107 MACHINE "
             "labels from fable-5 under a written criterion. kappa 0.845 across two "
@@ -110,12 +110,35 @@ DEFERRALS: tuple[Deferral, ...] = (
             "clear 0.55 across 4 of 11 domains, against a 60-100 requirement, and a "
             "niche gains members only through discovery on its own seeds. Quota is "
             "no longer an argument either way: the disaster niches went to 0 "
-            "(ADR-0039), so all eleven cost 6,600 of 9,500 with 2,900 spare"
+            "(ADR-0039), so all eleven cost 6,600 of 9,500 with 2,900 spare. "
+            "CORRECTED 2026-08-30 (ADR-0043): this entry used to be titled 'before it "
+            "scores anything' and that was false — `features/run.py` filters on "
+            "`Cluster.active` and nothing else, so the eleven entered `features_daily` "
+            "and `scorecards` on 2026-08-29, the first run after ADR-0040 activated "
+            "them for DISCOVERY. 253 feature rows and 11 scorecards per day since. "
+            "Accepted rather than gated: features are recomputable, and what this "
+            "deferral withholds is TRUST, not computation — value/sustainability/"
+            "opportunity stay NULL behind Gate E and no ranking ships. The stored rows "
+            "carry NO marker that they predate validation; check the day against "
+            "ADR-0043 before trusting a series that spans it"
         ),
         consumer=(
-            "the exposition half of `relevance` — the eleven seeds are ACTIVE and "
-            "collecting since ADR-0040, but nothing they score ships until this "
-            "clears; scorecards stay NULL behind Gate E regardless"
+            "the exposition half of `relevance`. CORRECTED 2026-08-30, because this "
+            "field and the title above both said 'nothing they score ships until this "
+            "clears', and that was false as written: `features/run.py` selects every "
+            "`Cluster.active` row and has no axis-validation filter, so the eleven "
+            "entered `features_daily` and `scorecards` on 2026-08-29, the first run "
+            "after ADR-0040 activated them for DISCOVERY. `active` is one flag doing "
+            "two jobs and ADR-0040 only meant to turn on the first — the same shape as "
+            "the ADR-0039 addendum. Measured: 253 feature rows and 11 scorecards per "
+            "day since, philosophy-of-science among them at gap 0.2 / supply 0.0. What "
+            "is actually withheld is TRUST, not computation: `value`, `sustainability` "
+            "and `opportunity` stay NULL behind Gate E, no ranking ships, and no "
+            "evidence page cites these numbers. Accepted rather than gated (ADR-0043): "
+            "features are recomputable by design, so a fail costs a recompute, not "
+            "history. The rows carry no marker saying they predate validation — read "
+            "`detail.definition` and the day against ADR-0043 before trusting a series "
+            "that spans it"
         ),
         cost="~45 minutes of reading, plus the pre-registration paragraph",
     ),
