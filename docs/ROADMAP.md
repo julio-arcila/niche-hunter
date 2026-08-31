@@ -382,29 +382,54 @@ that.
 
 ---
 
-### Slice 7 — Product surface · size L · **BLOCKED by Gate E's FAIL, and rescoped**
+### Slice 7 — Evidence surface · size L · **RESCOPED by ADR-0052, ready to build**
 
-**Goal:** three clicks from radar to a source document.
+**Goal:** every number this pipeline computes reaches the rows it came from, in three
+clicks — and no number the scorer decided reaches a reader before the scorer is validated.
 
-**2026-08-28:** Gate E returned FAIL, so the "radar that predicts emerging niches"
-framing is retired. What survives the null is the evidence layer — the demand series,
-the cohort and channel views, the source feed, the per-metric `detail` and
-`confidence` that make a number traceable — because none of that claims to predict.
-What does not survive is any ranked "opportunity" surface presented as a forecast:
-`scorecards.opportunity`'s weights were to be a Gate E *output* and there is no
-calibration to derive them from. Rescope before building, not during.
+**2026-08-28:** Gate E returned FAIL, so "a radar that predicts emerging niches" is
+retired. **2026-08-31 (ADR-0052):** the rest of this entry is rewritten, because the
+version standing here after the FAIL still listed "radar scatter" as the first thing it
+shipped and still began its exit criterion with "radar →". Nobody edited the list after
+writing the note. That is the defect this repo keeps finding, and it survived in the
+roadmap's own text for three days.
+
+What survives the null is the evidence layer, because none of it claims to predict. What
+does not survive is any ranked surface: `scorecards.opportunity`'s weights were to be a
+Gate E *output*, and there is no calibration to derive them from.
+
+**The load-bearing constraint, not a detail.** ADR-0045 fires the exposition-labelling
+requirement when a score is CITED, and implemented that as a query on `value` /
+`sustainability` / `opportunity` — columns Gate E holds NULL, permanently, because Gate E
+failed. So the trigger **cannot fire**, while `gap`, `supply`, `demand`, `stage` and
+`openness` are non-NULL for all ten unvalidated exposition clusters. Built as previously
+written, this slice would have put them in front of a person on day one with the register
+green. See ADR-0052 for the gate that resolves it.
 
 Ships:
-- FastAPI read layer (so the front end is replaceable)
-- Streamlit v1: radar scatter · niche page (scorecard, overlaid demand series,
-  cohort chart, channel map, question bank, source feed, topic queue) · alerts
-  feed · backtest report viewer · cost model
-- `nh/scoring/rules.py` — the insight rules from INSIGHT_RULES.md as predicates
-  emitting `alerts` rows with evidence attached
+- `nh/api/` — a pure read layer, no web imports, extending the `nh/jobs/niche.py` pattern:
+  `queries.py` (niche list, niche view, demand series, channel table, source feed, metric
+  history), `drilldown.py` (every registered metric → the query returning its input rows),
+  `gates.py` (`EXPOSITION_VALIDATED`, and the scorer-dependence classification derived by
+  execution), `basis.py` (ADR-0035's population per metric — this discharges the render
+  half of the `geo_basis` deferral, whose trigger fired when Slice 9 shipped)
+- `nh/web/` — Streamlit: niche list (**alphabetical, never sorted by a score**), niche page
+  (metric table with `value · confidence · inputs_n · definition · basis`, demand series,
+  channel table, source feed), alerts feed, reports viewer
+- `nh/scoring/rules.py` — Rules 1–3 from INSIGHT_RULES.md, as a phase after scoring,
+  writing `alerts` with `insert_ignore`. Three rules, not ten: the page now records which
+  are refused and why.
 
-**Exit:** radar → niche → topic queue → source document in three clicks · every
-displayed number reaches its input rows · each rule has a synthetic test that
-fires it and one that does not.
+**Not in this slice** (ADR-0052): the radar scatter · any rendering of `scorecards` ·
+FastAPI (a module boundary already gives replaceability; a second process for one local
+operator does not) · the question bank and topic queue (`voice.*` has no source) · the
+cost model (defined nowhere) · Rule 7 (refused on three independent grounds).
+
+**Exit:** niche list → niche page → metric drill-down → input rows or source document in
+≤ 3 clicks · every registered metric has a drilldown returning a **non-empty** row set on a
+synthetic corpus · every registered metric is classified gated-or-not by a test that fails
+on an unclassified one · each shipped rule has a synthetic test that fires it and one that
+does not.
 
 ---
 
@@ -424,11 +449,13 @@ Ships:
 
 ---
 
-### Slice 9 — Keyword Planner consumption · size M · **PLANNED, not started**
+### Slice 9 — Keyword Planner consumption · size M · **SHIPPED 2026-08-31**
 
-*Recorded 2026-08-28. The collector shipped (ADR-0030); nothing consumes it yet.
-`nh kp ingest` writes 30 append-only `keyword_metrics` rows and matches 30/30 seed
-terms on `(keyword, geo, lang)`. No feature reads the table.*
+*Recorded 2026-08-28, shipped 2026-08-31. `METRICS` went 17 → 22 and all five KP metrics
+return non-NULL for all ten clusters; the doc-rot items below are fixed and both KP
+deferrals now carry evidence-shaped triggers. This header read "PLANNED, not started"
+until 2026-08-31 — three days after the work landed. The plan below is kept as the record
+of what was decided, not as a to-do list.*
 
 **Ships five metrics**, registered in `nh/features/run.py::METRICS` (17 → 22):
 `demand.total_monthly_searches`, `money.priced_share`, `money.competition_index_mean`,
@@ -489,10 +516,14 @@ only see one geo silently picks a market.
 (the twelve monthly columns are 0/360, entirely empty) and `tier1_cpc_ratio` (needs ≥2
 geos); any FX conversion; anything ranked — ADR-0029's prohibition stands.
 
-### Slice 11 — The eleven-domain pivot · size L · **PLANNED, not started**
+### Slice 11 — The domain pivot · size L · **SHIPPED 2026-08-31, as TEN domains**
 
-*Recorded 2026-08-28. The operator's intended niche set, replacing the five live
-disaster/true-crime niches. Not yet in `nh/seeds.py`, deliberately — see the cost below.*
+*Recorded 2026-08-28 as eleven, shipped as ten. `landmark-court-cases` was already retired
+(ADR-0028); of the eleven planned, `philosophy-of-science` was retired on the day it
+shipped (ADR-0044, an editorial choice), so `nh/seeds.py` carries ten active domains at
+6,000 of 9,500 quota units. ADR-0038 through ADR-0051 are this slice. Read `nh/seeds.py`,
+not the table below, for what is active. Its validation — a human labelling two drawn
+samples — is the open task, and one of the two has a 2026-09-14 deadline (ADR-0050).*
 
 | Domain | Subreddits (verified to exist, 2026-08-28) |
 |---|---|

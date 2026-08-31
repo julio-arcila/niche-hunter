@@ -2663,3 +2663,138 @@ benefit is entirely prospective, exactly as ADR-0049's was, and it is diagnostic
 corrective — it makes a confound **measurable**, not absent. And discovery is only 7.5% of
 video member rows; the rest arrive by RSS from channels already admitted, which the register
 of a query never touches.
+
+## ADR-0052 — Slice 7 ships an evidence surface, and it may not display a number the scorer decided
+2026-08-31. Accepted. Rescopes Slice 7 after Gate E's FAIL, and **amends CLAUDE.md's
+standing "Do not build the dashboard"** — by ADR, because that instruction is load-bearing
+and ignoring it quietly is how a prohibition becomes advisory. Does not touch Gate E's
+null, ADR-0029's ranking prohibition, or ADR-0041's bar.
+
+### What Gate E left standing
+
+Gate E returned ρ 0.091, p 0.4988 on 2026-08-28 — a null, not an underpowered run. The
+failure analysis is decisive about why: **zero of 4,517 niche-dates show negative growth**,
+because YouNiverse holds only channels that had already crossed 10k subscribers. The corpus
+cannot express emergence, so what was tested was relative growth among successes. A better
+feature is a better answer to the wrong question.
+
+So the **radar is retired** — and the roadmap has not caught up. Its Slice 7 "Ships" list
+still leads with "radar scatter" and its exit criterion still begins "radar → niche →",
+directly under the paragraph retiring that framing. Nobody edited the list after writing
+the note. A ranked scatter is exactly the surface ADR-0029 forbids; the line is deleted
+rather than reinterpreted.
+
+What survives is everything that does not claim to predict: the demand series, the channel
+and video corpus, the source feed, and the per-metric `value / confidence / inputs_n /
+detail` that make a number traceable to the rows it came from. That is the slice.
+
+### The load-bearing wall: ADR-0045's trigger cannot fire, and a UI is what it was watching for
+
+ADR-0045 made the exposition-labelling requirement fire when a score is **CITED**, and
+implemented that as a query on non-NULL `value` / `sustainability` / `opportunity`. Measured
+2026-08-31 on the live corpus:
+
+| scorecards column, 2026-08-31, ten exposition clusters | non-NULL |
+|---|---|
+| `value`, `sustainability`, `opportunity`, `ci_low`, `ci_high` | **0 of 10** |
+| `gap`, `supply`, `demand`, `stage`, `openness`, `gap_confidence`, `stage_confidence` | **10 of 10** |
+
+Gate E holds the first row NULL and Gate E **failed**, so those columns are not merely NULL
+today — they are unreachable. **ADR-0045's automated trigger can therefore never fire**,
+while seven populated exposition-derived columns sit beside it waiting for a reader. The
+ADR's own addendum admits the gap and falls back to a manual obligation ("anything that puts
+`gap`, `supply`, `demand` or `stage` for an exposition cluster in front of a person needs
+the human labelling first, and the register will not remind you"), justified at the time
+because "detecting citation properly needs something to detect, and that does not exist."
+
+**Slice 7 is the thing to detect.** Built as the roadmap describes it, this slice would put
+`gap`, `stage` and every `supply.*` number for ten unvalidated clusters in front of a person
+on day one, with the deferral register green throughout. So the resolution is not to make
+the deferral detect the UI — it is to make the read layer refuse to serve what the deferral
+covers. The register stops being a reminder nobody reads and becomes a wall the code holds
+up.
+
+### The tier classification is DERIVED, not maintained
+
+Every registered metric is classified by one question: **does its value or confidence change
+when the relevance threshold changes?** That is answered by executing all 22 metrics twice —
+once at `RELEVANCE_HIGH` and once at an impossible threshold — and diffing, not by reading
+the query and deciding. Measured 2026-08-31:
+
+- **Independent of the scorer (14):** all eight `demand.*`, `openness.breakthrough_rate_cohort`,
+  `openness.views_per_sub`, and the four Keyword-Planner `money.*` metrics.
+- **Reads a relevance decision (8):** all six `supply.*`, `money.midroll_eligible_share`, and
+  **`openness.winner_age_years`** — which joins on `on_niche_join` at
+  `nh/features/openness.py:167`. `pressure_index` ranks the supply metrics and inherits it.
+
+**That last one is why this is derived rather than tabulated.** The plan this ADR comes from
+placed all of `openness.*` in a middle tier on the reasoning that its pools come from channel
+membership and never from per-video relevance. Two of the three, yes. `winner_age_years`
+reads `relevance >= RELEVANCE_HIGH` directly. The error came from conflating "unaffected by
+ADR-0047's ballast", which METRICS.md does establish for openness, with "does not read
+relevance" — different claims, and the second one was never measured. A hand-maintained
+table would have shipped that mistake into the gate; the harness that produced the table
+catches it and will catch the next one. There is no middle tier: a metric either reads the
+scorer or it does not.
+
+### What the surface may show
+
+- **Ungated** — the fourteen scorer-independent metrics, and every raw observation beneath
+  them: `demand_snapshots`, `demand_series`, `channel_snapshots`, `video_snapshots`,
+  `videos`, `channels`, `discoveries` (with the query and sort order that found each video),
+  `keyword_metrics` with `currency` and `geo`, and the `raw_records` payload behind them.
+- **Gated** — the eight scorer-dependent metrics, `pressure_index`, and **the whole
+  `scorecards` row**, for any cluster on an unvalidated axis. In their place the surface
+  renders the deferral's own text and the command that discharges it. Showing *why* a number
+  is withheld is serving the register, not citing the score.
+- The gate is `nh/api/gates.py`, holding `EXPOSITION_VALIDATED: bool | None = None` — the
+  same shape as `inputs.BALLAST_VALIDATED`, and for the same reason: a human's verdict about
+  a bar, set only in the commit that records the labelling result, **never a file or an
+  environment variable the code reads**. An `NH_SHOW_UNVALIDATED` escape hatch is explicitly
+  refused; it would be exactly the thing ADR-0050 forbids, one layer out.
+- A test parametrised over `nh/features/run.py::METRICS` fails when a registered metric is
+  unclassified, so a metric added later cannot ship ungated by omission.
+
+### No FastAPI in this slice
+
+The roadmap's argument for it was "so the front end is replaceable". Replaceability is a
+**module** boundary, not a **process** boundary, and the repo already has the pattern:
+`nh/jobs/niche.py` is a pure read layer behind a presentation-only CLI. A second HTTP server
+between Streamlit and SQLite, for one operator on one machine, adds a port, a process to
+babysit in the RUNBOOK, and no capability. `nh/api/` stays import-free of anything web-shaped
+so nothing can leak into the nightly; FastAPI, if it ever arrives, is a mechanical wrapper
+over the same functions and belongs to Slice 8's deployment concern.
+
+### Also cut, and why
+
+- **The question bank and topic queue** — views over `voice.*`, a group with no source: the
+  Reddit application has been pending since 2026-08-29. Building UI for absent data is the
+  product-level version of writing a zero where a NULL belongs.
+- **The cost model** — named in the roadmap and defined nowhere: no metric, no table, no
+  entry in METRICS.md. `nh sources` and `nh status` already report quota.
+- **Rule 7 as written** — it requires `voice.unanswered_rate`. Rule 7 *minus* voice is
+  computable and is still refused: it is the demand-supply gap claim wearing an alert
+  costume, it reads gated metrics, and Gate E measured that exact shape at ρ 0.091. Recorded
+  in INSIGHT_RULES.md as refused rather than dropped, so the next reader does not re-derive
+  it as an obvious win.
+
+### The exit criterion, rewritten
+
+Was: *radar → niche → topic queue → source document in three clicks.* Two of those four
+nodes no longer exist.
+
+Now: **niche list → niche page → metric drill-down → the input rows or the source document,
+in three clicks** — with a `nh/api/drilldown.py` registry mapping every registered metric to
+the query returning its inputs. That registry is the exit criterion in executable form, and
+its test asserts a **non-empty** row set per metric on a synthetic corpus: the leakage
+fixture's vacuous-pass trap has bitten this repo twice already.
+
+### One thing this does not resolve
+
+A number whose definition is on a clock. `supply.*` reverts to `v2-on-niche` on 2026-09-14
+unless ADR-0050's recall sample is labelled, so displayed values will step that day. The
+surface renders the definition **stored on each row** (`detail.definition`,
+`detail.ballast`), never the current one, and annotates the step where it occurs — so the
+history stays readable across it. The banner naming the sunset reuses
+`inputs.ballast_active()` rather than adding a second clock read, because `inputs.py` now
+maintains an inventory of exactly one.
