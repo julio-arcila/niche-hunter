@@ -96,9 +96,18 @@ reviewer. Summarize exploration briefly.
   underpowered run; demand alone +0.049 and supply alone -0.073, so the failure is not
   in how they are combined). **Do not build the dashboard.**
 - `QuotaLedger`'s budget is per-**RUN**, not per-day. A manual `nh nightly` plus the
-  09:10 cron land in the same Pacific quota day and each believes it has the full 9,500.
-  `echo "why" > .skip-once` skips one fire and is consumed by it; never comment out the
-  crontab line. Quota day resets midnight Pacific = 02:00 local.
+  09:10 fire land in the same Pacific quota day and each believes it has the full 9,500.
+  `echo "why" > .skip-once` skips one fire and is consumed by it; never disable the
+  scheduled job instead. Quota day resets midnight Pacific = 02:00 local.
+- **The nightly runs from launchd** (`com.niche-hunter.nightly`, 09:10), not cron:
+  cron silently skips a fire the Mac sleeps through and never retries it, which is
+  how 2026-08-30 was lost for good. The backup and disk check stay in cron — the
+  launchd agent has no Full Disk Access and cannot write to iCloud at all. Each job
+  has exactly one scheduler; two means two runs in one quota day. Plists live in
+  `scripts/launchd/`; see docs/RUNBOOK.md "Scheduling".
+- **`observed_date` is UTC**, so the snapshot day boundary is **19:00 local** — not
+  the 02:00 Pacific quota reset. A catch-up nightly started after 19:00 collects for
+  *tomorrow*; that is how 2026-08-30's gap became permanent even after a rerun.
 - Known defects, unfixed: the `court-cases` successors have seeds and demand terms but
   **no lexicon**, so they can never gain members and stay retired. `winner_age_years`
   and `top10_concentration` were in `replay.BACKTEST_METRICS` while `video_snapshots` is

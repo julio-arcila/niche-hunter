@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.niche-hunter.backup</string>
+
+  <!-- ***** NOT INSTALLED. The backup still runs from cron. *****
+
+       This file is correct and ready, and installing it today would BREAK the
+       backup. Measured 2026-08-30: bootstrapped and kickstarted, the agent could
+       not even open its output file —
+
+         backup_db.sh: line 48: .../niche_hunter_2026-08-30.db.gz:
+         Operation not permitted        (agent exited 1)
+
+       The destination is iCloud Drive (~/Library/Mobile Documents), which is
+       TCC-protected. macOS grants Full Disk Access per RESPONSIBLE PROCESS: cron
+       holds that grant on this machine and writes there every morning, and a
+       launchd agent is a different responsible process holding nothing. So the
+       agent fails harder than the missed-fire problem it was meant to solve —
+       cron at least writes the backup.
+
+       To finish the move: grant Full Disk Access to the agent in System Settings
+       > Privacy & Security, then
+
+         cp scripts/launchd/com.niche-hunter.backup.plist ~/Library/LaunchAgents/
+         launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.niche-hunter.backup.plist
+         launchctl kickstart -p gui/$UID/com.niche-hunter.backup
+
+       and CHECK logs/backup.log says "backup ok" before removing the cron line.
+       Until then the cron entry is the live one and must stay. -->
+
+  <!-- As with the nightly agent: scripts/_common.sh owns the working directory,
+       PATH and .env, so this file deliberately states neither. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/mac/Projects/youtube/niche-hunter/scripts/backup_db.sh</string>
+  </array>
+
+  <!-- 30 minutes after the nightly starts. That is not a guarantee the nightly
+       has FINISHED — a large run took 20 minutes on 2026-08-31 — but the backup
+       uses sqlite3 `.backup`, which is safe against a live writer in WAL mode.
+       That is the property the ordering rests on, not the gap.
+
+       Here rather than in cron for the same reason as the nightly: a backup
+       skipped because the machine was asleep is a day of the compounding asset
+       with no offsite copy, and cron never retries it. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>9</integer>
+    <key>Minute</key><integer>40</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/mac/Projects/youtube/niche-hunter/logs/backup.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/mac/Projects/youtube/niche-hunter/logs/backup.log</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
