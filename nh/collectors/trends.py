@@ -62,9 +62,18 @@ class TrendsCollector(Collector):
         if not terms:
             self.log.warning("no trends terms mapped — run `nh seed` first")
             return
-        client = (
-            Trends(proxy=self.settings.trends_proxy) if self.settings.trends_proxy else Trends()
-        )
+        # `request_delay` is the library's OWN pacing between the several HTTP
+        # requests it makes inside one `interest_over_time` call, and it defaults
+        # to 1.0s — under the 2.5s minimum gap .claude/rules/sources.md sets for
+        # this endpoint. The `time.sleep` in `_call` paces only the calls WE make,
+        # so without this the rule was honoured between terms and broken within
+        # them. Observed 2026-08-31: repeated 429s on the live run, and trendspy's
+        # own "Too many rate limit errors (429). Consider increasing
+        # request_delay" warning. One knob, one source of truth for the gap.
+        kwargs = {"request_delay": self.settings.trends_min_gap_s}
+        if self.settings.trends_proxy:
+            kwargs["proxy"] = self.settings.trends_proxy
+        client = Trends(**kwargs)
         for term in terms:
             if self._already_observed(term):
                 # The snapshot unique key IS the cache key: one observation per
