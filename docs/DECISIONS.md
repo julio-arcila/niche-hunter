@@ -1487,3 +1487,110 @@ pass: it measures precision above the threshold only. It says nothing about **re
 right cut** for exposition niches, and nothing about **Gate E**, whose null was measured
 on a different grain entirely. A pass means the scorer is not inventing members. It does
 not mean the catalogue ranks anything.
+
+## ADR-0042 — The exposition criterion is re-specified to be labellable by a non-specialist; ADR-0041's bar is not touched
+2026-08-30. Accepted. Supersedes **only** the labelling procedure of ADR-0041. Written
+**before the replacement sample is drawn**, and before any human label exists anywhere.
+
+**Trigger.** The operator — the intended labeller, and the only person the deferral ever
+named — reports being unable to apply the criterion. That is a fact about the instrument,
+not about the operator and not about the axis. An instrument only its author can operate
+does not produce independent evidence, which is the entire thing ADR-0041 exists to buy.
+
+### The goalpost objection, answered first because it is the strongest one
+
+Earlier on 2026-08-30 a model was asked to label the drawn sample and did so, reaching
+**78 of 99**, a 95% Wilson lower bound of **0.6974** against the 0.70 bar — a fail by
+0.0026, one row. Revising an instrument after seeing a failing number is exactly how a
+bar becomes theatre, so the defences are stated explicitly and are checkable:
+
+- **That result is discarded and is not evidence of anything about the axis.** It is
+  fable-5 grading a lexicon built from fable-5 labels — the circularity ADR-0041 was
+  written to prevent. It was never written into the sample file; the write was refused
+  and the file remains at 0 of 99, byte-identical to the draw.
+- **The bar is unchanged.** 95% Wilson lower bound ≥ 0.70. Also unchanged: n (target 100,
+  minimum 80), the frame, the per-domain cap of 15, the ≥6-domain rule, draw-once, and
+  the labeller-sees-title-and-description-only rule. This ADR changes **how a row is
+  judged**, and nothing about **what must be cleared**.
+- **The trigger is independent of the result.** The operator's difficulty is not
+  contingent on 78 versus 80, and would have been reported had the machine run passed.
+
+There is one thing the machine run *is* legitimate evidence about, and it is evidence
+about the **instrument**: the rater recorded roughly a dozen rows it could have called
+either way, and the verdict moved on a single one of them. A criterion whose outcome sits
+inside one rater's own noise is under-determined. That is an argument for specifying it
+better, and it is the same argument as the operator's, arrived at from the other side.
+
+### What changes
+
+**1. Two passes, not one compound judgement.** ADR-0041 asked for SUBJECT and EXPOSITION
+to be decided together, and a labeller who is unsure which one is failing cannot answer
+either. The sample is now labelled twice, each pass one question over all rows:
+
+- **Pass A — SUBJECT.** Is this video substantially *about* the named domain, rather than
+  using its vocabulary?
+- **Pass B — EXPOSITION.** Does it explain, analyse, teach, or argue a position, rather
+  than report, vlog, promote, or entertain?
+
+`label = 1` iff both passes are yes. This costs a second read of the sample and buys two
+things: each pass is one consistent question, which is what calibration needs, and a
+failure becomes **diagnosable** — subject-failures and exposition-failures say different
+things about the lexicon, and ADR-0041 could not tell them apart.
+
+**2. An explicit `unsure` per pass.** ADR-0041's "unjudgeable counts as 0" is kept for
+the precision arithmetic, and its reasoning survives intact: the quantity measured is
+"the scorer put this above the threshold — was it right?", and a row nobody can verify is
+not evidence the scorer was right. What changes is that `unsure` is now **recorded per
+pass** rather than folded silently into 0, so ADR-0041's >10% finding becomes measurable
+on each axis separately.
+
+**3. Worked archetypes, pre-registered as part of the instrument.** This is the actual
+fix. Splitting a question a labeller cannot answer into two questions they cannot answer
+teaches nothing; what teaches the standard is worked cases. These are fixed now, before
+the draw, so they cannot be tuned to the sample, and they are deliberately generic — none
+is taken from any drawn row.
+
+*Pass A, SUBJECT — yes:* a lecture on Kant's categorical imperative for `history-of-ideas`;
+exam-prep or coursework whose syllabus topic **is** the domain; a video in any language.
+*Pass A — no:* a market bulletin tagged `#philosophy`; "paradigm shift" used as a
+motivational metaphor for `philosophy-of-science`; a corporate-finance explainer under
+`macro-economy`; a physics explainer under `philosophy-of-science` — explaining what
+science *found* is not philosophy *of* science; a scientist's biography, which is history
+of science.
+
+*Pass B, EXPOSITION — yes:* explains a mechanism; teaches a method; argues a thesis;
+analyses a case, including a market or a conflict.
+*Pass B — no:* reports that a thing happened without saying why it matters; a personal
+story with no general lesson; an advert or affiliate pitch, however fluently it uses the
+vocabulary — the archetypal false positive on record is a law firm's citizenship advert
+scoring as `landmark court cases`; a listicle or quote compilation; a **live
+performance** — someone trading live, or delivering a channelled transmission, is doing
+the thing rather than explaining it; a **roadmap or table of contents** for a series that
+has not happened yet.
+
+### The replacement draw
+
+The 2026-08-29 sample is **retired unlabelled**, not re-used: it was drawn under the
+superseded procedure, and it has been read and judged by a model whose judgements exist
+in a session transcript. A fresh draw under a **new seed** removes any question of a row
+carrying a machine opinion into a human pass. Same frame, same cap, same minimum. The
+drawn ids and scores are written to `reports/` before labelling, as before.
+
+**A contamination rule this ADR must add, because the risk is new:** the 2026-08-30
+session transcript contains a model's row-by-row judgements of the retired sample. Anyone
+labelling the replacement must not read it first. The rows overlap by construction — same
+frame — and a remembered machine call is an anchor of exactly the kind the
+title-and-description-only rule exists to prevent.
+
+### Both branches, unchanged from ADR-0041
+
+**Pass** (lower bound ≥ 0.70): the axis is validated for scoring; the eleven become
+eligible for the feature layer. Still ships **no ranking** — `scorecards.value`,
+`sustainability` and `opportunity` stay NULL behind Gate E (ADR-0029), untouched by this.
+**Fail**: the axis scores nothing, the eleven stay active and keep collecting (ADR-0039's
+principle), and the next slice takes the failures as evidence — now separable into
+subject-failures and exposition-failures, which is this ADR's one substantive gain.
+
+**What this still does not establish**, restated because a re-specification is exactly
+when a reader over-reads: precision above the threshold only. Nothing about recall,
+nothing about whether 0.55 is the right cut, nothing about Gate E.

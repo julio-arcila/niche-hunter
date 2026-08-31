@@ -870,7 +870,11 @@ AXES: dict[str, str] = {
     # it was retired, and this registry is keyed on LEXICONS, not on seeds. A retired
     # niche with no lexicon has nothing to score and so has no axis to declare.
     # The eleven-domain pivot. `EXPOSITION`, 107 machine labels, held-out 0.866.
-    # All inactive pending human validation (ADR-0034).
+    # ACTIVE and collecting since ADR-0040 — an earlier version of this comment said
+    # "all inactive pending human validation (ADR-0034)", which stopped being true the
+    # day they were activated. The validation itself is still outstanding: a human
+    # labels a 99-row sample under ADR-0042's two-pass criterion, and until it clears a
+    # 95% Wilson lower bound of 0.70 these scores ship nothing.
     "philosophy-of-science": "exposition",
     "esoterism-spirituality": "exposition",
     "metaphysical-battles": "exposition",

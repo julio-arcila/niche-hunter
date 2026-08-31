@@ -69,21 +69,30 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 - Phase: **Slice 9 shipped; the exposition-axis labelling is the open task.** Branch
-  `slice-11-eleven-domain-pivot`. Suite green at **716**.
+  `slice-11-eleven-domain-pivot`. Suite green at **721**.
 - **THE ONE THING WAITING ON A HUMAN — do not do this for them.**
-  `reports/exposition_labelling_2026-08-29.jsonl` holds **99 unlabelled rows**. The
-  operator labels them (said 2026-08-29 they would do it the next day). Fill `label`
-  with 1/0. The criterion, the bar and both branches are fixed in
-  `reports/exposition_draw_2026-08-29.md` and **ADR-0041**, written before the sample
-  existed. **Ships iff the 95% Wilson lower bound >= 0.70, i.e. 79 of 99 correct.**
-  A model must not label these: the whole objection is that the existing evidence is
-  107 machine labels from one model family, and kappa between two raters of that family
-  cannot detect a bias they share. When the file comes back: compute the interval, write
-  the result report, and if it fails say what that means about the lexicon.
-- **Do not revise ADR-0041 or the criterion.** Not the bar, not the sampling rule, not
-  the unjudgeable-counts-as-0 rule. Revision after labels is a new ADR that says why,
-  and a re-label. Parity with EVENT's 0.781 was already considered and rejected as
-  undecidable at this n (needs 87/100); do not relitigate it.
+  `reports/exposition_labelling_2026-08-30.jsonl` holds **99 unlabelled rows**, drawn
+  under **ADR-0042** (seed 20260830, reproducible via
+  `scripts/draw_exposition_sample.py`). Label with
+  `uv run python scripts/label_exposition.py` — **two passes**, SUBJECT then EXPOSITION,
+  `y`/`n`/`?`; `label = 1` iff both yes. Criterion, archetypes, bar and both branches are
+  fixed in `reports/exposition_draw_2026-08-30.md`. **Ships iff the 95% Wilson lower
+  bound >= 0.70, i.e. 79 of 99.** When it comes back: compute the interval, write the
+  result report, and if it fails say what that means about the lexicon — now separably,
+  since subject-failures and exposition-failures are recorded apart.
+- **A model must not label these**, and on 2026-08-30 one was asked to and did, reaching
+  78/99 (lower bound 0.6974) on the RETIRED sample. That number is discarded, not
+  evidence: it is fable-5 grading a lexicon built from fable-5 labels. It was never
+  written to the file. **Do not read this session's transcript before labelling** — it
+  holds row-by-row machine judgements over the same frame, and a remembered call anchors.
+- **The 2026-08-29 sample is retired unlabelled** (ADR-0042) and stays on disk as
+  history. It is not the live sample; the live one is dated 2026-08-30.
+- **Do not revise the bar or the sampling rule.** ADR-0042 re-specified only HOW a row is
+  judged — two passes plus an explicit `unsure` — because the intended labeller could not
+  apply the single compound criterion. n, frame, cap, the >=6-domain rule and the 0.70
+  bound are all unchanged, deliberately: revising an instrument after a failing number is
+  how a bar becomes theatre. Parity with EVENT's 0.781 was considered and rejected as
+  undecidable at this n; do not relitigate it.
 - **The eleven domains are ACTIVE and collecting** (ADR-0040), applied as both a
   catalogue change and an `UPDATE` — `apply_seeds` keeps `active` outside its upsert
   update set, so a code edit alone never reaches an existing row. That mistake already
@@ -101,10 +110,12 @@ reviewer. Summarize exploration briefly.
   scheduled job instead. Quota day resets midnight Pacific = 02:00 local.
 - **The nightly runs from launchd** (`com.niche-hunter.nightly`, 09:10), not cron:
   cron silently skips a fire the Mac sleeps through and never retries it, which is
-  how 2026-08-30 was lost for good. The backup and disk check stay in cron — the
-  launchd agent has no Full Disk Access and cannot write to iCloud at all. Each job
-  has exactly one scheduler; two means two runs in one quota day. Plists live in
-  `scripts/launchd/`; see docs/RUNBOOK.md "Scheduling".
+  how 2026-08-30 was lost for good. The backup and disk check stay in cron, because
+  **cron holds Full Disk Access** (granted 2026-08-30) and the launchd agent does not:
+  measured, an agent can CREATE a new file in iCloud but cannot overwrite one or
+  enumerate the directory, so retention would break there. Each job has exactly one
+  scheduler; two means two runs in one quota day. Plists live in `scripts/launchd/`;
+  see docs/RUNBOOK.md "Scheduling".
 - **`observed_date` is UTC**, so the snapshot day boundary is **19:00 local** — not
   the 02:00 Pacific quota reset. A catch-up nightly started after 19:00 collects for
   *tomorrow*; that is how 2026-08-30's gap became permanent even after a rerun.
