@@ -95,6 +95,58 @@ WITHHELD = (
 )
 
 
+#: **Every path by which a scorer-decided number, or a proxy for one, may reach a reader.**
+#:
+#: This register exists because of what an independent review found on 2026-08-31: ADR-0052
+#: states an absolute — "may not display a number the scorer decided" — and the slice then
+#: opened seven separately-argued doors through that wall, each locally plausible, each
+#: argued in a different file, and **no artifact enumerating the union**. Nobody could see
+#: that the wall had become mostly doors, and the tests could not either: one of the doors
+#: (`pressure_index`'s drilldown serving `median_views` for all ten gated clusters) was
+#: nobody's decision at all.
+#:
+#: It is the same shape as `DEFERRALS` and `reports.FORBIDDEN_STEMS`: the repo's answer to
+#: "a rule with exceptions" is to enumerate the exceptions in one place and test the list,
+#: not to trust that each was reasonable where it was written. Adding a door means adding a
+#: row here, which is the point.
+#:
+#: `test_gates.py::test_the_disclosure_register_is_complete` sweeps it.
+DISCLOSURES: tuple[tuple[str, str], ...] = (
+    (
+        "drilldown rows for a gated metric",
+        "The aggregate claim is withheld; the observations needed to judge it are not, or "
+        "the scorer becomes unvalidatable — which is backwards. Narrowed after review: the "
+        "`relevance` column and the fetched-count line are dropped when gated, because "
+        "(video, score) pairs for the whole frame are a contamination surface for anyone "
+        "about to label a sample, and the count is a step toward the withheld denominator.",
+    ),
+    (
+        "counts in an ALERT — `inputs_n`, ballast channel counts",
+        "A count of rows the scorer decided about is a fact about the pipeline, not a claim "
+        "about a niche, and an alert's whole subject is the pipeline. The metric TABLE still "
+        "blanks them beside a withheld value, for a presentation reason rather than an "
+        "epistemic one: a half-blank row reads as a bug rather than as a decision.",
+    ),
+    (
+        "`nh niche show --unvalidated`",
+        "A human asking once, at the moment of asking, recording nothing — not the stored "
+        "setting standing in for a verdict that ADR-0050 forbids. The output now carries a "
+        "banner naming itself, so a pasted transcript cannot become an unmarked citation.",
+    ),
+    (
+        "the reports viewer",
+        "`reports/*.md` are the written record and quote gated numbers throughout — that is "
+        "what a report is. They are dated, attributed, and argued, which is the opposite of "
+        "a number presented as a current finding. The draws are excluded three ways.",
+    ),
+    (
+        "the ballast banner's 0.0758 vs 0.2273 A/B",
+        "A worked example of the thing being flagged, labelled as a same-day A/B, and the "
+        "reason the reader is being warned at all.",
+    ),
+)
+
+
 @dataclass(frozen=True, slots=True)
 class Verdict:
     """Whether a number may be shown, and if not, what to show instead."""
@@ -143,14 +195,32 @@ def citable(name: str, cluster_id: str) -> Verdict:
     return Verdict(False, WITHHELD.format(axis=axis))
 
 
+GATE_E_NULL = (
+    "not shown: `scorecards` is the demand-minus-supply construct Gate E measured at "
+    "rho 0.091, p 0.4988 on 2026-08-28 — a null, not an underpowered run. `value` and "
+    "`opportunity` were to be its outputs and stay NULL; `gap` and `stage` are the "
+    "composite it failed to support. Reviving the claim needs a corpus containing "
+    "channels that FAILED, which YouNiverse is not. See reports/backtest_2026-08-28.md."
+)
+
+
 def scorecard_citable(cluster_id: str) -> Verdict:
-    """May any `scorecards` field be shown for this cluster?
+    """May any `scorecards` field be shown for this cluster? **No, on any axis.**
 
     All or nothing, deliberately. `gap` is demand minus supply; showing `demand` alone from
-    a row whose `supply` is withheld invites the reader to reconstruct the difference, which
-    is the citation the gate exists to prevent.
+    a row whose `supply` is withheld invites the reader to reconstruct the difference.
+
+    **Two independent reasons, and the second is the one that binds.** An independent review
+    on 2026-08-31 found this keyed only on axis validation, so the five retired EVENT
+    clusters rendered `gap=-0.467` in the web list and in `nh niche show` — while ROADMAP
+    and CLAUDE.md both said this slice ships "no rendering of `scorecards`". Two docs and
+    the code disagreed, and the code was the loosest.
+
+    The review's argument is right and is not about the scorer: `gap`'s problem is Gate E's
+    null, which no amount of human labelling repairs, because the corpus cannot express
+    emergence at all. The EVENT axis has 298 human labels and precision 0.781 — it clears
+    the scorer bar and still may not show a `gap`, because a validated scorer feeding a
+    nulled composite is a well-measured input to a claim that failed. So this returns False
+    unconditionally, and it is the axis-independent reason that is quoted.
     """
-    axis = axis_of(cluster_id)
-    if axis_validated(axis):
-        return CITABLE
-    return Verdict(False, WITHHELD.format(axis=axis))
+    return Verdict(False, GATE_E_NULL)

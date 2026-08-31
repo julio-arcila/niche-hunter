@@ -2162,7 +2162,7 @@ Measured effect, live corpus:
 
 | | members | relevance_coverage | on_niche_share |
 |---|---|---|---|
-| history-of-ideas | 205 -> 94 | 0.803 -> 0.629 | 0.076 -> **0.226** |
+| history-of-ideas | 205 -> 94 | 0.803 -> 0.629 | 0.0758 -> **0.2273** (A/B) |
 | trading | 288 -> 273 | 0.743 -> 0.735 | 0.592 -> 0.635 |
 
 **These are STORED-score numbers** (111 ballast for history-of-ideas), sitting beneath a
@@ -2206,7 +2206,7 @@ review measured what its absence hid.** Every metric stamping `DEFINITION` now a
 carries `detail.ballast = {n, channels, rows}` — for `history-of-ideas` today,
 `{n: 10, channels: 126, rows: 2156}`.
 
-The review's measurement is why. `history-of-ideas` `on_niche_share` moved 0.076 -> 0.227
+The review's measurement is why. `history-of-ideas` `on_niche_share` reads 0.0758 vs 0.2273 across an A/B on one day's corpus
 across two days, and the numerator is **identical: 230 on-niche videos before and after**.
 The entire 3x is denominator removal — 2,156 of 3,824 video rows (56%) leaving at read
 time — with corpus growth contributing −0.002 and ADR-0046 about +0.001. The niche did not
@@ -2355,12 +2355,22 @@ An independent reviewer read ADR-0042 through ADR-0049 as a stack, which no in-l
 reviewer had done — each of those saw one diff and never the cumulative state. It measured:
 
 ```
-history-of-ideas on_niche_share   0.076 -> 0.227
-on-niche videos before:  230
-on-niche videos after:   230
+A/B on ONE day's corpus (2026-08-31), which is what isolates the definition:
+  without ballast   230 / 3033 = 0.0758
+  with ballast      230 / 1012 = 0.2273
+  numerator          230  ->  230        identical
+
+The STORED night-over-night step, for comparison:
+  2026-08-29        154 / 1971 = 0.0781
+  2026-08-31        230 / 1012 = 0.2273
 ```
 
-The numerator is identical. ADR-0047 supplies the entire +0.151 by removing **2,156 of
+The numerator is identical **in the A/B**, which is the comparison that matters here
+because it holds the corpus fixed and varies only the rule. The stored step moves both
+sides — two days passed and the corpus grew — and an earlier draft of this ADR quoted the
+A/B pair as if it were the stored one. Corrected 2026-08-31 after review: a figure measured
+under one procedure and presented as another is the defect this repo keeps re-finding, and
+it does not stop being that when the number supports the argument. ADR-0047 supplies the entire +0.151 by removing **2,156 of
 3,824 video rows (56%)** from the denominator at read time; corpus growth accounts for
 −0.002 and ADR-0046 for about +0.001. The niche did not improve. The metric began
 answering a different question under the same name, and `supply.DEFINITION` marking the

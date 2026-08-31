@@ -45,7 +45,14 @@ BREAKOUT_Z = 2.0
 #: Below this many baseline windows the sd is not worth computing. 365 days of dailies
 #: gives 13; eight is "most of a year present".
 BREAKOUT_MIN_WINDOWS = 8
-BASELINE_DAYS = 365
+BASELINE_DAYS = 364  # 13 whole 28-day windows, exactly
+#: Share of a baseline window's article-days that must be present for it to count.
+BREAKOUT_MIN_COVERAGE = 0.8
+#: Days after a firing before this rule may fire again for the same cluster. The recent
+#: window slides one day per night, so a single real spike would otherwise fire for 28
+#: consecutive nights — 28 distinct `(cluster, rule, fired_on)` rows for one event, which
+#: is how a feed teaches its reader to skim.
+BREAKOUT_COOLDOWN_DAYS = WINDOW_DAYS
 
 #: Rule 3. `inputs_n` falling by more than half between stored days.
 COLLAPSE_RATIO = 0.5
@@ -115,14 +122,21 @@ def demand_breakout(session: Session, cluster_id: str, day: date) -> Finding | N
     if not points:
         return None
 
+    # `range`, not a while-loop on elapsed days: the loop condition `(mid - edge).days <
+    # BASELINE_DAYS` admitted a fourteenth window starting at day 364 and reaching 392 days
+    # back, while the constant's comment said 365 gives 13. Harmless in effect, wrong as
+    # stated, and the kind of off-by-one that later gets quoted as a measurement.
     baseline: list[float] = []
-    edge = mid
-    while (mid - edge).days < BASELINE_DAYS:
-        lower = edge - timedelta(days=WINDOW_DAYS)
-        n, total = _window(session, terms, lower, edge)
-        if n:
+    expected = WINDOW_DAYS * len(terms)
+    for step in range(BASELINE_DAYS // WINDOW_DAYS):
+        upper = mid - timedelta(days=WINDOW_DAYS * step)
+        n, total = _window(session, terms, upper - timedelta(days=WINDOW_DAYS), upper)
+        # A coverage floor, absent until the 2026-08-31 review. `if n:` admitted a window
+        # holding one article-day at full weight — a backfill edge, or an article added to
+        # the seed mid-year — which drags the mean down, shrinks the sd, and inflates z for
+        # a fully covered recent window. The metric layer has `_adequacy` for exactly this.
+        if n >= expected * BREAKOUT_MIN_COVERAGE:
             baseline.append(total)
-        edge = lower
     if len(baseline) < BREAKOUT_MIN_WINDOWS:
         return None
 
@@ -132,6 +146,8 @@ def demand_breakout(session: Session, cluster_id: str, day: date) -> Finding | N
         return None
     z = (recent - mean) / sd
     if z < BREAKOUT_Z:
+        return None
+    if _fired_recently(session, cluster_id, "demand_breakout", day, BREAKOUT_COOLDOWN_DAYS):
         return None
     return Finding(
         rule="demand_breakout",
@@ -149,9 +165,32 @@ def demand_breakout(session: Session, cluster_id: str, day: date) -> Finding | N
             "volatility_365d": _volatility(session, cluster_id, day),
             "note": (
                 "an observation about attention, not a forecast — Gate E's null is about "
-                "prediction and this rule does not predict"
+                "prediction and this rule does not predict. Two false positives to check "
+                "before acting: a single news event rather than standing interest (read "
+                "the volatility beside this), and an ANNUAL peak, which fires every year "
+                "and is what `demand.wiki_seasonality` measures"
             ),
         },
+    )
+
+
+def _fired_recently(session: Session, cluster_id: str, rule: str, day: date, cooldown: int) -> bool:
+    """Has this rule already fired for this cluster inside the cooldown?
+
+    Read from `alerts` rather than tracked in memory: the phase runs once a night in a
+    fresh process, so the only durable record of "we already said this" is the row.
+    """
+    return bool(
+        session.scalar(
+            sa.select(sa.func.count())
+            .select_from(Alert)
+            .where(
+                Alert.cluster_id == cluster_id,
+                Alert.rule == rule,
+                Alert.fired_on > day - timedelta(days=cooldown),
+                Alert.fired_on < day,
+            )
+        )
     )
 
 
@@ -168,9 +207,9 @@ def _volatility(session: Session, cluster_id: str, day: date) -> float | None:
 def definition_step(session: Session, cluster_id: str, day: date) -> Finding | None:
     """Rule 2 — a value that moved because the definition moved.
 
-    Not news about the niche, and the reason this rule exists: ADR-0047 moved
-    `on_niche_share` 0.076 -> 0.227 on an **identical numerator of 230**, and nothing said
-    so at the time. This is also what fires on 2026-09-14 when ADR-0050's sunset reverts
+    Not news about the niche, and the reason this rule exists: ADR-0047 took
+    `on_niche_share` from 0.0758 to 0.2273 on the same day's corpus, an **identical
+    numerator of 230**, and nothing said so at the time. This is also what fires on 2026-09-14 when ADR-0050's sunset reverts
     `supply.*` to `v2-on-niche`.
 
     Ungated: it cites no metric VALUE, only that a definition changed, which is a fact
@@ -252,6 +291,14 @@ def evidence_collapse(session: Session, cluster_id: str, day: date) -> Finding |
     Ungated: it reads existence and `inputs_n`, never a value. Its documented false
     positive — a cluster retired between the two days — is checked rather than left to the
     reader, because that is a decision and not a collapse.
+
+    **A second false positive, found by review and NOT suppressed: a definition change.**
+    ADR-0047 took `on_niche_share`'s `inputs_n` from 1,971 to 1,012 across 2026-08-29 to
+    08-31 — a 48.7% fall, just under this rule's bar, and a slightly larger cut would have
+    fired "collapse" for what was a decision. It is left firing deliberately: a definition
+    that removes half a population IS worth a second look, and Rule 2 fires beside it and
+    names the cause. Suppressing it would hide the loudest case of the thing Rule 2 exists
+    to report.
     """
     days = _stored_days(session, cluster_id, day)
     if len(days) < 2 or days[0] != day:
@@ -275,17 +322,18 @@ def evidence_collapse(session: Session, cluster_id: str, day: date) -> Finding |
             and became.inputs_n is not None
             and became.inputs_n < was.inputs_n * COLLAPSE_RATIO
         ):
-            # The NAME and the fact, always; the counts only when the metric is not gated.
-            # `inputs_n` is how many rows the scorer decided about, and ADR-0052 withholds
-            # it alongside the value in `nh niche show` — "a half-blank row reads as a bug
-            # rather than as a decision". An alert quoting the count of a metric whose
-            # value is withheld would be that decision leaking out of a side door.
-            entry: dict[str, Any] = {"metric": name}
-            if _citable(name):
-                entry |= {"from": was.inputs_n, "to": became.inputs_n}
-            else:
-                entry["counts"] = "withheld — unvalidated scorer (ADR-0052)"
-            thinned.append(entry)
+            # Counts are reported for gated metrics too, and the 2026-08-31 review is why:
+            # this masked `inputs_n` while Rule 2 published ballast CHANNEL counts — the
+            # same class of number — so the module held both positions at once.
+            #
+            # Resolved toward reporting, with the reason in `gates.DISCLOSURES`: a count of
+            # rows the scorer decided about is a fact about the PIPELINE, not a claim about
+            # a niche, and an alert's whole subject is the pipeline. The metric TABLE still
+            # blanks a count beside a withheld value, but for a presentation reason — a
+            # half-blank row reads as a bug rather than as a decision — not this one.
+            # `inputs_n` for `on_niche_share` is its DENOMINATOR; the numerator is never
+            # emitted, so no withheld value is reconstructible from an alert.
+            thinned.append({"metric": name, "from": was.inputs_n, "to": became.inputs_n})
     if not lost and not thinned:
         return None
     return Finding(
@@ -298,18 +346,6 @@ def evidence_collapse(session: Session, cluster_id: str, day: date) -> Finding |
             "lost_inputs": thinned,
         },
     )
-
-
-def _citable(name: str) -> bool:
-    """Whether this metric's numbers may appear in an alert.
-
-    Imported from the gate rather than re-listed: `gates.SCORER_DEPENDENT` is itself
-    derived by execution (`test_gates.py` recomputes it), so a metric that starts reading
-    relevance stops being quotable here without anyone editing this file.
-    """
-    from nh.api.gates import SCORER_DEPENDENT
-
-    return name not in SCORER_DEPENDENT
 
 
 def _is_active(session: Session, cluster_id: str) -> bool:

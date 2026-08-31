@@ -242,10 +242,18 @@ def test_rule_3_does_not_fire_on_a_retired_cluster(seeded):
     assert rules.evidence_collapse(session_for(seeded), CLUSTER, DAY) is None
 
 
-def test_rule_3_withholds_the_counts_of_a_gated_metric(seeded):
-    """An alert is a citation (ADR-0045). `inputs_n` is how many rows the scorer decided
-    about, and `nh niche show` withholds it beside the value — so quoting it here would be
-    that decision leaking through a side door. The fact of the collapse is still reported."""
+def test_rule_3_reports_counts_for_a_gated_metric_too(seeded):
+    """Counts ARE reported in an alert, and the reversal is deliberate.
+
+    This asserted the opposite until 2026-08-31, when a review pointed out that Rule 3
+    masked `inputs_n` while Rule 2 published ballast CHANNEL counts — the same class of
+    number — so the module held both positions at once. Resolved toward reporting, with the
+    reason recorded in `gates.DISCLOSURES`: a count of rows the scorer decided about is a
+    fact about the PIPELINE, and an alert's whole subject is the pipeline. The metric TABLE
+    still blanks a count beside a withheld value, for a presentation reason rather than an
+    epistemic one. `inputs_n` for `on_niche_share` is its DENOMINATOR; the numerator is
+    never emitted, so no withheld value is reconstructible from an alert.
+    """
     yesterday = DAY - timedelta(days=1)
     with session_scope(seeded) as s:
         s.get(NicheSeed, 1).slug = "history-of-ideas"
@@ -255,10 +263,7 @@ def test_rule_3_withholds_the_counts_of_a_gated_metric(seeded):
     finding = rules.evidence_collapse(session_for(seeded), "history-of-ideas", DAY)
 
     assert finding is not None
-    entry = finding.evidence["lost_inputs"][0]
-    assert entry["metric"] == "on_niche_share"
-    assert "from" not in entry and "to" not in entry
-    assert "withheld" in entry["counts"]
+    assert finding.evidence["lost_inputs"] == [{"metric": "on_niche_share", "from": 500, "to": 10}]
 
 
 # --- the phase ---------------------------------------------------------------------

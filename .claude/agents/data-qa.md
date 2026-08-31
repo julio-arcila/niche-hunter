@@ -38,8 +38,9 @@ Given a `run_id` (or the most recent one in `job_runs`), report:
    history-of-ideas sits at 126 of 205 member channels by construction. A batch of
    channels tipping into ballast is what a lexicon regression looks like from here, and
    it makes every share metric improve overnight while the numerator does not move —
-   which is exactly how ADR-0047 raised `on_niche_share` 0.076 -> 0.227 on an identical
-   numerator of 230. Until ADR-0050's recall sample is labelled, that number is
+   which is exactly what ADR-0047 does: held against one day's corpus it takes
+   `on_niche_share` from 0.0758 to 0.2273 on an identical numerator of 230. (The stored
+   step across 08-29 -> 08-31 is 0.0781 -> 0.2273; the numerator moved 154 -> 230 there.) Until ADR-0050's recall sample is labelled, that number is
    unvalidated; say so whenever you quote it.
 
 Lead with anything anomalous. If everything is clean, say so in three lines.

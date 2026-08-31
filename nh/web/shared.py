@@ -75,9 +75,12 @@ def ballast_banner() -> None:
         )
         return
     st.info(
-        f"**`supply.*` is on a clock.** ADR-0047 excludes 585 ballast channels, which "
-        f"moved `history-of-ideas on_niche_share` 0.076 → 0.227 on an identical numerator "
-        f"of 230 — the whole move is denominator removal, and it is unvalidated. Unless "
+        f"**`supply.*` is on a clock.** ADR-0047 excludes 585 ballast channels. Held "
+        f"against the SAME day's corpus, `history-of-ideas on_niche_share` reads 0.0758 "
+        f"without the exclusion and 0.2273 with it, on an identical numerator of 230 — so "
+        f"the whole difference is denominator removal, and it is unvalidated. (The stored "
+        f"night-over-night step is 0.0781 → 0.2273; the numerator moved 154 → 230 there, "
+        f"because the corpus also grew.) Unless "
         f"the recall sample is labelled, this reverts to `v2-on-niche` on "
         f"{feature_inputs.BALLAST_SUNSET} ({remaining} days): "
         f"`uv run python scripts/label_exposition.py --sample recall`"

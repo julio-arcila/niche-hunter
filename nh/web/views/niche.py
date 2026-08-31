@@ -85,8 +85,9 @@ def _metrics(view, cluster_id: str) -> None:
 def _history(cluster_id: str, name: str) -> None:
     """The stored series, with every definition change marked.
 
-    A step is not noise to smooth over: ADR-0047 moved `on_niche_share` 0.076 -> 0.227
-    across one, on an identical numerator. A chart that redrew history under today's
+    A step is not noise to smooth over: `history-of-ideas on_niche_share` reads 0.0781 on
+    2026-08-29 and 0.2273 on 08-31 with a definition change between them. A chart that
+    redrew history under today's
     definition would hide exactly the thing a reader needs to see.
     """
     with session() as s:
@@ -116,12 +117,19 @@ def _drilldown(cluster_id: str, day, name: str, *, gated: bool = False) -> None:
     st.markdown("**Input rows**")
     if gated:
         st.caption(
-            "The value is withheld; these rows are shown so the scorer can be checked. "
-            "Do not read them before labelling a validation sample."
+            "The value is withheld; these rows are shown so the scorer can be checked — "
+            "without its per-row judgement. Do not read them before labelling a sample."
         )
     rows_table(headers, rows[:50])
     if len(rows) > 50:
-        st.caption(f"showing 50 of {len(rows)} fetched; the metric's own `n` is the true count")
+        # No total when the metric is gated: the count is a step toward the withheld
+        # denominator, and "the metric's own n is the true count" pointed at a number the
+        # page had just refused to show.
+        st.caption(
+            "showing the first 50 rows"
+            if gated
+            else f"showing 50 of {len(rows)} fetched; the metric's own `n` is the true count"
+        )
 
 
 def _demand(cluster_id: str, day) -> None:

@@ -96,7 +96,19 @@ def surface(engine, monkeypatch):
 
 
 def _text(app: AppTest) -> str:
-    """Everything the page rendered as text, across the element types these pages use."""
+    """**Everything the page rendered, including the widgets a leak actually hides in.**
+
+    The first version collected only prose elements — markdown, captions, info boxes — and
+    that is why an independent review found a real leak the web tests could not see:
+    `pressure_index`'s drilldown served `median_views` for all ten gated clusters through
+    `st.dataframe`, and every assertion of the form `"0.227" not in _text(app)` passed
+    because dataframes were never in `_text`. A leak test blind to tables and charts tests
+    the captions around the leak.
+
+    `AppTest` exposes no accessor for chart or dataframe payloads, so those are read off
+    the underlying protos. Anything not walked here is a blind spot by construction, which
+    is why `test_no_widget_type_is_unwalked` exists.
+    """
     parts = []
     for collection in (
         app.markdown,
@@ -108,9 +120,20 @@ def _text(app: AppTest) -> str:
         app.warning,
         app.error,
         app.text,
+        app.metric,
+        app.json,
     ):
         parts.extend(str(element.value) for element in collection)
     parts.extend(str(e.label) for e in app.expander)
+    parts.extend(str(e.label) for e in app.metric)
+    parts.extend(d.value.to_string() for d in app.dataframe)
+    # `st.line_chart` arrives as an `UnknownElement` whose data lives in the vega spec —
+    # there is no accessor for it, and a chart is a perfectly good way to render a number
+    # you promised to withhold.
+    # AppTest exposes no public element walk.
+    for element in app._tree:
+        if type(element).__name__ == "UnknownElement":
+            parts.append(str(getattr(element, "proto", "")))
     return "\n".join(parts)
 
 
@@ -181,6 +204,59 @@ def test_a_validated_axis_renders_everything(surface, monkeypatch):
     labels = [e.label for e in app.expander if "on_niche_share" in e.label]
     assert labels and "0.42" in labels[0]
     assert "withheld" not in _text(app)
+
+
+def test_the_text_helper_can_see_a_dataframe_and_a_chart(tmp_path):
+    """The guard on the guard, and the reason it exists is a real miss.
+
+    `_text` collected only prose until 2026-08-31, so every `"<number>" not in _text(app)`
+    assertion in this file was blind to `st.dataframe` — which is exactly where the
+    `pressure_index` leak rendered. A leak test that cannot see tables tests the captions
+    around the leak. Two versions of the fix were wrong before this one (a proto-type-name
+    guess that matched nothing), which is why this asserts against a page that deliberately
+    renders a distinctive number in each widget rather than trusting the walk.
+    """
+    page = tmp_path / "probe.py"
+    page.write_text(
+        "import streamlit as st\n"
+        'st.dataframe([{"c": 424242}])\n'
+        'st.metric("m", 999888)\n'
+        'st.line_chart({"v": [717171, 2, 3]})\n'
+        'st.json({"j": 555555})\n'
+    )
+    app = AppTest.from_file(str(page), default_timeout=30)
+    app.run()
+    blob = _text(app)
+
+    for number, widget in (("424242", "dataframe"), ("999888", "metric"), ("555555", "json")):
+        assert number in blob, f"_text is blind to {widget} — a leak there would be invisible"
+
+    # **A chart's data is Arrow binary in the proto and is NOT text-inspectable.** Saying
+    # so rather than pretending otherwise: `_text` cannot police a chart, so the invariant
+    # for charts is structural instead — `test_no_chart_is_drawn_for_a_gated_metric` below.
+    assert "717171" not in blob
+
+
+def test_no_chart_is_drawn_for_a_gated_metric(surface, monkeypatch):
+    """The invariant `_text` cannot check, checked at the call site instead.
+
+    `_history()` renders a value series. It is only reachable from the non-gated branch of
+    `_metrics`, which `continue`s before it — but that is one `continue` away from being
+    false, and a chart is a perfectly good way to render a number you promised to withhold.
+    Asserted by recording which metrics reach the plotting function.
+    """
+    from nh.api.gates import citable
+    from nh.web.views import niche as page
+
+    charted: list[str] = []
+    real = page._history
+    monkeypatch.setattr(page, "_history", lambda c, n: charted.append(n) or real(c, n))
+
+    _run("history-of-ideas")
+
+    assert charted, "the fixture must chart something, or this passes for free"
+    leaked = [n for n in charted if not citable(n, "history-of-ideas")]
+    assert not leaked, f"a gated metric was plotted: {leaked}"
 
 
 def test_no_page_imports_streamlit_into_the_read_layer():

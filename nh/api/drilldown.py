@@ -210,6 +210,7 @@ def _ranked_metrics(session: Session, cluster_id: str, day: date) -> Rows:
     cluster's row — which is also why `detail.ranked_over` exists and why the metric warns
     it is not comparable across days whose cluster set changed.
     """
+    from nh.api.gates import citable
     from nh.features.run import PRESSURE_FROM
 
     rows = session.execute(
@@ -220,7 +221,24 @@ def _ranked_metrics(session: Session, cluster_id: str, day: date) -> Rows:
         .order_by(FeatureDaily.name, FeatureDaily.value.desc())
         .limit(LIMIT)
     ).all()
-    return ["cluster", "component", "value", "confidence"], [tuple(r) for r in rows]
+    # **Masked per row, and this was a real leak.** `PRESSURE_FROM` is `median_views` and
+    # `uploads_per_week` — both gated — so this drilldown served, for all ten unvalidated
+    # clusters, the exact values withheld two expanders above it. Found by an independent
+    # review 2026-08-31, and it defeats the gate rather than bending it: the inputs to a
+    # RANK are other scorer-decided aggregates, so the "observations, not claims" argument
+    # that licenses every other drilldown does not reach here.
+    #
+    # Masked by the ROW's cluster, not the page's: a `philosophy-of-science` page listing
+    # `history-of-ideas` values would leak just as well.
+    return (
+        ["cluster", "component", "value", "confidence"],
+        [
+            (cluster, name, value, confidence)
+            if citable(name, cluster)
+            else (cluster, name, "withheld", "withheld")
+            for cluster, name, value, confidence in rows
+        ],
+    )
 
 
 def raw_source(session: Session, sha: str) -> tuple[str, str] | None:
@@ -275,9 +293,33 @@ REGISTRY: dict[str, Drilldown] = {
 }
 
 
-def rows_behind(session: Session, name: str, cluster_id: str, day: date) -> Rows:
-    """The input rows for one metric, or empty headers if it has no drilldown."""
+#: Columns dropped from a gated metric's drilldown. `relevance` is the scorer's per-row
+#: judgement, and serving (video, score) pairs for the whole frame is a contamination
+#: surface for anyone about to label a validation sample — the repo defends that blinding
+#: with three independent guards in `api/reports.py` and then handed it out here, one click
+#: from the withheld number, behind a caption asking the reader not to look. Narrowed after
+#: the 2026-08-31 review. The rows still answer "what is in this population"; they stop
+#: answering "what did the scorer think of each one".
+GATED_COLUMNS = ("relevance",)
+
+
+def rows_behind(
+    session: Session, name: str, cluster_id: str, day: date, *, gated: bool | None = None
+) -> Rows:
+    """The input rows for one metric, or empty headers if it has no drilldown.
+
+    `gated` defaults to asking the gate, so a caller cannot get the wide version by
+    forgetting to ask — the same fail-safe direction as `jobs.niche.load`.
+    """
     fn = REGISTRY.get(name)
     if fn is None:
         return [], []
-    return fn(session, cluster_id, day)
+    headers, rows = fn(session, cluster_id, day)
+    if gated is None:
+        from nh.api.gates import citable
+
+        gated = not citable(name, cluster_id)
+    if not gated:
+        return headers, rows
+    keep = [i for i, h in enumerate(headers) if h not in GATED_COLUMNS]
+    return [headers[i] for i in keep], [tuple(row[i] for i in keep) for row in rows]

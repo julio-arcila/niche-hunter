@@ -432,15 +432,21 @@ gated-or-not by a test that fails on an unclassified one · each shipped rule ha
 synthetic test that fires it and one that does not.
 
 **Checked, not asserted:** 22 of 22 metrics have a drilldown, a basis and a gate verdict;
-9 are gated and 14 are not, *derived by execution* rather than tabulated; `PHASES` is four;
+**8 of the 22 are gated and 14 are not**, plus `pressure_index`, which is a cross-cluster
+rank and not one of the 22 — an earlier version of this line said "9 and 14", which sums to
+23 and counted it twice. Gated-ness is *derived by execution* rather than tabulated;
+`PHASES` is four;
 three rules ship with a fire and a not-fire test each; and the Keyword Planner chain
 terminates in `raw_records` — via a **12-character prefix** join, which the first attempt
 to follow it got wrong, so `drilldown.raw_source()` owns that join now.
 
-**What it does not do, by design:** display a `scorecards` field or any of the eight
-scorer-dependent metrics for an unvalidated axis, which is every active cluster today. The
-labelling in ADR-0041 and ADR-0050 is what opens those, and the surface names the command
-in place of each withheld number.
+**What it does not do, by design:** display any of the eight scorer-dependent metrics for
+an unvalidated axis — which is every active cluster today — or a `scorecards` field **on any
+axis at all**. Those are two different gates keyed to two different failures, and a review
+on 2026-08-31 found the second one keyed wrongly: it consulted axis validation, so the five
+retired EVENT clusters rendered `gap=-0.467` while this document and CLAUDE.md both promised
+no scorecard rendering. `gap`'s problem is Gate E's null, which human labelling cannot
+repair. Labelling opens the metrics; nothing currently opens the scorecard.
 
 ---
 

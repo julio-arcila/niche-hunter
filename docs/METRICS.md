@@ -855,7 +855,7 @@ exclude its videos. **`openness.*` deliberately does not** — measured, none of
 or confidences move — because openness measures a channel against its own baseline over
 its whole output, which is the supply/openness pool separation this file already documents
 under `supply.median_views`. Measured at introduction under
-`LEXICON_VERSION 2026-08-31.4`: 503 of 2,307 member channels, 8,994 video rows.
+503 of 2,307 member channels carrying 8,994 video rows **at introduction**, under `LEXICON_VERSION 2026-08-31.4`. Re-measured the same day after ADR-0051's re-seed and a further collection: **585 of 2,608, carrying 10,857**. Both are correct and both are dated 2026-08-31, which is why the qualifier is not optional — an independent review found the two figures under one date label, the exact defect `supply.DEFINITION`'s own comment warns about. **The ballast set is recomputed on every read, so any number here is a snapshot of a moving quantity**; `detail.ballast` on each stored row is the authority for that row's day.
 
 **Computed per read and bounded by the decision date**, not stored. A stored flag would be
 an aggregate as of the run date and would leak post-`day` evidence into day-bounded

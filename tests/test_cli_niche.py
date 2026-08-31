@@ -229,7 +229,7 @@ def test_the_whole_scorecard_is_withheld(exposition):
     """`gap` is demand minus supply — printing either side invites reconstruction."""
     out = runner.invoke(app, ["niche", "show", "history-of-ideas"]).stdout
     assert "gap=0.50" not in out and "supply=0.30" not in out and "demand=0.80" not in out
-    assert "label_exposition.py" in out
+    assert "Gate E" in out, "and the reason quoted is the null, not the scorer"
 
 
 def test_a_withheld_number_says_how_to_unwithhold_it(exposition):
@@ -256,12 +256,18 @@ def test_the_legend_appears_only_when_something_was_withheld(niche, exposition):
     assert "means withheld, not missing" not in ungated
 
 
-def test_a_validated_axis_prints_everything(exposition, monkeypatch):
-    """The gate is a state, not a permanent posture: labelling the sample lifts it."""
+def test_a_validated_axis_prints_its_metrics_but_still_no_scorecard(exposition, monkeypatch):
+    """The metric gate is a state that labelling lifts. The SCORECARD gate is not.
+
+    Two gates, keyed to different things: the metrics wait on the scorer, the scorecard
+    waits on Gate E — and Gate E returned a null that no labelling repairs. This asserted
+    `gap=0.50` reappearing until the 2026-08-31 review pointed out that ROADMAP and
+    CLAUDE.md both promised no scorecard rendering at all.
+    """
     monkeypatch.setattr("nh.api.gates.EXPOSITION_VALIDATED", True)
     out = runner.invoke(app, ["niche", "show", "history-of-ideas"]).stdout
-    assert "0.23" in out and "gap=0.50" in out
-    assert "means withheld, not missing" not in out
+    assert "0.23" in out
+    assert "gap=0.50" not in out and "Gate E" in out
 
 
 # --- `nh niche trace` — the exit criterion from a terminal ---------------------------

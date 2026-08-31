@@ -49,8 +49,10 @@ DEFERRALS: tuple[Deferral, ...] = (
         blocker=(
             "ADR-0047 excludes 585 member channels and 8,994 video rows from supply "
             "denominators at read time, and the whole of `history-of-ideas "
-            "on_niche_share` 0.076 -> 0.227 is that exclusion: the numerator is 230 "
-            "on-niche videos on both sides, unmoved. The rule rests on the SCORER'S "
+            "on_niche_share` 0.0758 -> 0.2273 on ONE day's corpus is that exclusion: "
+            "the numerator is 230 on-niche videos on both sides of the A/B, unmoved. "
+            "(The stored night-over-night step is 0.0781 -> 0.2273, numerator 154 -> 230.) "
+            "The rule rests on the SCORER'S "
             "OWN REJECTIONS, and ADR-0041's drawn sample cannot test it even by "
             "passing — that sample draws from ABOVE the threshold and measures "
             "precision, and its own text calls the rejected stratum 'unsampled by "
