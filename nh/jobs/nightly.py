@@ -74,8 +74,8 @@ def run_nightly(
 
     # A --only run is a debugging aid, not a night's collection. Labelling it
     # separately keeps `nh status --check` judging complete runs: otherwise
-    # re-running one collector by hand leaves the gate red until the next cron
-    # fire, for no reason anyone would guess from the message.
+    # re-running one collector by hand leaves the gate red until the next
+    # scheduled fire, for no reason anyone would guess from the message.
     job = "nightly" if not only else "partial"
     log.info("%s run_id=%s since=%s", job, run_id, since)
     for item in planned:

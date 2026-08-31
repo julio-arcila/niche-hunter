@@ -114,7 +114,7 @@ class YouTubeApiCollector(Collector):
         super().__init__(*args, **kwargs)
         # The budget is per *day*, not per run. A ledger that starts fresh each
         # time has no idea an earlier run today already spent most of it, so a
-        # re-run — a manual retry, a second cron fire — sails past the real
+        # re-run — a manual retry, a second scheduled fire — sails past the real
         # ceiling and gets throttled by Google instead of stopping cleanly.
         spent = self._spent_today()
         remaining = max(self.settings.yt_quota_budget - spent, 0)
@@ -244,9 +244,9 @@ class YouTubeApiCollector(Collector):
     def _seeds(self) -> list[_Seed]:
         with session_scope(self.engine) as session:
             rows = session.execute(
-                sa.select(
-                    NicheSeed.id, NicheSeed.slug, NicheSeed.keywords, NicheSeed.geo
-                ).where(NicheSeed.active)
+                sa.select(NicheSeed.id, NicheSeed.slug, NicheSeed.keywords, NicheSeed.geo).where(
+                    NicheSeed.active
+                )
             ).all()
         if not rows:
             # NOT "run `nh seed`". `apply_seeds` keeps `active` outside its upsert
@@ -286,7 +286,7 @@ class YouTubeApiCollector(Collector):
                 # The seed's stated market, made explicit (ADR-0037). Omitting the
                 # parameter is NOT neutral: the API serves the query with a US
                 # default anyway (documented on the response's regionCode field),
-                # from whatever IP the cron happens to run on. This is a viewpoint
+                # from whatever IP the nightly happens to run on. This is a viewpoint
                 # parameter — "results viewable in, and ranked for, this market" —
                 # not a filter on creator geography; global English supply stays in
                 # the pool and geo_concentration keeps measuring the divergence.

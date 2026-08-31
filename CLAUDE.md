@@ -11,10 +11,17 @@
 > repeal it. `scorecards.opportunity` stays NULL and nothing ranked ships until a new
 > pre-registered test passes on the new grain. See `reports/backtest_2026-08-28.md`.
 >
-> **Source states, which are three different things:** Keyword Planner = available
-> now (CSV, no approval). Reddit = obtainable, needs an application filed, never was.
-> Trends `related_queries` = measured blocked, no credential opens it — sub-niche
-> discovery must work without it.
+> **Source states, which are three different things.** Keyword Planner = available now
+> (CSV, no approval). Reddit = **application filed 2026-08-29, pending**. Trends
+> `related_*` = **reachable** via the library's referer header, rate-limited — measured
+> ≥6s between calls, and re-verified live 2026-08-31 (ADR-0032). It supplies **vocabulary,
+> never a sub-niche level**, and no ranking may rest on one: Trends renormalises against a
+> term's own peak, so narrowing a term never lowers its ceiling.
+>
+> *Two of those three sentences said the opposite until 2026-08-31, and both were true when
+> written.* The Trends claim was contradicted by ADR-0032 **1h48m** after this banner was
+> committed, and survived three days and one explicit flagging because the correction went
+> into DECISIONS.md and SOURCES.md and nobody swept the echo. See ADR-0053.
 
 # Niche Hunter
 
@@ -72,13 +79,15 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 - Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
-  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **959**. **`PHASES` is
+  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **967**. **`PHASES` is
   now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
   so a new phase silently extends the nightly gate (it reads FAIL until the next nightly
   runs the new one; `run_nightly.sh` runs the phases before the check, so no page).
-  **Next: Slice 10** (Trends seed expansion) or Slice 8 (hardening) — but note CLAUDE.md's
-  banner calls `related_queries` "measured blocked" while SOURCES.md and ADR-0032 say both
-  related endpoints work via the referer header. Settle that before planning Slice 10. TWO drawn samples still wait on a human labeller, and one has a
+  **Next is NOT Slice 10.** Its endpoint premise is fine — settled and re-probed live
+  2026-08-31 (ADR-0053) — but it has **no consumer**: nothing in `nh/` consumes a candidate
+  sub-niche term, and the only consumer worth having, lexicon expansion, re-weights every
+  domain through the discriminative `weights()` and would move the 0.55 frontier **both
+  drawn samples were drawn against**, one of which expires 2026-09-14. Label first. TWO drawn samples still wait on a human labeller, and one has a
   2026-09-14 deadline. The ROADMAP headers for slices 9 and 11 said "PLANNED, not started"
   until 2026-08-31, three days after both shipped — read `nh/seeds.py` and
   `features/run.py::METRICS`, not the roadmap, for what exists.

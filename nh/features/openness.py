@@ -1,10 +1,20 @@
 """Openness metrics: can a newcomer get reach here?
 
-Both metrics run over the same cohort — small, date-discovered channels with
-enough eligible videos to have a stable median. The cohort definition *is* the
-metric: measured on live data, the same breakthrough formula computed over all
-channels is flat across five niches (2 percentage points), and over the cohort it
-spreads 40. See docs/METRICS.md and the correction in ADR-0013's neighbourhood.
+**Three metrics, and only two of them run over the cohort.** `breakthrough_rate_cohort`
+and `views_per_sub` do — small, date-discovered channels with enough eligible videos to
+have a stable median. The cohort definition *is* the metric there: measured on live
+data, the same breakthrough formula computed over all channels is flat across five
+niches (2 percentage points), and over the cohort it spreads 40. See docs/METRICS.md and
+the correction in ADR-0013's neighbourhood.
+
+**`winner_age_years` is the exception, and reading this docstring instead of the code
+already caused one error.** It runs over the top-N videos by views and joins
+`on_niche_join` (line 167), so it **reads the relevance threshold directly** — unlike
+its two neighbours, which reach channel membership only. A Slice 7 plan classified all
+of `openness.*` as scorer-independent by reasoning from this text, on the strength of
+ADR-0047's true and different claim that openness is unaffected by *ballast*. It is
+gated in `api/gates.py::SCORER_DEPENDENT`, and that set is derived by execution rather
+than by reading — which is how the mistake was caught.
 """
 
 from __future__ import annotations

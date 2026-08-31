@@ -142,8 +142,12 @@ class YouTubeRssCollector(Collector):
             etag = response.headers.get("ETag") or etag
             last_modified = response.headers.get("Last-Modified") or last_modified
         except Exception as exc:
-            # Deliberately broad, and the second of only two such catches in the
-            # codebase (the other is Collector.run). This runs on a worker thread:
+            # Deliberately broad. **The count of such catches lives in
+            # `.claude/rules/python.md` and nowhere else** — this comment used to say
+            # "the second of only two such catches in the codebase", which that rule
+            # already records as false, and which was still sitting here uncorrected on
+            # 2026-08-31 for anyone who read the code instead of the rule.
+            # This runs on a worker thread:
             # anything escaping here abandons every feed still queued behind it,
             # costing a night of velocity that cannot be re-fetched. A malformed
             # header or a DNS failure outside requests' own hierarchy must cost

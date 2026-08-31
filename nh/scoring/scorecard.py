@@ -1,9 +1,20 @@
 """One scorecard per cluster per day.
 
-Slice 2 fills in what is real and leaves the rest NULL. There is no demand side
-until Slice 3, so `gap = demand - supply` is not computable, and a placeholder
-number that looks like a score is how an uncalibrated figure gets believed — the
-exact failure Slice 6's gate exists to prevent.
+Fills in what is real and leaves the rest NULL. `gap`, `demand`, `supply`, `openness`
+and `stage` ARE computed here, from within-day percentile ranks; `value`,
+`sustainability`, `opportunity` and the CI bounds stay NULL.
+
+**They stay NULL permanently, and this docstring said the opposite for three days.** It
+read "there is no demand side until Slice 3, so `gap` is not computable" long after
+Slice 3 landed and this module began computing it, and a sibling comment called the
+stubs "replaced by real composites in Slice 5" — a prophecy that never happened.
+Gate E FIRED on 2026-08-28 and FAILED (rho 0.091, p 0.4988, a null on 29 niches), so
+`opportunity`'s weights, which were to be its output, have nothing to be derived from.
+The stubs are not waiting for the composites: **the stubs are what Gate E measured.**
+
+Nothing here is displayed to a reader either — `api/gates.py::scorecard_citable` returns
+False on every axis, because a validated scorer feeding a nulled composite is a
+well-measured input to a claim that failed.
 """
 
 from __future__ import annotations

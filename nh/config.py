@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # --- operations --------------------------------------------------------
     #: healthchecks.io ping URL. The job pings on success; the service alerts when
     #: a ping fails to arrive, which is the only way to detect a run that never
-    #: started (machine off, stale cron line).
+    #: started (machine off, an unloaded launchd agent, a stale cron line).
     healthcheck_url: str | None = None
     #: ntfy.sh topic for push alerts the job raises itself.
     ntfy_topic: str | None = None

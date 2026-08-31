@@ -172,7 +172,7 @@ nothing measurable — the fix it removed is not a fix.
 
 ### Enabling `related_*` — what it buys, what it costs
 
-Cheap: at a 6 s gap, seed expansion for 11 domains × ~6 terms is ~66 calls ≈ 7
+Cheap: at a 6 s gap, seed expansion for 10 domains × ~6 terms is ~60 calls ≈ 6
 minutes, once, cached. It needs no auth and no approval.
 
 Scope it to **vocabulary for clustering** — candidate sub-niche terms, then priced

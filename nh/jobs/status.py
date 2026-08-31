@@ -5,7 +5,8 @@ cannot tell you the run happened and collected nothing. `NightlyResult.ok` count
 `skipped` as success — correct for an unported source, but once a source is ported
 a vanished API key turns into days of silent non-collection behind a green ping.
 
-`check()` is the product-level gate the cron script pings on, so "the job ran" and
+`check()` is the product-level gate the nightly script pings on (launchd since
+2026-08-30, ADR — see RUNBOOK 'Scheduling'; the backup stays on cron for Full Disk Access), so "the job ran" and
 "the job worked" are not confused for each other.
 """
 

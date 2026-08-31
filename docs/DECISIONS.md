@@ -2808,3 +2808,96 @@ surface renders the definition **stored on each row** (`detail.definition`,
 history stays readable across it. The banner naming the sunset reuses
 `inputs.ballast_active()` rather than adding a second clock read, because `inputs.py` now
 maintains an inventory of exactly one.
+
+## ADR-0053 — Prose echoes of a superseded measurement are swept, and the class is named
+2026-08-31. Accepted. Records a documentation sweep and one rule about how it happens
+again. Changes no behaviour, no metric and no threshold.
+
+### The instance
+
+`CLAUDE.md`'s banner said, of Google Trends: *"`related_queries` = measured blocked, no
+credential opens it — sub-niche discovery must work without it."* Chronology, from git:
+
+| | |
+|---|---|
+| 2026-08-27 | ADR-0015 measures the endpoint. `TrendsQuotaExceededError`; the documented referer workaround also fails. **True when measured.** |
+| 2026-08-28 **12:51** (`797302c`) | The banner is written, restating that measurement. |
+| 2026-08-28 **14:39** (`1915af8`) | ADR-0032 re-probes live: both `related_*` endpoints **work** via the referer header; 3s fails, 6–8s succeeds. It explicitly supersedes the availability bullets of ADR-0015 and ADR-0029, and rewrites SOURCES.md. **It does not touch CLAUDE.md.** |
+| 2026-08-31 | The contradiction is *noticed* and written into CLAUDE.md's status block — and the banner is still not corrected. |
+
+So the claim was false **1h48m** after it was committed, and survived three days plus one
+explicit flagging. Re-verified live 2026-08-31 on `shipwreck`: a bare `related_queries`
+still raises, the same call with the referer header returns rows, and `related_topics`
+returns `/m/01nzyt Shipwreck (Topic) 100` beside `Old School RuneScape (Online game) 7` —
+the exact homonym ADR-0032 describes. One new datum: a **7s** gap tripped the limiter once
+in a session that also contained a failed call, and 20s of backoff recovered it. So
+failures appear to spend budget, and ≥6s is a floor rather than a guarantee.
+
+Half the banner's conclusion survives and is kept: sub-niche discovery must still work
+without a Trends **level**, because Trends renormalises against a term's own peak, so
+narrowing a term never lowers its ceiling. That is ADR-0032's own decision. What died is
+"must work without `related_*`" — vocabulary is reachable.
+
+### The class, which is the reason for this ADR
+
+An independent sweep found eleven more, and they share one shape:
+
+> **A claim that was true when written, invalidated by a later change that corrected the
+> primary record — an ADR, SOURCES.md, the RUNBOOK, the code — but not the prose echo.**
+> This repo is good at correcting records it thinks of as records, and bad at correcting
+> prose it thinks of as context.
+
+The banner is the purest case: corrected in DECISIONS.md within two hours, quoted as wrong
+in CLAUDE.md three days later, never edited. The others, all now fixed:
+
+- `.claude/rules/sources.md`'s trends row still specified **"1 anchor + 4 targets"**, a
+  design ADR-0015 deleted; the collector's own docstring says "one term per request, no
+  anchor". An implementer obeying the etiquette table would have rebuilt the
+  measured-worst design and been rate-limited doing it. Its single 2.5s gap also
+  contradicted ADR-0032's ≥6s for `related_*`.
+- `.claude/rules/python.md`'s bare-except count said **five** and named line numbers;
+  `grep` returns **eight**, and two of the five had drifted. The rule's own text says a
+  rule that miscounts its exceptions has lost its force — so it has now lost it twice. The
+  fix states the **scope** the count was always missing (the rule is about catches that
+  *swallow*; two of the three extras re-raise and one is a capability probe), tabulates the
+  five, and names the three near-misses so the next audit does not re-derive the
+  distinction.
+- `nh/collectors/youtube_rss.py` still called itself **"the second of only two such catches
+  in the codebase"** — the exact sentence python.md records as false. The rule was
+  corrected; the comment was not, so anyone reading the code instead of the rule inherited
+  a falsehood the repo had already convicted. It now points at the rule rather than
+  restating a count: **a number kept in two places is a number that will disagree with
+  itself.**
+- The banner's Reddit bullet said the application was **"never"** filed. It was filed
+  2026-08-29 — as CLAUDE.md's own status block and the deferral register both say.
+- `nh/features/openness.py` said **"Both metrics"** run over the cohort. There are three,
+  and `winner_age_years` does not: it joins `on_niche_join` and reads the relevance
+  threshold. **A Slice 7 plan classified all of `openness.*` as scorer-independent by
+  reasoning from that sentence** — the docstring was load-bearing for a real error, caught
+  only because `gates.SCORER_DEPENDENT` is derived by execution rather than by reading.
+- `nh/scoring/scorecard.py` said `gap` "is not computable" in a module that computes it,
+  and called its stubs "replaced by real composites in Slice 5" — a prophecy Gate E's
+  failure permanently voided. `nh/features/money.py` said it ships one metric; it ships
+  five.
+- CLAUDE.md's suite count, six `cron` references that are launchd since 2026-08-30, and
+  "11 domains / 66 calls" where ten domains and ~60 calls are current.
+
+### The rule this adds
+
+**When a measurement is superseded, grep for its echoes in the same commit.** `git log -S`
+on the superseded phrase is the whole technique — it found this one in seconds, three days
+late. The primary record is not the only place a measurement lives, and the echo is where
+it does its damage, because the echo is what a reader meets first.
+
+Deliberately **not** a hook or a test. What is being policed is prose meaning, and a
+mechanical check for it would either be trivially gameable or would fire on every honest
+edit. This is a habit written down, which is what ADR-0003 did for provenance before the
+mechanism existed.
+
+### What is not changed
+
+The one thing this sweep did **not** do is edit `nh/backtest/niches.py`, whose comment says
+"the live portfolio stays at 6 and tonight's cron is unaffected". It is a deliberately
+frozen curation file whose commit is cited as blind-curation evidence in a report; the
+claim was true at commit time, and editing it now would weaken that evidence. Recorded here
+instead — which is the correct move for a claim whose staleness is part of its value.

@@ -86,7 +86,7 @@ def status(
 ) -> None:
     """Show recent runs, or gate on whether the last one worked.
 
-    `--check` is what the cron script pings healthchecks on. A dead-man switch
+    `--check` is what the nightly script pings healthchecks on. A dead-man switch
     only knows whether a run happened; this knows whether it collected anything.
     """
     from nh.jobs import status as st

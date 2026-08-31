@@ -1,8 +1,18 @@
 """Money metrics: what the niche's inventory is worth to advertisers.
 
-Slice 2 ships one, and it is display-only — the money composite arrives in
-Slice 5. It is here because the roadmap asks for features spanning three groups
-and because, once durations exist, it costs one query.
+**Five metrics, not one.** `midroll_eligible_share` from video durations, plus
+`priced_share`, `competition_index_mean`, `vw_cpc` and `median_bid_high` from the
+Keyword Planner export (Slice 9, ADR-0038). This docstring said "Slice 2 ships one, and
+it is display-only — the money composite arrives in Slice 5" until 2026-08-31; four of
+the five arrived after that sentence was written, and **the composite never did.** Gate
+E failed, so `scorecards.value` stays NULL and there is nothing for these to compose
+into. They are evidence about a niche's advertiser value, not an input to a score.
+
+Two things a reader must carry off this module: bids are in the **export's own
+currency** (COP in every export so far — ADR-0031, a four-orders-of-magnitude
+misreading available at a glance), and every KP metric names an explicit **geo** with no
+default, because a seed term is geo-independent curation while the market a number was
+measured in is a property of the observation (ADR-0038).
 """
 
 from __future__ import annotations

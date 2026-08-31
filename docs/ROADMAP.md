@@ -622,7 +622,7 @@ vocabulary**. Wire `expand_seeds()` to feed candidate terms into clustering:
 - **`TRENDS_RELATED_GAP = 6.0` seconds minimum**, not the 2.5s in
   `.claude/rules/sources.md` — that figure was set for `interest_over_time`, and at 3s
   the third consecutive `related_*` call failed. Update the rules table when this lands.
-- **Cache aggressively.** The whole expansion is ~66 calls for 11 domains × ~6 terms,
+- **Cache aggressively.** The whole expansion is ~60 calls for 10 domains x ~6 terms,
   ≈7 minutes, and the vocabulary does not churn daily.
 - **The referer header is a workaround, not a contract.** Drop it when a bare
   `related_queries("shipwreck")` returns rows; treat its disappearance as a source
