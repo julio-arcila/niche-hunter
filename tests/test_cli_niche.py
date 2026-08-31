@@ -145,3 +145,120 @@ def test_provenance_names_the_currency_and_market_of_a_price(niche):
     # On one line, under the value it qualifies — not stranded in another metric's block.
     line = next(ln for ln in out.splitlines() if "bids in COP" in ln)
     assert "geo US" in line and "2025-08-01..2026-07-31" in line
+
+
+# --- the citation gate (ADR-0052) --------------------------------------------------
+#
+# `nh niche show` was the repo's only citation surface when ADR-0045 wrote a trigger that
+# watches `scorecards.value` — a column Gate E holds NULL permanently. So the register read
+# green while this command printed `gap`, `supply` and every scorer-dependent metric for
+# ten clusters whose relevance rule rests on 107 machine labels. These pin the fix.
+
+
+@pytest.fixture
+def exposition(engine, monkeypatch):
+    """The same shape as `niche`, on a cluster the exposition lexicon scores.
+
+    `history-of-ideas` rather than an invented slug: `gates.axis_of` reads
+    `clustering.lexicon.AXES`, so a made-up cluster would have no axis, would not be gated,
+    and the test would pass while testing nothing.
+    """
+    from nh.db.models import Scorecard
+
+    monkeypatch.setattr("nh.db.session.get_engine", lambda: engine)
+    monkeypatch.setattr("nh.jobs.niche.session_scope", lambda _=None: session_scope(engine))
+    with session_scope(engine) as s:
+        s.add(Cluster(cluster_id="history-of-ideas", label=None, source="clustering", run_id="r"))
+        s.add_all(
+            [
+                FeatureDaily(  # gated: reads a relevance decision
+                    cluster_id="history-of-ideas",
+                    day=DAY,
+                    metric_group="supply",
+                    name="on_niche_share",
+                    value=0.227,
+                    confidence=0.61,
+                    inputs_n=1_012,
+                    detail={"inputs": {"tables": ["cluster_members"]}},
+                    source="features",
+                    run_id="r",
+                ),
+                FeatureDaily(  # ungated: the scorer never touches it
+                    cluster_id="history-of-ideas",
+                    day=DAY,
+                    metric_group="demand",
+                    name="wiki_yoy",
+                    value=-0.18,
+                    confidence=1.0,
+                    inputs_n=504,
+                    detail={"inputs": {"tables": ["demand_snapshots"]}},
+                    source="features",
+                    run_id="r",
+                ),
+            ]
+        )
+        s.add(
+            Scorecard(
+                cluster_id="history-of-ideas",
+                day=DAY,
+                demand=0.80,
+                supply=0.30,
+                gap=0.50,
+                source="features",
+                run_id="r",
+            )
+        )
+    return engine
+
+
+def test_a_scorer_dependent_metric_is_withheld_not_printed(exposition):
+    out = runner.invoke(app, ["niche", "show", "history-of-ideas"]).stdout
+    assert "on_niche_share" in out, "the metric is named — it is withheld, not hidden"
+    assert "0.23" not in out and "0.227" not in out
+    assert "1,012" not in out, "inputs_n goes with the value; a half-blank row reads as a bug"
+
+
+def test_a_scorer_independent_metric_is_untouched(exposition):
+    """The gate is about the scorer, not about the cluster. Demand is measured the same way
+    whatever the lexicon does, so gating it would be superstition."""
+    out = runner.invoke(app, ["niche", "show", "history-of-ideas"]).stdout
+    assert "wiki_yoy" in out and "-0.18" in out and "504" in out
+
+
+def test_the_whole_scorecard_is_withheld(exposition):
+    """`gap` is demand minus supply — printing either side invites reconstruction."""
+    out = runner.invoke(app, ["niche", "show", "history-of-ideas"]).stdout
+    assert "gap=0.50" not in out and "supply=0.30" not in out and "demand=0.80" not in out
+    assert "label_exposition.py" in out
+
+
+def test_a_withheld_number_says_how_to_unwithhold_it(exposition):
+    """A gate that does not say how to open it is a wall. What replaces the number is the
+    deferral register's own text, which is serving the register rather than citing."""
+    out = runner.invoke(app, ["niche", "show", "history-of-ideas"]).stdout
+    assert "unvalidated" in out and "label_exposition.py" in out
+    assert "ADR-0041" in out
+
+
+def test_the_flag_shows_them_again(exposition):
+    """A human asking once, at the moment of asking — not a stored setting standing in for
+    a verdict, which is what ADR-0050 forbids and what this deliberately is not."""
+    out = runner.invoke(app, ["niche", "show", "history-of-ideas", "--unvalidated"]).stdout
+    assert "0.23" in out and "gap=0.50" in out
+
+
+def test_the_legend_appears_only_when_something_was_withheld(niche, exposition):
+    """`aviation` has no lexicon and so no unvalidated scorer. A legend explaining a symbol
+    that is not on screen trains the reader to skip legends."""
+    gated = runner.invoke(app, ["niche", "show", "history-of-ideas"]).stdout
+    ungated = runner.invoke(app, ["niche", "show", "aviation"]).stdout
+    assert "means withheld, not missing" in gated
+    assert "means withheld, not missing" not in ungated
+
+
+def test_a_validated_axis_prints_everything(exposition, monkeypatch):
+    """The gate is a state, not a permanent posture: labelling the sample lifts it."""
+    monkeypatch.setattr("nh.api.gates.EXPOSITION_VALIDATED", True)
+    out = runner.invoke(app, ["niche", "show", "history-of-ideas"]).stdout
+    assert "0.23" in out and "gap=0.50" in out
+    assert "means withheld, not missing" not in out

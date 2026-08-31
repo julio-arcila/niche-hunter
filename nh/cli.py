@@ -420,12 +420,17 @@ def _fmt(value: float | None) -> str:
 def niche_show(
     slug: str = typer.Argument(..., help="Cluster id, e.g. aviation-disasters."),
     day: datetime | None = typer.Option(None, "--day", formats=["%Y-%m-%d"]),
+    unvalidated: bool = typer.Option(
+        False,
+        "--unvalidated",
+        help="Show metrics whose relevance rule has no human labels yet (ADR-0052).",
+    ),
 ) -> None:
     """Every metric for one niche, with confidence and where it came from."""
     from nh.jobs import niche as niche_job
 
     try:
-        view = niche_job.load(slug, day.date() if day else None)
+        view = niche_job.load(slug, day.date() if day else None, include_unvalidated=unvalidated)
     except niche_job.UnknownCluster:
         typer.echo(f"unknown niche: {slug}", err=True)
         typer.echo(
@@ -446,6 +451,13 @@ def niche_show(
     for m in view.metrics:
         group = m.group if m.group != last_group else ""
         last_group = m.group
+        if not m.shown:
+            # The value, the confidence and `inputs_n` are all withheld together. `n` alone
+            # would not be a citation, but a table with one column blanked reads as a bug
+            # rather than as a decision, and the decision is the point.
+            typer.echo(f"{group:<10}{m.name:<28}{'·':>12}{'·':>7}{'·':>8}")
+            typer.echo(f"          {m.withheld}")
+            continue
         typer.echo(
             f"{group:<10}{m.name:<28}{_fmt(m.value):>12}"
             f"{_fmt(m.confidence):>7}"
@@ -456,6 +468,13 @@ def niche_show(
     if view.scorecard:
         parts = " ".join(f"{k}={_fmt(v)}" for k, v in view.scorecard.items())
         typer.echo(f"\nscorecard {view.day}: {parts}")
+    elif view.scorecard_withheld:
+        typer.echo(f"\nscorecard {view.day}: {view.scorecard_withheld}")
+    if any(not m.shown for m in view.metrics) or view.scorecard_withheld:
+        typer.echo(
+            "\n· means withheld, not missing: computed but unvalidated (ADR-0052). "
+            "`--unvalidated` shows them."
+        )
     typer.echo(
         "\n— means not computable; a printed number is a measurement. "
         "value/opportunity await the Slice 5 composites."

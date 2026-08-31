@@ -2,6 +2,15 @@
 
 Kept out of `nh/cli.py` so that module stays presentation-only, the same split
 `nh/jobs/status.py` already uses.
+
+**Gated by default (ADR-0052).** This is a citation surface — it prints `gap`, `supply`
+and every scorer-dependent metric for clusters whose relevance rule rests on machine
+labels — and it was the *only* one when ADR-0045 wrote a trigger that watches columns Gate
+E holds NULL. The gate lives here rather than in `cli.py` because the web layer reads the
+same functions, and a rule enforced in one presenter is a rule the next presenter forgets.
+
+`load()` withholds by default. Forgetting the argument is therefore safe, which is the
+only direction a default may fail in.
 """
 
 from __future__ import annotations
@@ -13,6 +22,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 
+from nh.api import gates
 from nh.db.models import Cluster, ClusterMember, FeatureDaily, NicheSeed, Scorecard
 from nh.db.session import session_scope
 
@@ -29,6 +39,14 @@ class MetricLine:
     confidence: float | None
     inputs_n: int | None
     detail: dict[str, Any] | None
+    #: Empty when the number may be shown. Otherwise the reason it is not, and the command
+    #: that lifts it — a withheld number is replaced by the register's own text, never
+    #: shown under a caveat. A caveat beside a number is read as a number.
+    withheld: str = ""
+
+    @property
+    def shown(self) -> bool:
+        return not self.withheld
 
 
 @dataclass(slots=True)
@@ -40,6 +58,10 @@ class NicheView:
     member_channels: int
     metrics: list[MetricLine]
     scorecard: dict[str, float | None]
+    #: Empty when the scorecard may be shown. `scorecard` is `{}` when it is not — all or
+    #: nothing, because `gap` is demand minus supply and serving one side invites the
+    #: reader to reconstruct the other.
+    scorecard_withheld: str = ""
 
 
 def known_clusters(engine: Engine | None = None) -> list[str]:
@@ -47,12 +69,26 @@ def known_clusters(engine: Engine | None = None) -> list[str]:
         return list(session.scalars(sa.select(Cluster.cluster_id).order_by(Cluster.cluster_id)))
 
 
-def load(cluster_id: str, day: date | None = None, engine: Engine | None = None) -> NicheView:
+def load(
+    cluster_id: str,
+    day: date | None = None,
+    engine: Engine | None = None,
+    *,
+    include_unvalidated: bool = False,
+) -> NicheView:
     """Everything `nh niche show` prints, for one cluster on one day.
 
     `day` defaults to the latest day that actually has features for this cluster,
     not to today — so the command is useful the morning after a failed run rather
     than reporting an empty day.
+
+    `include_unvalidated` bypasses the ADR-0052 gate. **It is not an escape hatch of the
+    kind ADR-0050 forbids**, and the difference is worth stating because it looks like
+    one: what ADR-0050 refuses is a *stored setting* — an env var, a file — standing in
+    for a human's verdict about a bar, because that is a verdict nobody made being read
+    off disk forever. This is a human asking, once, at the moment of asking, and it
+    records nothing. The operator debugging their own pipeline is not the reader the
+    deferral protects. The web layer never passes it.
     """
     with session_scope(engine) as session:
         cluster = session.get(Cluster, cluster_id)
@@ -101,6 +137,25 @@ def load(cluster_id: str, day: date | None = None, engine: Engine | None = None)
         (MetricLine(*row[:6]) for row in rows),
         key=lambda m: order.get(m.name, len(order)),
     )
+
+    card_fields = (
+        {
+            field: getattr(card, field, None)
+            for field in ("demand", "supply", "gap", "gap_confidence", "openness", "value")
+        }
+        if card
+        else {}
+    )
+    scorecard_withheld = ""
+    if not include_unvalidated:
+        for metric in metrics:
+            verdict = gates.citable(metric.name, cluster_id)
+            if not verdict:
+                metric.withheld = verdict.reason
+        card_verdict = gates.scorecard_citable(cluster_id)
+        if card_fields and not card_verdict:
+            card_fields, scorecard_withheld = {}, card_verdict.reason
+
     return NicheView(
         cluster_id=cluster_id,
         label=label,
@@ -108,10 +163,6 @@ def load(cluster_id: str, day: date | None = None, engine: Engine | None = None)
         run_id=rows[0][6] if rows else None,
         member_channels=members,
         metrics=metrics,
-        scorecard={
-            field: getattr(card, field, None)
-            for field in ("demand", "supply", "gap", "gap_confidence", "openness", "value")
-        }
-        if card
-        else {},
+        scorecard=card_fields,
+        scorecard_withheld=scorecard_withheld,
     )
