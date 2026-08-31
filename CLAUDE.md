@@ -102,6 +102,16 @@ reviewer. Summarize exploration briefly.
   only in the commit that writes the computed interval into ADR-0047; **it is a human's
   verdict, never a file the code reads**, because completing the labels and passing the
   bar are different events.
+- **The one clock read in `nh/features/inputs.py` is `ballast_active()`, and the module
+  docstring's "nothing reads the clock" now names it.** It is not a leak — it switches a
+  whole definition, never what a `day`-bounded read can see — but `pinned_ballast()`
+  resolves it **once per run** and holds it, because a nightly starting at 23:58 on
+  2026-09-13 would otherwise write two definitions under one `run_id`. Both `run_phases`
+  and `backtest.replay` wrap themselves in it; `replay(..., ballast=True/False)` pins
+  history to a chosen definition, which is the only honest way to compare v2 against v3.
+  **Every ballast exclusion goes through `exclude_ballast(column, ...)`** — a review found
+  `member_channels` calling the subquery directly, so it kept filtering after the switch
+  went false while the row stamped `v2-on-niche`. A test fails on any new direct call site.
 - **BUT THIS NO LONGER BLOCKS ANYTHING (ADR-0045).** The requirement now fires when an
   exposition score is CITED — a scorecard row for an active exposition cluster carrying a
   non-NULL `value`/`sustainability`/`opportunity` — not while the score merely exists. The
