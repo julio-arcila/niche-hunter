@@ -47,5 +47,16 @@ fi
 OUT="$DEST/niche_hunter_$(date +%Y-%m-%d).db.gz"
 gzip -c "$TMP" > "$OUT"
 # Rolling 30-day window, matching the retention pattern already in your crontab.
-find "$DEST" -name 'niche_hunter_*.db.gz' -mtime +30 -delete
+#
+# Non-fatal, and the `|| log` is load-bearing rather than defensive: under cron
+# this `find` cannot traverse iCloud Drive (TCC denies the unattended process,
+# giving "Operation not permitted"), it exits non-zero, and `set -e` above then
+# killed the script HERE — after the backup was safely written, but before the
+# success line below. Measured 2026-08-29: a correct 150MB backup existed on
+# disk while backup.log contained nothing but two find errors and no "backup ok"
+# at all, so the log could not distinguish a good night from a total failure.
+# Failing to reclaim disk is not a reason to report the night as lost — the same
+# judgement `run_nightly.sh` already applies to `nh prune`.
+find "$DEST" -name 'niche_hunter_*.db.gz' -mtime +30 -delete \
+  || log "retention sweep failed (non-fatal) — backups are kept, not pruned"
 log "backup ok -> $OUT ($(du -h "$OUT" | cut -f1), $bak_t tables, $bak_s snapshots)"
