@@ -7,11 +7,15 @@ from datetime import timedelta
 import pytest
 import sqlalchemy as sa
 
+import nh.features.inputs as inputs
 from nh.db.session import session_scope
-from nh.features.inputs import BALLAST_DECIDED, numerator_coverage
+from nh.features.inputs import BALLAST_DECIDED, member_channels, numerator_coverage
 from nh.features.supply import (
+    DEFINITION,
+    DEFINITION_PRE_BALLAST,
     geo_concentration,
     median_views,
+    on_niche_share,
     uploads_per_week,
     views_per_new_video,
 )
@@ -423,3 +427,201 @@ def test_censoring_is_reported_over_the_channels_that_reach_the_value(engine):
     assert detail["contributing_span_censored"] == 1
     assert detail["channels_span_censored"] == 1
     assert detail["contributing_span_censored"] <= detail["channels_publishing_in_window"]
+
+
+# --- ADR-0050's sunset -------------------------------------------------------------
+#
+# ADR-0047 changed a published number threefold on machine judgement alone, and the
+# sample that can test it is drawn and unlabelled. The sunset is what stops that state
+# from becoming permanent by inattention, so it is the mechanism these pin — not the
+# date, which an ADR may move, but the two properties a later edit could break without
+# anyone noticing: that the switch actually reverts the predicate, and that the stored
+# row never claims a cut that did not happen.
+
+
+def test_the_sunset_reverts_the_predicate_and_leaves_the_numerator_alone(engine, monkeypatch):
+    """Past the sunset, ballast rows come back into the denominator and only there.
+
+    Numerator invariance is ADR-0047's load-bearing claim, so it is asserted on BOTH
+    sides of the switch rather than once: a ballast channel has no video above the
+    threshold, so flipping the rule can only ever move a denominator.
+    """
+    make_cluster(engine)
+    add_channel(engine, "real", videos=3, relevant=True)
+    add_channel(engine, "ballast", videos=BALLAST_DECIDED, relevant=False)
+    session = session_for(engine)
+
+    on_v3, judgeable_v3, total_v3 = numerator_coverage(session, CLUSTER, DAY)
+    monkeypatch.setattr(inputs, "BALLAST_SUNSET", DAY - timedelta(days=1))
+    on_v2, judgeable_v2, total_v2 = numerator_coverage(session, CLUSTER, DAY)
+
+    assert on_v3 == on_v2 == 3
+    # `total` is where the revert shows, and `judgeable` is where it must not:
+    # `judgeable` counts what is not decided off-niche, and every ballast row is
+    # decided off-niche by construction, so it is unmoved on both sides.
+    assert total_v3 == 3
+    assert total_v2 == 3 + BALLAST_DECIDED
+    assert judgeable_v3 == judgeable_v2 == 3
+
+
+def test_the_definition_tag_moves_in_the_same_instant_as_the_predicate(engine, monkeypatch):
+    """A row stamped v3 while the predicate is inert is worse than either state."""
+    make_cluster(engine)
+    add_channel(engine, "real", videos=3, relevant=True)
+    add_channel(engine, "ballast", videos=BALLAST_DECIDED, relevant=False)
+    session = session_for(engine)
+
+    before = on_niche_share(session, CLUSTER, DAY).detail
+    assert before["definition"] == DEFINITION
+    assert before["ballast"] == {
+        "active": True,
+        "n": BALLAST_DECIDED,
+        "channels": 1,
+        "rows": BALLAST_DECIDED,
+    }
+
+    monkeypatch.setattr(inputs, "BALLAST_SUNSET", DAY - timedelta(days=1))
+    after = on_niche_share(session, CLUSTER, DAY).detail
+    assert after["definition"] == DEFINITION_PRE_BALLAST
+    assert after["ballast"] == {"active": False, "n": BALLAST_DECIDED, "channels": 0, "rows": 0}
+    assert after["on_niche"] == before["on_niche"]
+    assert after["decided"] > before["decided"]
+
+
+def test_a_recorded_result_overrides_the_date_in_both_directions(engine, monkeypatch):
+    """`BALLAST_VALIDATED` is the human's verdict and outranks the calendar.
+
+    Both directions, because only one of them is the happy path: a sample that comes
+    back FAILING must revert immediately, not wait for a date that is still in the
+    future. ADR-0050 commits to both branches, so both are pinned.
+    """
+    from datetime import date
+
+    monkeypatch.setattr(inputs, "BALLAST_VALIDATED", True)
+    assert inputs.ballast_active(date(2099, 1, 1)) is True
+
+    monkeypatch.setattr(inputs, "BALLAST_VALIDATED", False)
+    assert inputs.ballast_active(date(2000, 1, 1)) is False
+
+
+def test_the_sunset_is_the_operators_calendar_not_the_decision_date(engine, monkeypatch):
+    """`day` must not reach the switch.
+
+    `inputs.py` promises a feature never sees a row that did not exist at its decision
+    date, and ADR-0047 was redesigned around exactly that. A sunset keyed on `day`
+    would put it straight back: a 2025 replay would silently run under v2 while today's
+    nightly runs under v3, and the two series would differ for a reason no stored row
+    records.
+    """
+    from datetime import date
+
+    monkeypatch.setattr(inputs, "BALLAST_SUNSET", date(2026, 9, 14))
+    assert inputs.ballast_active(date(2026, 9, 13)) is True
+    assert inputs.ballast_active(date(2026, 9, 14)) is False
+    # The feature's `day` is a different argument entirely and cannot reach it.
+    assert "day" not in inputs.ballast_active.__code__.co_varnames
+
+
+def test_the_sunset_reaches_the_channel_population_too(engine, monkeypatch):
+    """`member_channels` must revert with everything else.
+
+    It did not. It called `_ballast_channels` directly rather than going through the
+    switch, so after the sunset it went on excluding ballast channels while
+    `views_per_new_video` — computed from exactly those channels — stamped
+    `v2-on-niche` on the row. Measured on the live corpus before the fix: members
+    stayed at 110 across the flip while the definition tag moved. A row that lies about
+    its own definition is the failure ADR-0050 exists to prevent, reproduced inside
+    ADR-0050 by the change that was meant to prevent it.
+    """
+    make_cluster(engine)
+    add_channel(engine, "real", videos=3, relevant=True)
+    add_channel(engine, "ballast", videos=BALLAST_DECIDED, relevant=False)
+    session = session_for(engine)
+
+    assert member_channels(session, CLUSTER, DAY) == ["real"]
+    monkeypatch.setattr(inputs, "BALLAST_SUNSET", DAY - timedelta(days=1))
+    assert sorted(member_channels(session, CLUSTER, DAY)) == ["ballast", "real"]
+
+
+def test_nothing_calls_the_ballast_subquery_around_the_switch():
+    """The durable half of the fix above, and the reason it is a test.
+
+    The defect arrived because someone added a second call site and every review read
+    the diff instead of the call graph. `_ballast_channels` may be reached only from
+    `exclude_ballast`, which consults `ballast_active()`, and from `_ballast_detail`,
+    which guards itself and reports zeros when the switch is off. A third call site is
+    a bug by construction, so this fails on one rather than waiting for a reviewer to
+    notice the population and the tag disagreeing.
+    """
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "nh"
+    allowed = {
+        ("features/inputs.py", "exclude_ballast"),
+        ("features/supply.py", "_ballast_detail"),
+    }
+    found = set()
+    for path in sorted(root.rglob("*.py")):
+        src = path.read_text()
+        function = None
+        for line in src.splitlines():
+            if match := re.match(r"^def (\w+)", line):
+                function = match.group(1)
+            if "_ballast_channels(" in line and not line.lstrip().startswith("def "):
+                found.add((str(path.relative_to(root)), function))
+
+    assert found == allowed, f"unexpected _ballast_channels call site(s): {sorted(found - allowed)}"
+
+
+def test_a_run_cannot_cross_the_sunset_half_way_through(engine, monkeypatch):
+    """`pinned_ballast` resolves once and holds (ADR-0050).
+
+    A nightly starting at 23:58 on 2026-09-13 would otherwise compute its first
+    clusters under v3 and the rest under v2, inside one `run_id` — which is the
+    mixed-day defect ADR-0044's addendum had to delete rows to repair, arriving on a
+    schedule nobody chose. The clock is moved here MID-BLOCK, which is the only way to
+    test the property that matters.
+    """
+    from datetime import date
+
+    monkeypatch.setattr(inputs, "BALLAST_SUNSET", date(2026, 9, 14))
+    with inputs.pinned_ballast() as active:
+        assert active is True
+        monkeypatch.setattr(inputs, "BALLAST_SUNSET", date(2000, 1, 1))
+        assert inputs.ballast_active() is True, "the pin must survive the clock moving"
+    assert inputs.ballast_active() is False, "and must not outlive the run"
+
+
+def test_an_explicit_pin_lets_history_be_replayed_under_a_chosen_definition(engine, monkeypatch):
+    """What makes the v2/v3 comparison possible at all.
+
+    Three of nine `BACKTEST_METRICS` route through the ballast predicate, so the two
+    definitions give different numbers for the same historical day. Comparing them
+    requires choosing one deliberately rather than waiting for a date to arrive.
+    """
+    make_cluster(engine)
+    add_channel(engine, "real", videos=3, relevant=True)
+    add_channel(engine, "ballast", videos=BALLAST_DECIDED, relevant=False)
+    session = session_for(engine)
+
+    with inputs.pinned_ballast(True):
+        v3 = on_niche_share(session, CLUSTER, DAY)
+    with inputs.pinned_ballast(False):
+        v2 = on_niche_share(session, CLUSTER, DAY)
+
+    assert v3.detail["definition"] == DEFINITION
+    assert v2.detail["definition"] == DEFINITION_PRE_BALLAST
+    assert v3.detail["on_niche"] == v2.detail["on_niche"]  # numerator invariance, again
+    assert v2.detail["decided"] > v3.detail["decided"]
+    assert v2.value < v3.value
+
+
+def test_a_nested_pin_restores_the_outer_one(engine, monkeypatch):
+    """The phase loop pins, and a replay inside a test may pin again. Leaking the inner
+    value would silently change every later run in the same process — the class of bug
+    that only shows up as a test passing alone and failing in a suite."""
+    with inputs.pinned_ballast(True):
+        with inputs.pinned_ballast(False):
+            assert inputs.ballast_active() is False
+        assert inputs.ballast_active() is True

@@ -877,6 +877,29 @@ history-of-ideas `on_niche_share` 0.076 -> 0.226 and `relevance_coverage` 0.803 
 Coverage FALLS because ballast was mostly decided-noise and had been inflating the
 confidence input.
 
+**Read that step change the honest way, and this paragraph exists because the first
+reading of it was not.** Verified independently: history-of-ideas holds **230 on-niche
+videos before and 230 after**. The move is *entirely* the removal of **2,156 of 3,824
+video rows (56%)** from the denominator; corpus growth accounts for −0.002 and ADR-0046
+for about +0.001. The niche did not get better. The metric began answering a different
+question under the same name, and the definition tag records that a change happened
+without saying it was an improvement. `detail.ballast` now stores the size of the cut
+(`{active, n, channels, rows}`) so a reader can see it from the row, and
+`nh status --check` warns when it moves more than 5% of member channels overnight.
+
+**Unvalidated, and on a clock (ADR-0050).** The rule rests on the scorer's own
+rejections, and ADR-0041's drawn sample cannot test it even by passing — that sample
+draws from *above* the threshold and its own text calls the rejected stratum "unsampled
+by construction". Because exclusion can only err by omission, ballast's validity reduces
+to one number: the lexicon's false-negative rate on the excluded rows.
+`reports/recall_labelling_2026-08-31.jsonl` measures it — 100 rows, 87 channels, drawn
+from decided-noise rows on ballast channels, bar a 95% Wilson **upper** bound <= 0.10.
+Until it is labelled, **`inputs.BALLAST_SUNSET = 2026-09-14`**: past that date, with
+`BALLAST_VALIDATED` still `None`, `not_ballast` becomes a true-everywhere clause and
+`supply.definition()` stamps `v2-on-niche` — verified to return history-of-ideas to
+0.0758 with the numerator unmoved at 230. **Quote no share metric from these clusters
+without saying which side of that switch it came from.**
+
 ## Relevance -- the rule every supply number now depends on
 
 Not a metric, but `supply.*` and `money.*` are all computed over the videos it

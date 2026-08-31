@@ -248,7 +248,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         "keywords": [
             "western esotericism explained",
             "occult philosophy explained",
-            "hermeticism explained",
+            "hermeticism lecture",
         ],
         "geo": "US",
         "lang": "en",
@@ -311,7 +311,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         "label": "Anthropocene and anthropology",
         "keywords": [
             "anthropology explained",
-            "anthropocene explained",
+            "anthropocene debate",
             "human origins explained",
         ],
         "geo": "US",
@@ -328,7 +328,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         "keywords": [
             "macroeconomics explained",
             "inflation explained economics",
-            "monetary policy explained",
+            "monetary policy debate",
         ],
         "geo": "US",
         "lang": "en",
@@ -359,7 +359,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         "label": "AI and software",
         "keywords": [
             "large language model explained",
-            "machine learning explained",
+            "machine learning lecture",
             "llm application development explained",
         ],
         "geo": "US",
@@ -376,7 +376,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         "keywords": [
             "biohacking protocol explained",
             "nootropics explained",
-            "longevity research explained",
+            "longevity research lecture",
         ],
         "geo": "US",
         "lang": "en",

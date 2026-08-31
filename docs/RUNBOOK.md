@@ -180,6 +180,45 @@ uv run nh doctor              # database reachable, schema present
 Then run the `data-qa` agent against the newest `run_id` on nights 1, 2 and 7 at
 minimum — it checks NULL rates, snapshot monotonicity, duplicates and orphans.
 
+## Labelling the two validation samples
+
+Both are drawn, unlabelled, and waiting on a person. **A model must not label
+either** — the whole objection is that the existing evidence is machine labels
+from one family, and two raters of that family cannot detect a bias they share.
+
+```bash
+uv run python scripts/label_exposition.py                  # ADR-0041's precision sample
+uv run python scripts/label_exposition.py --sample recall  # ADR-0050's recall sample
+uv run python scripts/label_exposition.py --status         # progress, either one
+```
+
+One criterion covers both (ADR-0042, unchanged): pass A asks whether the video is
+**about** the named domain, pass B whether it **explains, analyses, teaches or
+argues**. Each pass runs over the whole sample; `y` / `n` / `?` / `s` skip / `b`
+back / `q` quit, resumable, saved after every keystroke. You see domain, title and
+description and nothing else — not the score, not the terms that fired.
+
+| | `--sample exposition` | `--sample recall` |
+|---|---|---|
+| file | `reports/exposition_labelling_2026-08-31.jsonl` | `reports/recall_labelling_2026-08-31.jsonl` |
+| stratum | above the 0.55 threshold | decided-noise rows on ballast channels |
+| measures | precision | false negative rate |
+| bar | Wilson **lower** bound >= 0.70 (**79 of 100**) | Wilson **upper** bound <= 0.10 (**at most 4 of 100**) |
+| a "hit" is | a row correctly kept | a row wrongly excluded |
+| if unlabelled | nothing happens; it blocks nothing (ADR-0045) | **ballast reverts to v2 on 2026-09-14** |
+
+The two bars point in opposite directions because the samples do: above the
+threshold you want most rows right, below it you want almost none wrong. Roughly
+60–90 minutes for both; the recall rows are mostly obvious negatives and go
+faster. `nh deferrals` carries the dated one and is the thing that will remind you.
+
+**On the result**, for either: compute the interval, write
+`reports/<name>_result_<date>.md`, and record it in the ADR that pre-registered
+it. For the recall sample also set `nh.features.inputs.BALLAST_VALIDATED` in that
+same commit — it is a human's verdict about the bar, deliberately not a file the
+code reads, because completing the labels and passing the bar are different
+events.
+
 ## Storage
 
 Raw feed payloads are gzipped and pruned after `NH_RAW_RETENTION_DAYS` (14),

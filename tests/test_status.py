@@ -214,3 +214,173 @@ def test_no_keyword_planner_rows_at_all_is_silent(settings, engine):
 
     assert result.ok
     assert not any("keyword_planner" in w for w in result.warnings)
+
+
+# --- provenance and the ballast cut ------------------------------------------------
+#
+# Both of these guard defects that HAPPENED and that nothing detected: a retirement
+# landing between two feature passes left one cluster's scorecard naming a run its
+# features did not come from (ADR-0044 addendum), and ADR-0047 removed over half the
+# video rows from some denominators with no stored record of how big the cut was.
+
+
+def _feature(engine, cluster_id, day, name="on_niche_share", run_id=RUN_ID, ballast=None):
+    from nh.db.models import FeatureDaily
+
+    detail = {"definition": "v3-non-ballast-members"}
+    if ballast is not None:
+        detail["ballast"] = {"active": True, "n": 10, "channels": ballast, "rows": ballast * 12}
+    with session_scope(engine) as s:
+        s.add(
+            FeatureDaily(
+                cluster_id=cluster_id,
+                day=day,
+                metric_group="supply",
+                name=name,
+                value=0.2,
+                confidence=0.5,
+                inputs_n=10,
+                detail=detail,
+                source="features",
+                run_id=run_id,
+                at=utcnow(),
+            )
+        )
+
+
+def _members(engine, cluster_id, n):
+    from nh.db.models import ClusterMember
+
+    with session_scope(engine) as s:
+        for i in range(n):
+            s.add(
+                ClusterMember(
+                    cluster_id=cluster_id,
+                    item_type="channel",
+                    item_id=f"{cluster_id}-ch{i}",
+                    confidence=1.0,
+                    is_noise=False,
+                    source="clustering",
+                    run_id=RUN_ID,
+                    at=utcnow(),
+                )
+            )
+
+
+def test_two_runs_on_one_feature_day_is_a_problem(settings, engine):
+    """The 2026-08-31 defect, reproduced: a retirement between two passes.
+
+    A problem and not a warning, because a row that does not describe how it was
+    computed breaks data rule 1, and the fix is same-day — recompute or delete.
+    """
+    from datetime import date
+
+    _healthy(engine)
+    day = date(2026, 8, 31)
+    _feature(engine, "kept", day, run_id=RUN_ID)
+    _feature(engine, "retired", day, run_id="aaaaaaaa-0000-0000-0000-000000000000")
+    result = check(engine, settings)
+
+    assert not result.ok
+    assert any("come from 2 runs" in p for p in result.problems)
+
+
+def test_a_scorecard_naming_a_run_its_features_did_not_come_from_is_a_problem(settings, engine):
+    """The sharper half of the same defect: not a stale row, an untrue one.
+
+    `philosophy-of-science`'s 2026-08-31 scorecard carried the CONVERGED run id over
+    features computed by an earlier run under an earlier definition. Stale provenance is
+    a nuisance; provenance that names the wrong run is a lie.
+    """
+    from datetime import date
+
+    from nh.db.models import Scorecard
+
+    _healthy(engine)
+    day = date(2026, 8, 31)
+    _feature(engine, "retired", day, run_id="aaaaaaaa-0000-0000-0000-000000000000")
+    with session_scope(engine) as s:
+        s.add(
+            Scorecard(
+                cluster_id="retired",
+                day=day,
+                source="features",
+                run_id=RUN_ID,  # the converged run — not the one that wrote the features
+                at=utcnow(),
+            )
+        )
+    result = check(engine, settings)
+
+    assert not result.ok
+    assert any("scorecard for" in p and "claims run" in p for p in result.problems)
+
+
+def test_a_single_run_over_one_day_is_silent(settings, engine):
+    from datetime import date
+
+    _healthy(engine)
+    day = date(2026, 8, 31)
+    for cluster in ("a", "b", "c"):
+        _feature(engine, cluster, day)
+    assert check(engine, settings).ok
+
+
+def test_a_jump_in_the_ballast_cut_warns(settings, engine):
+    """A lexicon regression shows up here first: channels tip into ballast in a batch,
+    and the denominators they leave make every share metric look better overnight."""
+    from datetime import date
+
+    _healthy(engine)
+    _members(engine, "shifting", 200)
+    _feature(engine, "shifting", date(2026, 8, 30), ballast=100)
+    _feature(engine, "shifting", date(2026, 8, 31), ballast=130)  # +30 of 200 = 15%
+    result = check(engine, settings)
+
+    assert result.ok, "drift is a warning, not a failed night"
+    assert any("ballast channels moved 100 -> 130" in w for w in result.warnings)
+
+
+def test_a_high_but_steady_ballast_level_is_silent(settings, engine):
+    """The property that keeps this check readable. history-of-ideas sits at 126 ballast
+    channels of 205 members by construction; a check that fires on the level fires every
+    night forever, and a check nobody reads is worse than no check."""
+    from datetime import date
+
+    _healthy(engine)
+    _members(engine, "history-of-ideas", 205)
+    _feature(engine, "history-of-ideas", date(2026, 8, 30), ballast=126)
+    _feature(engine, "history-of-ideas", date(2026, 8, 31), ballast=128)  # +2 of 205 = 1%
+    result = check(engine, settings)
+
+    assert result.ok
+    assert not any("ballast" in w for w in result.warnings)
+
+
+def test_no_ballast_stamp_anywhere_is_tolerated(settings, engine):
+    """The first-night rule. The stamp landed 2026-08-31 and no stored row carries one
+    until the next nightly writes it; a check that demanded it immediately would fail
+    every run until then, and would be silenced rather than fixed."""
+    from datetime import date
+
+    _healthy(engine)
+    _feature(engine, "unstamped", date(2026, 8, 30))
+    _feature(engine, "unstamped", date(2026, 8, 31))
+    result = check(engine, settings)
+
+    assert result.ok
+    assert not any("ballast" in w for w in result.warnings)
+
+
+def test_a_stamp_dropped_on_only_some_clusters_warns(settings, engine):
+    """Distinct from the case above and must not collapse into it: if some rows carry
+    the stamp and others do not, the stamp was lost rather than not yet arrived."""
+    from datetime import date
+
+    _healthy(engine)
+    day = date(2026, 8, 31)
+    _feature(engine, "stamped", day, ballast=10)
+    _feature(engine, "dropped", day)
+    result = check(engine, settings)
+
+    assert result.ok
+    assert any("dropped" in w and "no detail.ballast" in w for w in result.warnings)

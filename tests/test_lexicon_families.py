@@ -12,11 +12,11 @@ from __future__ import annotations
 import pytest
 
 from nh.clustering.lexicon import (
+    _COMMON,
     AXES,
     EVENT,
     EXPOSITION,
     LEXICONS,
-    _COMMON,
     event_weights,
     exposition_weights,
     second_axis,

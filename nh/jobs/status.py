@@ -19,7 +19,14 @@ from sqlalchemy.engine import Engine
 
 from nh.collectors.registry import REGISTRY
 from nh.config import Settings, get_settings
-from nh.db.models import JobRun, KeywordMetric, VideoSnapshot
+from nh.db.models import (
+    ClusterMember,
+    FeatureDaily,
+    JobRun,
+    KeywordMetric,
+    Scorecard,
+    VideoSnapshot,
+)
 from nh.db.session import session_scope
 from nh.db.types import utcnow
 from nh.jobs.phases import PHASES
@@ -29,6 +36,23 @@ from nh.jobs.phases import PHASES
 #: point at which a hand-refreshed source has plainly been forgotten rather than merely
 #: not refreshed yet.
 KP_STALE_DAYS = 70
+
+#: Night-over-night movement in a cluster's ballast channel count, as a share of its
+#: member channels, above which the gate speaks up. ADR-0047 deferred this check and
+#: ADR-0050 makes it due: ballast removes over half the video rows from some
+#: denominators, and until the recall sample is labelled the only thing standing between
+#: a lexicon regression and a silently 3x-better number is that somebody notices the cut
+#: changed size.
+#:
+#: **On the DELTA, never on the level.** history-of-ideas sits at 126 ballast channels of
+#: 205 members by construction, and a check that fires on that fires every night forever,
+#: which is how a check stops being read. 5% of members is roughly ten channels there —
+#: above ordinary nightly drift, below a definition change.
+BALLAST_DRIFT_SHARE = 0.05
+
+#: Metrics that carry `detail.ballast` (`supply._ballast_detail`). Named rather than
+#: scanned, so adding the stamp somewhere new is a deliberate act.
+BALLAST_STAMPED = ("on_niche_share", "median_views")
 
 JOB = "nightly"
 
@@ -179,4 +203,153 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
                 f"keyword_planner is {age} days stale (newest period ends {newest}); "
                 f"`nh kp ingest` a fresh export"
             )
+
+    _check_one_run_per_day(engine, result)
+    _check_ballast_drift(engine, result)
     return result
+
+
+def _feature_days(session, n: int = 2) -> list[date]:
+    """The `n` most recent days that have feature rows, newest first."""
+    return list(
+        session.scalars(
+            sa.select(FeatureDaily.day)
+            .group_by(FeatureDaily.day)
+            .order_by(FeatureDaily.day.desc())
+            .limit(n)
+        )
+    )
+
+
+def _check_one_run_per_day(engine: Engine | None, result: CheckResult) -> None:
+    """One day of features must come from one run, and its scorecards from that run.
+
+    The defect this catches happened: `philosophy-of-science` was retired between two
+    feature passes on 2026-08-31, so ten clusters carried run `5f8c2fd7` under
+    `v3-non-ballast-members` while one carried `a6d35aee` under `v2-on-niche` — and its
+    SCORECARD carried the converged run id over features from the older one. Provenance
+    that is merely stale is a nuisance; provenance that names the wrong run is a lie, and
+    data rule 1 exists to make that impossible. Nothing detected it; an independent
+    reviewer did, two days later.
+
+    A **problem**, not a warning. It means a published row does not describe how it was
+    computed, which is the one thing every row is required to do, and the fix is to
+    recompute or delete the day — same-day work, not a backlog item.
+
+    Newest day only. Older days may legitimately hold a run per definition step, and
+    re-litigating history on every ping would make the gate unreadable.
+    """
+    with session_scope(engine) as session:
+        days = _feature_days(session, 1)
+        if not days:
+            return
+        day = days[0]
+        runs = sorted(
+            r
+            for r in session.scalars(
+                sa.select(FeatureDaily.run_id).where(FeatureDaily.day == day).distinct()
+            )
+            if r
+        )
+        if len(runs) > 1:
+            result.problems.append(
+                f"features for {day} come from {len(runs)} runs ({', '.join(r[:8] for r in runs)}) — "
+                f"a definition or seed change landed mid-day; recompute or delete the day"
+            )
+        cards = session.execute(
+            sa.select(Scorecard.cluster_id, Scorecard.run_id).where(Scorecard.day == day)
+        ).all()
+        feature_run = dict(
+            session.execute(
+                sa.select(FeatureDaily.cluster_id, sa.func.min(FeatureDaily.run_id))
+                .where(FeatureDaily.day == day)
+                .group_by(FeatureDaily.cluster_id)
+            ).all()
+        )
+        for cluster_id, card_run in cards:
+            own = feature_run.get(cluster_id)
+            if own is not None and card_run is not None and card_run != own:
+                result.problems.append(
+                    f"{cluster_id} scorecard for {day} claims run {card_run[:8]} but its "
+                    f"features come from {own[:8]}"
+                )
+
+
+def _warn_on_a_dropped_stamp(
+    result: CheckResult,
+    today: date,
+    seen: set[tuple[date, str]],
+    stamped: dict[tuple[date, str], int],
+) -> None:
+    """The first-night tolerance, and the case it must not swallow.
+
+    Silent while NO row carries `detail.ballast` — the stamp landed 2026-08-31 and the
+    first nightly after it is the first day any row has one, so demanding it earlier
+    would fail every run until then and be silenced rather than fixed. But once some
+    rows carry it, a cluster missing it means the stamp was dropped, and that is a
+    different thing from "not yet arrived".
+    """
+    if not stamped:
+        return
+    for day, cluster_id in sorted(seen):
+        if day == today and (day, cluster_id) not in stamped:
+            result.warnings.append(
+                f"{cluster_id} has no detail.ballast on {day} while other rows do — "
+                f"the size of the ADR-0047 cut is unrecorded for it"
+            )
+
+
+def _check_ballast_drift(engine: Engine | None, result: CheckResult) -> None:
+    """Warn when a cluster's ballast cut changes size overnight (ADR-0047, ADR-0050).
+
+    Two things it deliberately does not do. It does not fire on the LEVEL — see
+    `BALLAST_DRIFT_SHARE`. And it tolerates a missing `detail.ballast` on a day where NO
+    row carries one: the stamp landed on 2026-08-31 and the first nightly after it is the
+    first day any row has it, so a check that demanded it would fail every run until then
+    and be silenced rather than fixed. A day where SOME rows carry it and others do not is
+    a different thing — that means the stamp was dropped, and it warns.
+    """
+    with session_scope(engine) as session:
+        days = _feature_days(session, 2)
+        if not days:
+            return
+        rows = session.execute(
+            sa.select(
+                FeatureDaily.day, FeatureDaily.cluster_id, FeatureDaily.name, FeatureDaily.detail
+            ).where(FeatureDaily.day.in_(days), FeatureDaily.name.in_(BALLAST_STAMPED))
+        ).all()
+        members = dict(
+            session.execute(
+                sa.select(ClusterMember.cluster_id, sa.func.count())
+                .where(ClusterMember.item_type == "channel")
+                .group_by(ClusterMember.cluster_id)
+            ).all()
+        )
+
+    stamped: dict[tuple[date, str], int] = {}
+    seen: set[tuple[date, str]] = set()
+    for day, cluster_id, _name, detail in rows:
+        seen.add((day, cluster_id))
+        ballast = (detail or {}).get("ballast")
+        if isinstance(ballast, dict) and ballast.get("channels") is not None:
+            stamped[(day, cluster_id)] = int(ballast["channels"])
+
+    today = days[0]
+    _warn_on_a_dropped_stamp(result, today, seen, stamped)
+
+    if len(days) < 2:
+        return
+    previous = days[1]
+    for cluster_id in sorted({c for _, c in seen}):
+        now = stamped.get((today, cluster_id))
+        before = stamped.get((previous, cluster_id))
+        if now is None or before is None:
+            continue
+        floor = max(members.get(cluster_id, 0), 1)
+        drift = abs(now - before) / floor
+        if drift > BALLAST_DRIFT_SHARE:
+            result.warnings.append(
+                f"{cluster_id} ballast channels moved {before} -> {now} "
+                f"({drift:.1%} of {floor} members) between {previous} and {today}"
+            )
+    return

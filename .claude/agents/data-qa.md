@@ -27,5 +27,19 @@ Given a `run_id` (or the most recent one in `job_runs`), report:
    `cluster_members.cluster_id` with no `clusters` row.
 7. **Quota headroom** — spend as a share of budget, and the projection if the
    channel set keeps growing at its current rate.
+8. **One run and one definition per feature day** — `features_daily` for the newest
+   day must carry a single `run_id`, and each cluster's `scorecards` row must name the
+   run that wrote its features. This failed on 2026-08-31: a retirement landed between
+   two feature passes, and the stranded cluster's scorecard named the converged run over
+   features from an older one under an older definition. `nh status --check` gates on it
+   now; check it here too, because the gate only looks at the newest day.
+9. **The size of the ballast cut** — `detail.ballast.channels` per cluster, night over
+   night, from `on_niche_share` and `median_views`. Report the DELTA, never the level:
+   history-of-ideas sits at 126 of 205 member channels by construction. A batch of
+   channels tipping into ballast is what a lexicon regression looks like from here, and
+   it makes every share metric improve overnight while the numerator does not move —
+   which is exactly how ADR-0047 raised `on_niche_share` 0.076 -> 0.227 on an identical
+   numerator of 230. Until ADR-0050's recall sample is labelled, that number is
+   unvalidated; say so whenever you quote it.
 
 Lead with anything anomalous. If everything is clean, say so in three lines.

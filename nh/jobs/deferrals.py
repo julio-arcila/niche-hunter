@@ -45,6 +45,51 @@ class Deferral:
 #: Ordered roughly by how close each is to firing.
 DEFERRALS: tuple[Deferral, ...] = (
     Deferral(
+        metric="supply.* ballast exclusion (ADR-0047) — recall validation, or it reverts",
+        blocker=(
+            "ADR-0047 excludes 585 member channels and 8,994 video rows from supply "
+            "denominators at read time, and the whole of `history-of-ideas "
+            "on_niche_share` 0.076 -> 0.227 is that exclusion: the numerator is 230 "
+            "on-niche videos on both sides, unmoved. The rule rests on the SCORER'S "
+            "OWN REJECTIONS, and ADR-0041's drawn sample cannot test it even by "
+            "passing — that sample draws from ABOVE the threshold and measures "
+            "precision, and its own text calls the rejected stratum 'unsampled by "
+            "construction'. Ballast can err only by omission (a ballast channel has "
+            "zero rows above the threshold, so exclusion can only shrink a "
+            "denominator), which is why its validity reduces to ONE number: the "
+            "lexicon's false negative rate on the excluded rows"
+        ),
+        # A DATE, not a query and not `manual`. `manual` is what the exposition
+        # deferral is, and a deferral whose trigger is "somebody does the work"
+        # never fires on its own — which is exactly what an independent review
+        # objected to about this change. This one enforces itself: past the date,
+        # `inputs.ballast_active()` returns False, `not_ballast` becomes a
+        # true-everywhere clause and `supply.definition()` stamps `v2-on-niche`.
+        # A non-answer is an answer, and it is the conservative one.
+        kind="date",
+        # The LAST day still blocked, because `fires()` is `today > trigger` for every
+        # dated deferral while `inputs.ballast_active()` is `today < BALLAST_SUNSET`.
+        # Written as 2026-09-14 first, which put the register a day behind the code —
+        # the register saying "still blocked" on the morning the revert had already
+        # happened. `test_the_ballast_deferral_fires_the_day_ballast_reverts` pins the
+        # two so the next edit to either cannot reintroduce the gap.
+        trigger="2026-09-13",
+        consumer=(
+            "every supply.* denominator, money.midroll_eligible_share's confidence, "
+            "and run.pressure_index which ranks them — all revert to v2-on-niche"
+        ),
+        cost=(
+            "~30 minutes: `uv run python scripts/label_exposition.py --sample recall` "
+            "over reports/recall_labelling_2026-08-31.jsonl (100 rows, 87 channels, "
+            "ADR-0042's two passes unchanged). Bar is the 95% Wilson UPPER bound "
+            "<= 0.10, at most 4 of 100. A MODEL MUST NOT LABEL IT — the objection is "
+            "that the evidence is machine labels from one family, and two raters of "
+            "that family cannot detect a bias they share. On the result, set "
+            "`inputs.BALLAST_VALIDATED` in the same commit that writes the interval "
+            "into ADR-0047"
+        ),
+    ),
+    Deferral(
         metric="relevance rule — independent human validation",
         blocker=(
             "held-out precision 0.781 was measured against labels written by the "

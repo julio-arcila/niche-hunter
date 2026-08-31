@@ -1719,6 +1719,57 @@ WHERE slug = 'philosophy-of-science'`. Its snapshots keep accruing meanwhile —
 polls every known channel regardless of seed state (ADR-0039), so the history is not lost,
 only the discovery spend.
 
+### Addendum, 2026-08-31 — the day this retirement stranded is deleted, not marked
+
+The retirement landed **between** two feature passes on the same day, so 2026-08-31 held
+one cluster's rows from an older run under an older definition. The independent review
+found it, and the state was worse than "mixed":
+
+```
+features_daily  2026-08-31  philosophy-of-science   run a6d35aee   v2-on-niche      23 rows
+features_daily  2026-08-31  the other ten           run 5f8c2fd7   v3-non-ballast  230 rows
+scorecards      2026-08-31  philosophy-of-science   run 5f8c2fd7   <- the converged run
+```
+
+The scorecard carries the **converged** run id over features from the older one. That is
+not a stale row; the provenance actively lies, and provenance is the one thing data rule 1
+says every row must carry truthfully.
+
+**Deleted, 23 + 1 rows, scoped:**
+
+```sql
+DELETE FROM features_daily WHERE cluster_id='philosophy-of-science' AND day='2026-08-31';
+DELETE FROM scorecards     WHERE cluster_id='philosophy-of-science' AND day='2026-08-31';
+```
+
+Both pass `scripts/hooks/block_dangerous_sql.sh`, which blocks unscoped deletes and never
+this. Verified after: `SELECT DISTINCT run_id, json_extract(detail,'$.definition')` over
+the day returns a single run and a single definition family; ten clusters, 230 rows, ten
+scorecards. The cluster's earlier consistent day (2026-08-29, 23 rows) is untouched.
+
+**Why deletion and not a marker.** `features_daily` is recomputable by design, which is
+ADR-0043's own argument, and **snapshots are untouched** — the asset data rule 4 protects
+is not in either table. The cluster was retired that same day, so its absence from that
+day is the correct steady state rather than a hole. And a marker could only ever be
+partial: the six supply rows self-describe through `v2-on-niche`, but `geo_concentration`,
+the sixteen metrics carrying no definition at all, and the confidence-formula change from
+ADR-0047 carry nothing, so marking would have labelled a quarter of the problem and left
+the rest looking clean.
+
+The rows are archived outside the repo before the delete, per the read-before-destroy
+habit; they are not committed, because a recomputable artifact in git is the mixed state
+in a second place.
+
+**The general defect this is an instance of is now detected**, which matters more than
+the deletion: a retirement applied mid-day leaves the pipeline's own outputs inconsistent,
+and until 2026-08-31 nothing looked. `nh status --check` now fails when the newest feature
+day carries more than one `run_id`, or when a scorecard names a run its own features did
+not come from — a **problem**, not a warning, because a row that does not describe how it
+was computed breaks data rule 1 and the fix is same-day. Newest day only: older days may
+legitimately hold a run per definition step, and re-litigating history on every ping is how
+a gate stops being read. Both halves are pinned by tests reproducing this exact day, and
+mirrored into `.claude/agents/data-qa.md`, which looks further back than the gate does.
+
 ## ADR-0045 — The exposition human-label requirement fires when a score is CITED, not while it merely exists
 2026-08-31. Accepted. Narrows the trigger of the exposition deferral. **Weakens an
 evidence standard, deliberately**, and says so rather than dressing it as a clarification.
@@ -2292,3 +2343,323 @@ of this ADR counted both against today, which is the very UTC-versus-Pacific con
 runbook exists to prevent.) At the next fire the five new strings should appear in
 `discoveries.query` and the five old ones should not. Re-run the yield query a week later
 for the new strings and for the held `logic-linguistics-gnoseology` control.
+
+## ADR-0050 — Ballast is validated against a pre-registered recall sample, or it reverts on 2026-09-14
+2026-08-31. Accepted. Written **before the draw exists**. Does not touch ADR-0041's bar,
+its drawn sample, or ADR-0042's criterion — this adds a second sample in the stratum
+ADR-0041 says in its own text it cannot reach.
+
+### Trigger
+
+An independent reviewer read ADR-0042 through ADR-0049 as a stack, which no in-loop
+reviewer had done — each of those saw one diff and never the cumulative state. It measured:
+
+```
+history-of-ideas on_niche_share   0.076 -> 0.227
+on-niche videos before:  230
+on-niche videos after:   230
+```
+
+The numerator is identical. ADR-0047 supplies the entire +0.151 by removing **2,156 of
+3,824 video rows (56%)** from the denominator at read time; corpus growth accounts for
+−0.002 and ADR-0046 for about +0.001. The niche did not improve. The metric began
+answering a different question under the same name, and `supply.DEFINITION` marking the
+step is bookkeeping, not evidence.
+
+Two structural facts follow, and they are the reason this ADR exists rather than a
+narrower fix:
+
+1. **Every change in that stack removed negative evidence from a denominator and none
+   added any.** The class of change that would have *lowered* shares — tightening an
+   over-firing lexicon — was declined on the grounds that it would be tuning against
+   machine-identified failures. ADR-0047 rests on the *same* machine judgements and
+   proceeded. Whatever the right rule is, it cannot be one that admits only the
+   share-raising direction.
+2. **The pending validation cannot validate what was tuned.** ADR-0041 draws from
+   `relevance >= RELEVANCE_HIGH` and measures precision. ADR-0047 and ADR-0049 rest on the
+   scorer's *rejections*. ADR-0041 states the rejected stratum is "unsampled by
+   construction", so that sample cannot test ballast **even by passing**.
+
+### The reduction this turns on
+
+Ballast can err in exactly one direction. A ballast channel has zero videos above the
+threshold in this cluster (`_ballast_channels` requires `count(on_niche) == 0`), so
+excluding it cannot remove a row from any numerator — numerator invariance, which holds at
+every `BALLAST_DECIDED` and every day. The only possible harm is that some excluded row was
+*genuinely* on-niche and the lexicon missed it. That is a lexicon false negative on an
+excluded row. So:
+
+> **Ballast's validity reduces entirely to one measurable number — the lexicon's false
+> negative rate on excluded rows — and one below-threshold sample measures it.**
+
+Nothing else on the reviewer's list produces evidence; the rest is hygiene. And the same
+sample yields the first human-labelled *negative* evidence in the repo, which is what would
+legitimately license the lexicon tightening declined under (1).
+
+### Frame
+
+**Decided-noise rows on ballast channels, in the active clusters.** In SQL terms
+`is_noise IS TRUE` and `Video.channel_id IN _ballast_channels(cluster)`, drawn by
+`scripts/draw_recall_sample.py`, which imports `_ballast_channels` rather than restating it
+so the frame cannot drift from the predicate the metric uses.
+
+Measured 2026-08-31: **9,585 rows over 585 channels across ten clusters** (history-of-ideas
+2,021/126; metaphysical-battles 1,621/95; trading 237/16 at the small end).
+
+Deliberately **not** the whole below-threshold population — and the gap is quantified here
+rather than described, because "not the whole population" is the kind of phrase that hides
+its own size. Ballast channels carry **10,857** video rows in total, of which:
+
+| | rows | in the frame? |
+|---|---|---|
+| decided noise | **9,585** (88.3%) | yes — this sample |
+| undecided mid-band | 978 | no |
+| unscorable (`relevance IS NULL`) | 294 | no |
+| on-niche | **0** | n/a — zero by construction, which is numerator invariance |
+
+So **11.7% of what ADR-0047 removes is not represented**, and the two excluded slices are
+excluded for different reasons. Mid-band rows test where `RELEVANCE_HIGH` sits, and nothing
+in ADR-0042..0049 touched the threshold; the tuned claim is ADR-0047's, so the frame is the
+part of its exclusion set that ADR-0047's own logic rests on.
+
+The 294 unscorable rows are the weaker case and are called out because **neither sample can
+reach them**: ADR-0041 draws above the threshold and this one draws decided noise, so a row
+the lexicon could not read is permanently untested by both while still leaving the
+denominator. Most of them are ADR-0046's language gate doing its job — a Spanish title on a
+ballast channel is correctly *not* a judgement — but "most" is an argument, not a
+measurement, and this ADR does not measure it. A future draw stratified on `relevance IS
+NULL` is the honest way to close it; the estimate produced here applies to the 88.3% and
+should be quoted that way.
+
+### Design
+
+- **n = 100.** Minimum 80; below that the draw is postponed, never shrunk (ADR-0041).
+- **Cap 15 per domain**, as ADR-0041.
+- **Cap 2 per channel.** This is the cap that matters and it is new. The claim under test is
+  at channel grain — "this channel publishes nothing this cluster can read" — so an uncapped
+  row draw is channel-clustered and its effective n is smaller than the number printed on
+  it. Every domain has at least 32 rows drawable under the cap (trading, the smallest), so
+  the cap binds the draw and not the frame. The realised draw: 100 rows over 87 channels.
+- **Even allocation, shortfall redistributed round-robin**, written down here before the
+  draw. With ten domains and a target of 100 it is a no-op today; it exists so that a domain
+  retired mid-week cannot turn reaching n into a judgement call.
+- **>= 8 domains**, fixed seed, reproducible from the seed alone.
+- **Same two files, same split**: `recall_draw_key_<date>.jsonl` (row, domain, video_id,
+  channel_id, relevance — not opened while labelling) and `recall_labelling_<date>.jsonl`
+  (row, domain, title, description, empty `subject` / `exposition` / `note`). No relevance,
+  no band, no `detail.matched`.
+
+### The criterion is ADR-0042's, unchanged, both passes
+
+`relevance` is the **geometric mean** of a domain axis and an exposition axis
+(`nh/clustering/relevance.py:600`), so a row clears the threshold only if **both** fire. A false negative
+is therefore exactly ADR-0042's `label = 1` — Pass A SUBJECT yes **and** Pass B EXPOSITION
+yes. Same instrument, same worked archetypes, same per-pass `unsure`, same
+title-and-description-only blinding, same contamination rule. One criterion covers both
+samples, which is also what makes labelling both in one sitting feasible.
+
+`unsure` folds to **0** here, as it does there, and the direction is the same both times:
+a row nobody can verify is not evidence against the scorer.
+
+### The bar, tabulated before the draw
+
+> **Ballast stands iff the 95% Wilson UPPER bound on the hit rate is <= 0.10 — at most 4
+> of 100.**
+
+Wilson upper bounds at n = 100: k=2 → 0.070, k=3 → 0.085, **k=4 → 0.098**, k=5 → 0.112.
+
+Upper bound, not lower, because the claim being defended is that the excluded rows contain
+*almost nothing*, and the honest test of a smallness claim is that the whole interval is
+small. Why 0.10 and not 0.05: **retained** decided rows in these clusters run **8,114 of
+23,169 = 0.350** on-niche, measured 2026-08-31, so <= 0.10 keeps the entire interval a
+factor of 3.5 below the population ballast was separated from — which is precisely what
+exclusion asserts, and which a bar at 0.10 already establishes. (A draft of this paragraph
+said 24.8%; the measured figure is 35.0%, and it makes the separation argument stronger, not
+weaker.) A 0.05 bar fails roughly 60% of the time at a true rate of 0.02; a bar the
+instrument cannot resolve at this n is theatre, and ADR-0041's own goalpost argument cuts
+both ways.
+
+### The impact reading is pre-committed too, so a pass cannot be over-read
+
+At a true false-negative rate f on the 9,585 excluded rows, ballast is silently deleting
+roughly `f x 2,021` genuine on-niche rows in history-of-ideas alone, against an observed
+numerator of 230:
+
+| f | 0.02 | 0.05 | 0.10 |
+|---|---|---|---|
+| history-of-ideas rows deleted | ~40 | ~101 | ~202 |
+
+A pass at k=4 is therefore **not** "ballast is clean"; it is "ballast's cost is bounded
+above by roughly the size of the numerator it protects". Whatever k is observed is written
+into ADR-0047 next to the coverage figures, and the per-domain split is published with it.
+
+### Both branches, committed now
+
+- **Pass** (95% Wilson UB <= 0.10): v3 stands, k and the per-domain split are recorded in
+  ADR-0047, and `on_niche_share` keeps its ballast filter.
+- **Fail**: `supply.DEFINITION` reverts to `v2-on-niche` and `not_ballast` comes out of
+  `relevance_coverage` / `numerator_coverage` / `member_channels`. This is a one-line revert
+  by construction — ADR-0047 is a read-time predicate with no stored state to migrate — and
+  the failing rows become human-labelled negative evidence the next lexicon slice may
+  legitimately use.
+
+### Sunset: 2026-09-14
+
+**If no human or crowdsourced labels exist for this sample by 2026-09-14,
+`supply.DEFINITION` reverts to `v2-on-niche` automatically.** Not a reminder — a default.
+
+The reviewer's central complaint is that the metric moved 3x on machine judgement and could
+sit unvalidated indefinitely, and an ADR that says "validate it eventually" does not answer
+that. The sunset converts indefinite unvalidation into a decided outcome: a non-answer is
+now also an answer, and it is the conservative one. There is no machine substitute
+available — ADR-0045 already settles that a second rater of the same family cannot detect a
+bias it shares — and every alternative signal reachable from here either has that problem or
+breaks numerator invariance.
+
+The exposition sample under ADR-0041 has **no** sunset and does not gain one here; nothing
+ranked ships from it either way, so its cost of waiting is zero. Ballast's is not: it is
+already changing a published number every night.
+
+### A contaminant stated in advance
+
+ADR-0046 accepted a residual of roughly **120–150 foreign short-title rows** that the
+language gate does not catch, concentrated in metaphysical-battles (~70) and
+esoterism-spirituality (~41). Some of those sit on ballast channels, and ADR-0042's Pass A
+archetypes explicitly call a video **in any language** on-niche if it is about the domain.
+So a failure concentrated in those two domains is the language gate's known limit surfacing,
+**not** ballast's logic failing. The per-domain split is published for exactly this reason,
+and this paragraph is written before the draw so that reading cannot be invented afterwards.
+
+### Addendum, same day — what the review of this ADR found in this ADR
+
+An independent reviewer was asked to attack the sunset specifically, and two of its
+findings were real. Both are recorded here rather than quietly fixed, because they are the
+same defect this ADR was written about, arriving one level up.
+
+**1. The revert did not reach the channel population.** `member_channels` called
+`_ballast_channels` directly instead of going through the switch, so after the sunset it
+would have gone on excluding ballast channels while `views_per_new_video` — computed from
+exactly those channels — stamped `v2-on-niche` on the row. Measured before the fix:
+members stayed at **110** across the flip while the definition tag moved. A row that lies
+about its own definition is precisely what this ADR's own text called "the worst of both".
+Fixed by routing every exclusion through one `exclude_ballast(column, ...)`, and pinned by
+a test that fails on any new direct call site — because the way it arrived is that somebody
+added a call site and every review read the diff rather than the call graph. After the fix
+the revert reaches everything: members 110 -> 236, `geo_concentration` 0.3939 -> 0.3782,
+`views_per_new_video` 764.5 -> 680.0.
+
+**2. `ballast_active()` reads the wall clock, and `inputs.py` promised it never would.**
+That promise ("Everything is parameterised by `day` and nothing reads the clock") is now
+false as written, so it is amended to state the one exception precisely — the reasoning
+`.claude/rules/python.md` already applies to its bare-except count: a rule that miscounts
+its own exceptions has lost its force. The exception is **not** a leak (it cannot show a
+feature a row that postdates `day`; it switches a whole definition), but it does mean the
+same historical day can recompute differently on two sides of 2026-09-14. Two things bound
+it: `pinned_ballast()` resolves the switch **once per run** and holds it, so no nightly or
+replay can flip mid-way and write two definitions under one `run_id`; and `replay(...,
+ballast=)` takes an explicit pin, which is what makes a deliberate v2-vs-v3 comparison
+possible at all. Three of nine `BACKTEST_METRICS` route through the predicate.
+
+Also from that review, and fixed: `geo_concentration`'s value and confidence come entirely
+from `member_channels`, so it moved when ADR-0047 landed and carried **no definition stamp
+at all**. Every metric that moves with the switch now carries one — audited by running all
+four feature modules under both pins and diffing, which is how this was found rather than
+by reading.
+
+### What this does not claim
+
+Both samples passing validates the scorer's precision above the threshold and its rejections
+below it. It says nothing about Gate E's 2026-08-28 null, and nothing ranked ships either
+way. `scorecards.opportunity` stays NULL.
+
+## ADR-0051 — Every active domain keeps one discovery query outside the explained register
+2026-08-31. Accepted. Amends the query sets ADR-0049 last touched; does not change the
+quota, the seed count, any lexicon, or ADR-0049's held control.
+
+### The finding
+
+Measured on the live seed rows, 2026-08-31: **25 of 30 active discovery queries contain an
+explained-register token**, and six domains were at 3 of 3 — `ai-and-software`,
+`anthropocene-anthropology`, `biohacking`, `esoterism-spirituality`, `macro-economy` and
+`logic-linguistics-gnoseology`. Discovery was searching for a **format** almost as hard as
+for a subject.
+
+That matters because of what the exposition axis then does with the result.
+`nh/clustering/relevance.py` scores relevance as the geometric mean of a domain axis and an
+**exposition** axis, and the exposition axis asks "is this an explanation". So the corpus
+was selected by a query for explainers and then scored on being explainers. The 0.866
+held-out figure and every `on_niche_share` above it are measured on a **preimage of the
+query set**, not on an independent sample of the domain — a video that is on-domain but
+lectured, debated or argued is largely not in the corpus to be got wrong.
+
+An independent reviewer also noted the sharper half: **ADR-0049's control cannot see this.**
+`logic-linguistics-gnoseology` is held untouched as a control, and it is itself 3/3
+"explained" — a control for query *change* and, explicitly, **not** one for register. It
+could not detect convergence even in principle.
+
+### What changes
+
+One query per domain moves into a different register, in the five 3/3 domains other than
+the held control:
+
+| domain | was | now |
+|---|---|---|
+| `esoterism-spirituality` | hermeticism **explained** | hermeticism **lecture** |
+| `anthropocene-anthropology` | anthropocene **explained** | anthropocene **debate** |
+| `macro-economy` | monetary policy **explained** | monetary policy **debate** |
+| `ai-and-software` | machine learning **explained** | machine learning **lecture** |
+| `biohacking` | longevity research **explained** | longevity research **lecture** |
+
+**Only the register token moves; the topic is held fixed.** That is the design, not
+laziness: the two arms of each domain now differ in exactly one dimension, so a yield
+difference between them is attributable to register alone. A replacement that also changed
+the subject would confound the very thing this exists to measure.
+
+**None of ADR-0049's five replacements is touched.** Three of them
+(`occult philosophy explained`, `human origins explained`,
+`llm application development explained`) sit in domains changed here, and their yield is
+being re-measured a week from 2026-08-31; swapping one would have destroyed that
+measurement. Register-free queries go from **5 of 30 to 10 of 30**.
+
+### This is deliberately not yield-optimised
+
+The probe arm is **expected to return less**, and that is written here so a later reader
+cannot mistake lower yield for a failed change. `search.list` relevance-ranks against the
+query string, so a lecture query returns fewer tidy explainer thumbnails; that is the
+point. What it buys is the ability to tell two hypotheses apart:
+
+- the domain genuinely is mostly explainers, or
+- the corpus is mostly explainers because the queries asked for them.
+
+Two arms per domain is the minimum that makes those distinguishable, and per-arm yield
+folds into ADR-0049's week-later re-measure at no extra cost. It also keeps non-preimage
+inflow alive, so a future recall draw (ADR-0050) can stratify on it.
+
+### Mechanics
+
+Edited `nh/seeds.py` and ran `uv run nh seed`. **No hand `UPDATE`**: `keywords` is inside
+`apply_seeds`' upsert update set, unlike `active`, so the code edit does reach an existing
+row — verified in the database, all five rows carry the new strings, and this is the
+distinction ADR-0049 established against the ADR-0039 trap. Quota unchanged: 30 queries x 2
+sort orders x 100 = **6,000 of 9,500**, confirmed by `nh seed` after.
+
+### The floor is a test, and it carries one exemption
+
+`tests/test_seeds.py::test_every_active_domain_keeps_a_query_outside_the_explained_register`
+asserts that every active domain holds at least one register-free query. A test rather than
+a note because the pressure runs one way: every yield measurement rewards the register that
+yields, so the floor erodes one locally-correct query at a time.
+
+The exemption is `logic-linguistics-gnoseology`, asserted as an exact set so a second one
+must be a deliberate edit to the literal. It is exempt because ADR-0049 holds it whole and
+its baseline is the only one that re-measure has. **It expires when that re-measure lands** —
+at which point it takes a register-free query like every other domain.
+
+### What this does not claim
+
+It does not repair the 0.866, the 107 machine labels, or any stored score: everything
+already collected was collected under the old query set and stays a preimage of it. The
+benefit is entirely prospective, exactly as ADR-0049's was, and it is diagnostic rather than
+corrective — it makes a confound **measurable**, not absent. And discovery is only 7.5% of
+video member rows; the rest arrive by RSS from channels already admitted, which the register
+of a query never touches.

@@ -118,3 +118,35 @@ def test_a_deactivated_seed_costs_no_search_quota():
 
 def test_the_default_seed_set_fits_the_daily_budget():
     assert search_budget(SEEDS, pages=1) < 9_500
+
+
+def test_every_active_domain_keeps_a_query_outside_the_explained_register():
+    """ADR-0051's floor. Measured 2026-08-31: **25 of 30** active queries carried an
+    explained-register token and six domains were at 3/3, so discovery was searching for
+    a *format* almost as much as for a subject — and the exposition lexicon then scores
+    what that format returns, which is a preimage of the query set rather than an
+    independent measurement of it.
+
+    A test and not a note, because the pressure runs one way: every yield measurement
+    rewards the register that yields, so the floor would erode query by query with each
+    step looking locally correct.
+
+    **One exemption, and it is the awkward one.** ADR-0049 holds
+    `logic-linguistics-gnoseology` completely untouched as a control for query CHANGE,
+    and its yield is re-measured a week after 2026-08-31; swapping a query into it now
+    would destroy the only baseline that measurement has. It is itself 3/3 "explained",
+    so it is explicitly **not** a control for register and cannot detect this drift even
+    in principle — which is the finding, not a defence. The exemption is listed rather
+    than filtered so that adding a second one has to be a deliberate edit to this
+    literal, and it expires when ADR-0049's re-measure lands.
+    """
+    register = {"explained", "explainer", "explain", "explaining"}
+    held = {"logic-linguistics-gnoseology"}  # ADR-0049's control; expires on its re-measure
+
+    thin = {
+        seed["slug"]
+        for seed in SEEDS
+        if seed["active"]
+        and not any(not (register & set(k.lower().split())) for k in seed["keywords"])
+    }
+    assert thin == held, f"register floor broken in: {sorted(thin - held)}"

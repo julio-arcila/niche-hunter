@@ -26,6 +26,7 @@ from nh.db.provenance import Stamp, stamp
 from nh.db.session import session_scope
 from nh.db.types import utcnow
 from nh.features import run as features_run
+from nh.features.inputs import pinned_ballast
 from nh.scoring import scorecard
 
 log = logging.getLogger(__name__)
@@ -53,9 +54,17 @@ def run_phases(
     A failing phase is recorded and the next one still runs — same posture as a
     failing collector. Features computed from partial inputs are worth having, and
     `confidence` is what says how partial they were.
+
+    Wrapped in `pinned_ballast` so the whole run computes under one definition. A run
+    started at 23:58 on 2026-09-13 would otherwise cross ADR-0050's sunset mid-way and
+    write two definitions under one `run_id` — the mixed-day defect ADR-0044's addendum
+    repairs, arriving on a schedule nobody chose rather than from an operator's edit.
     """
     at = utcnow()
-    return {name: _run_phase(name, fn, run_id, day, job, at, engine).status for name, fn in PHASES}
+    with pinned_ballast():
+        return {
+            name: _run_phase(name, fn, run_id, day, job, at, engine).status for name, fn in PHASES
+        }
 
 
 def _run_phase(

@@ -117,3 +117,28 @@ def test_the_relevance_validation_deferral_names_slice_7_not_slice_6():
     assert "SLICE 7" in validation.trigger
     assert validation.kind == "manual"
     assert "kappa" in validation.blocker
+
+
+def test_the_ballast_deferral_fires_the_day_ballast_reverts():
+    """The register and the code must name the same day, and they use opposite
+    comparisons to do it.
+
+    `fires()` is `today > trigger` for every dated deferral; `inputs.ballast_active()`
+    is `today < BALLAST_SUNSET`. So the trigger is the last day still blocked, one
+    before the constant. Written the obvious way first, the register said "still
+    blocked" on the morning the revert had already happened — a one-day lie about the
+    one deferral that enforces itself. Pinned here rather than in a comment, because
+    this repo's own history is that a rule and the code it describes drift apart and the
+    prose is what gets believed.
+    """
+    from datetime import timedelta
+
+    from nh.features.inputs import BALLAST_SUNSET
+
+    ballast = next(d for d in DEFERRALS if "ballast exclusion" in d.metric)
+    assert ballast.kind == "date"
+    assert date.fromisoformat(ballast.trigger) == BALLAST_SUNSET - timedelta(days=1)
+
+    day_before, day_of = BALLAST_SUNSET - timedelta(days=1), BALLAST_SUNSET
+    assert fires(ballast, day_before) is False
+    assert fires(ballast, day_of) is True

@@ -26,6 +26,7 @@ from nh.features.inputs import (
     _ballast_channels,
     _day_end,
     _until,
+    ballast_active,
     eligible_niche_videos,
     member_channels,
     member_join,
@@ -57,6 +58,24 @@ CONFIDENCE_N = 30
 #: label is the defect this whole ADR kept re-learning.
 DEFINITION = "v3-non-ballast-members"
 
+#: What the same metrics were before ADR-0047. Named here rather than left in git
+#: history because ADR-0050's sunset can put it back in force without a code change,
+#: and a row stamped `v3` while the predicate was inert would be the worst of both.
+DEFINITION_PRE_BALLAST = "v2-on-niche"
+
+
+def definition() -> str:
+    """The definition tag in force right now (ADR-0050).
+
+    A function rather than a constant because `inputs.ballast_active()` can go false on
+    the sunset date, and the tag has to move in the same instant the predicate does.
+    `detail.definition` is the only thing that lets a reader tell one side of that step
+    from the other, so the two must not be able to disagree — which is why this reads
+    the switch rather than restating the date.
+    """
+    return DEFINITION if ballast_active() else DEFINITION_PRE_BALLAST
+
+
 #: `uploads_per_week` only, 2026-08-29: the fixed-window count became a
 #: per-channel rate over the observed span (data rule 9). Values before this tag
 #: are censored by the RSS 15-entry cap and not comparable where
@@ -70,7 +89,15 @@ def _ballast_detail(session: Session, cluster_id: str, day: date) -> dict[str, i
     `detail.definition` says a cut happened; this says how big it was. Without it a
     reader cannot tell that over half a cluster's video rows left the denominator, or
     at what threshold — which is exactly what an independent review found invisible.
+
+    Reports what was ACTUALLY excluded, so past ADR-0050's sunset it reports zeros
+    rather than the size of a cut that did not happen. `active` carries the difference
+    explicitly, because zeros alone are ambiguous between "the switch is off" and "this
+    cluster has no ballast" — and the second is a real state (a young cluster where no
+    channel has ten decided videos yet).
     """
+    if not ballast_active():
+        return {"active": False, "n": BALLAST_DECIDED, "channels": 0, "rows": 0}
     excluded = list(session.scalars(_ballast_channels(cluster_id, day)))
     rows = (
         session.scalar(
@@ -85,7 +112,7 @@ def _ballast_detail(session: Session, cluster_id: str, day: date) -> dict[str, i
         )
         or 0
     )
-    return {"n": BALLAST_DECIDED, "channels": len(excluded), "rows": rows}
+    return {"active": True, "n": BALLAST_DECIDED, "channels": len(excluded), "rows": rows}
 
 
 def _confidence(
@@ -311,7 +338,7 @@ def median_views(session: Session, cluster_id: str, day: date) -> FeatureResult:
         ),
         inputs_n=len(pooled),
         detail={
-            "definition": DEFINITION,
+            "definition": definition(),
             # What the definition actually excluded. The tag says a cut happened; this
             # says how big. An independent review found the size invisible in the stored
             # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
@@ -366,7 +393,7 @@ def on_niche_share(session: Session, cluster_id: str, day: date) -> FeatureResul
         confidence=min(judged / total, 1.0) if total else 0.0,
         inputs_n=judged,
         detail={
-            "definition": DEFINITION,
+            "definition": definition(),
             # What the definition actually excluded. The tag says a cut happened; this
             # says how big. An independent review found the size invisible in the stored
             # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
@@ -440,7 +467,7 @@ def format_mix(session: Session, cluster_id: str, day: date) -> FeatureResult:
         confidence=min(known / CONFIDENCE_N, 1.0) * (min(judged / total, 1.0) if total else 0.0),
         inputs_n=known,
         detail={
-            "definition": DEFINITION,
+            "definition": definition(),
             # What the definition actually excluded. The tag says a cut happened; this
             # says how big. An independent review found the size invisible in the stored
             # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
@@ -506,6 +533,15 @@ def geo_concentration(session: Session, cluster_id: str, day: date) -> FeatureRe
         confidence=known / len(members),
         inputs_n=known,
         detail={
+            # Both value AND confidence are computed entirely from `member_channels`,
+            # which is ballast-filtered — so this metric moved when ADR-0047 landed and
+            # carried nothing saying so. Measured on the live corpus: history-of-ideas
+            # 0.3939 over 110 members under v3, 0.3782 over 236 under v2. It was missed
+            # by the ADR-0047 stamping pass because it has no relevance query of its
+            # own, which is exactly why the stamp belongs to the POPULATION and not to
+            # the query that happens to be visible in the function.
+            "definition": definition(),
+            "ballast": _ballast_detail(session, cluster_id, day),
             "seed_geo": seed_geo,
             "member_channels": len(members),
             "with_known_country": known,
@@ -573,7 +609,7 @@ def top10_concentration(session: Session, cluster_id: str, day: date) -> Feature
         confidence=min(len(top) / TOP_N, 1.0),
         inputs_n=len(top),
         detail={
-            "definition": DEFINITION,
+            "definition": definition(),
             # What the definition actually excluded. The tag says a cut happened; this
             # says how big. An independent review found the size invisible in the stored
             # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
@@ -640,7 +676,7 @@ def median_top_video_age(session: Session, cluster_id: str, day: date) -> Featur
         confidence=min(len(top) / TOP_N, 1.0),
         inputs_n=len(top),
         detail={
-            "definition": DEFINITION,
+            "definition": definition(),
             # What the definition actually excluded. The tag says a cut happened; this
             # says how big. An independent review found the size invisible in the stored
             # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
@@ -729,7 +765,7 @@ def views_per_new_video(session: Session, cluster_id: str, day: date) -> Feature
         confidence=min(len(ratios) / len(members), 1.0),
         inputs_n=len(ratios),
         detail={
-            "definition": DEFINITION,
+            "definition": definition(),
             # What the definition actually excluded. The tag says a cut happened; this
             # says how big. An independent review found the size invisible in the stored
             # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
