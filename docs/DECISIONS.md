@@ -1771,6 +1771,36 @@ grain. Crowdsourced labels remain the cheap honest answer if this ever fires —
 across three raters is roughly $20-40 and yields inter-rater agreement as well, which is
 better evidence than one operator.
 
+**Addendum, 2026-08-31: the trigger is narrower than the prose, and sequences this behind
+Gate E.** Found by an independent review of the session, not by the reviews that approved
+each change. The prose above requires validation "before any artifact cites an
+exposition-domain score to a person — an evidence page, a ranking, a recommendation, an
+alert". The implemented trigger fires only on a non-NULL `value`, `sustainability` or
+`opportunity`. Measured today: those three are NULL for all 11 scorecard rows **because
+Gate E holds them NULL**, while `gap`, `supply`, `demand` and `stage` are populated for
+every one — `history-of-ideas` reads `gap 0.5`, `stage cooling` right now.
+
+So an alert or evidence page citing *those* would cite an exposition-domain score to a
+person and fire nothing, and the requirement as implemented **cannot fire until Gate E
+passes** — coupling the two hardest-blocked things in the repo without saying so. The ADR
+confessed the requirement might wait "possibly indefinitely"; it did not say it was
+sequenced behind a specific other gate.
+
+Not widened, deliberately, and the reason is a limit rather than a preference: the trigger
+detects a column becoming non-NULL, which is a *proxy* for citation. Widening it to
+`gap`/`supply`/`stage` would fire it immediately, today, when nothing cites anything —
+there is no display layer yet (`nh/api` and `nh/web` are Slice 1 stubs). Detecting
+citation properly needs something to detect, and that does not exist. **Until it does,
+this is a manual obligation: anything that puts `gap`, `supply`, `demand` or `stage` for
+an exposition cluster in front of a person needs the human labelling first, and the
+register will not remind you.** That is the honest statement of what this trigger buys and
+what it does not.
+
+Second-order, minor: the trigger's SQL has no exposition-family filter, so a reactivated
+event cluster gaining a non-NULL `value` would fire this deferral spuriously. Conservative
+direction — it over-fires rather than under-fires — and left alone.
+
+
 ## ADR-0046 — A Latin-script non-English title is unscorable, not decided off-niche
 2026-08-31. Accepted. Fixes a scoring defect that has been live since the second gate in
 `score()` was written. Bumps `LEXICON_VERSION` to `2026-08-31.4`. No migration.
@@ -2119,6 +2149,27 @@ would flip many channels to observed-zero, shrink the member universe, and *rais
 confidence — the inversion the supply audit found, rebuilt one level up. A `data-qa` check
 warning when a cluster's ballast fraction moves sharply night-over-night is the natural
 guard and is **not** implemented here.
+
+**Addendum, 2026-08-31: the promised `ballast_n` is implemented, after an independent
+review measured what its absence hid.** Every metric stamping `DEFINITION` now also
+carries `detail.ballast = {n, channels, rows}` — for `history-of-ideas` today,
+`{n: 10, channels: 126, rows: 2156}`.
+
+The review's measurement is why. `history-of-ideas` `on_niche_share` moved 0.076 -> 0.227
+across two days, and the numerator is **identical: 230 on-niche videos before and after**.
+The entire 3x is denominator removal — 2,156 of 3,824 video rows (56%) leaving at read
+time — with corpus growth contributing −0.002 and ADR-0046 about +0.001. The niche did not
+improve; the metric began answering a different question ("dilution among non-ballast
+members") under the same name. `detail.definition` recorded *that* a cut happened and
+nothing about its size, and this ADR had promised the field that would say so. The promise
+was then deleted from the code comment twice rather than implemented, both times reported
+as done.
+
+That is the observability failure this addendum closes, and it is worth stating why it
+mattered more than it looked: a reader of a stored row could not have discovered the
+denominator halved, which makes every downstream reading of that series unfalsifiable
+from the row alone.
+
 
 ## ADR-0048 — reserved
 2026-08-31. Reserved for the `nh/features/supply.py` branch: `member_definition`

@@ -20,8 +20,10 @@ from nh.db.models import (
 )
 from nh.features.inputs import (
     AGE_FLOOR_DAYS,
+    BALLAST_DECIDED,
     FEED_DEPTH,
     RELEVANCE_HIGH,
+    _ballast_channels,
     _day_end,
     _until,
     eligible_niche_videos,
@@ -60,6 +62,30 @@ DEFINITION = "v3-non-ballast-members"
 #: are censored by the RSS 15-entry cap and not comparable where
 #: `channels_span_censored` > 0.
 DEFINITION_SPAN_RATE = "v3-span-rate-on-niche"
+
+
+def _ballast_detail(session: Session, cluster_id: str, day: date) -> dict[str, int]:
+    """`{n, channels, rows}` — the size of the cut ADR-0047 makes, per stored row.
+
+    `detail.definition` says a cut happened; this says how big it was. Without it a
+    reader cannot tell that over half a cluster's video rows left the denominator, or
+    at what threshold — which is exactly what an independent review found invisible.
+    """
+    excluded = list(session.scalars(_ballast_channels(cluster_id, day)))
+    rows = (
+        session.scalar(
+            sa.select(sa.func.count())
+            .select_from(ClusterMember)
+            .join(Video, Video.video_id == ClusterMember.item_id)
+            .where(
+                ClusterMember.item_type == "video",
+                ClusterMember.cluster_id == cluster_id,
+                Video.channel_id.in_(excluded),
+            )
+        )
+        or 0
+    )
+    return {"n": BALLAST_DECIDED, "channels": len(excluded), "rows": rows}
 
 
 def _confidence(
@@ -286,6 +312,13 @@ def median_views(session: Session, cluster_id: str, day: date) -> FeatureResult:
         inputs_n=len(pooled),
         detail={
             "definition": DEFINITION,
+            # What the definition actually excluded. The tag says a cut happened; this
+            # says how big. An independent review found the size invisible in the stored
+            # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
+            # on an IDENTICAL numerator of 230 on-niche videos, because ~56% of the
+            # cluster's video rows left the denominator. ADR-0047 promised this field and
+            # the promise was deleted twice rather than implemented.
+            "ballast": _ballast_detail(session, cluster_id, day),
             "contributing_channels": len(by_channel),
             "p90_views": float(pooled[int(0.9 * (len(pooled) - 1))]),
             "as_of": day.isoformat(),
@@ -334,6 +367,13 @@ def on_niche_share(session: Session, cluster_id: str, day: date) -> FeatureResul
         inputs_n=judged,
         detail={
             "definition": DEFINITION,
+            # What the definition actually excluded. The tag says a cut happened; this
+            # says how big. An independent review found the size invisible in the stored
+            # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
+            # on an IDENTICAL numerator of 230 on-niche videos, because ~56% of the
+            # cluster's video rows left the denominator. ADR-0047 promised this field and
+            # the promise was deleted twice rather than implemented.
+            "ballast": _ballast_detail(session, cluster_id, day),
             "on_niche": on_niche,
             "decided": judged,
             "videos": total,
@@ -401,6 +441,13 @@ def format_mix(session: Session, cluster_id: str, day: date) -> FeatureResult:
         inputs_n=known,
         detail={
             "definition": DEFINITION,
+            # What the definition actually excluded. The tag says a cut happened; this
+            # says how big. An independent review found the size invisible in the stored
+            # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
+            # on an IDENTICAL numerator of 230 on-niche videos, because ~56% of the
+            # cluster's video rows left the denominator. ADR-0047 promised this field and
+            # the promise was deleted twice rather than implemented.
+            "ballast": _ballast_detail(session, cluster_id, day),
             "videos_with_known_format": known,
             "shorts": shorts or 0,
             "window": [since.date().isoformat(), day.isoformat()],
@@ -527,6 +574,13 @@ def top10_concentration(session: Session, cluster_id: str, day: date) -> Feature
         inputs_n=len(top),
         detail={
             "definition": DEFINITION,
+            # What the definition actually excluded. The tag says a cut happened; this
+            # says how big. An independent review found the size invisible in the stored
+            # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
+            # on an IDENTICAL numerator of 230 on-niche videos, because ~56% of the
+            # cluster's video rows left the denominator. ADR-0047 promised this field and
+            # the promise was deleted twice rather than implemented.
+            "ballast": _ballast_detail(session, cluster_id, day),
             "top_n": TOP_N,
             "videos_ranked": len(top),
             "top10_views": sum(views[:10]),
@@ -587,6 +641,13 @@ def median_top_video_age(session: Session, cluster_id: str, day: date) -> Featur
         inputs_n=len(top),
         detail={
             "definition": DEFINITION,
+            # What the definition actually excluded. The tag says a cut happened; this
+            # says how big. An independent review found the size invisible in the stored
+            # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
+            # on an IDENTICAL numerator of 230 on-niche videos, because ~56% of the
+            # cluster's video rows left the denominator. ADR-0047 promised this field and
+            # the promise was deleted twice rather than implemented.
+            "ballast": _ballast_detail(session, cluster_id, day),
             "top_n": TOP_N,
             "videos_ranked": len(top),
             "youngest_years": round(min(ages), 2),
@@ -669,6 +730,13 @@ def views_per_new_video(session: Session, cluster_id: str, day: date) -> Feature
         inputs_n=len(ratios),
         detail={
             "definition": DEFINITION,
+            # What the definition actually excluded. The tag says a cut happened; this
+            # says how big. An independent review found the size invisible in the stored
+            # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
+            # on an IDENTICAL numerator of 230 on-niche videos, because ~56% of the
+            # cluster's video rows left the denominator. ADR-0047 promised this field and
+            # the promise was deleted twice rather than implemented.
+            "ballast": _ballast_detail(session, cluster_id, day),
             "member_channels": len(members),
             "contributing_channels": len(ratios),
             "snapshots_differenced": FLOW_SNAPSHOTS,

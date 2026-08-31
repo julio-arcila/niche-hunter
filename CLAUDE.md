@@ -69,7 +69,8 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 - Phase: **Slice 9 shipped; the exposition-axis labelling is the open task.** Branch
-  `slice-11-eleven-domain-pivot`. Suite green at **721**.
+  `slice-11-eleven-domain-pivot` (named for eleven; ten since ADR-0044). Suite green
+  at **766**.
 - **THE ONE THING WAITING ON A HUMAN — and BOTH drawn samples have now been spent by a
   model.** 2026-08-29 (ADR-0041) and 2026-08-30 (ADR-0042) were each labelled by fable-5
   at the operator's repeated instruction. Both came to **78/99**, lower bound 0.6974,
@@ -121,8 +122,10 @@ reviewer. Summarize exploration briefly.
 - **The remaining ten domains are ACTIVE and collecting** (ADR-0040), applied as both a
   catalogue change and an `UPDATE` — `apply_seeds` keeps `active` outside its upsert
   update set, so a code edit alone never reaches an existing row. That mistake already
-  happened once (ADR-0039 addendum) and is the repo's standing example. Discovery costs
-  6,600 of 9,500 units. The five disaster niches are retired from discovery at 0 units
+  happened once (ADR-0039 addendum) and is the repo's standing example. **`keywords` is
+  the opposite** — it IS in the update set, so a seed-query change needs only `nh seed`
+  and a hand UPDATE would be cargo-cult (ADR-0049). Discovery costs 6,000 of 9,500 units
+  at ten domains. The five disaster niches are retired from discovery at 0 units
   while RSS keeps compounding their history.
 - Nothing ranked ships, and the exposition test does not change that.
   `scorecards.value` / `sustainability` / `opportunity` stay NULL behind **Gate E's
