@@ -2119,3 +2119,125 @@ would flip many channels to observed-zero, shrink the member universe, and *rais
 confidence — the inversion the supply audit found, rebuilt one level up. A `data-qa` check
 warning when a cluster's ballast fraction moves sharply night-over-night is the natural
 guard and is **not** implemented here.
+
+## ADR-0048 — reserved
+2026-08-31. Reserved for the `nh/features/supply.py` branch: `member_definition`
+attribution, the `docs/METRICS.md` key fix it implies, and whether `uploads_per_week`
+(116 lines), `views_per_new_video` (75) and `median_top_video_age` (61) are extracted
+below the 60-line convention together or one at a time. Recorded as a stub rather than
+left as a silent gap in the ledger.
+
+## ADR-0049 — Five discovery queries are replaced; one domain is held as a control
+2026-08-31. Accepted. Changes five strings in `nh/seeds.py::SEEDS`. No schema change, no
+migration, no quota change, and **no hand `UPDATE`** — see the mechanics note, which is
+the inverse of the trap ADR-0039 records.
+
+**The measurement.** Population: distinct `(seed, query, video_id)` over `discoveries`
+joined to `niche_seeds` where `active = 1` — the ten live domains, **3,766 pairs over
+3,585 distinct videos**, measured against the corpus as of the 09:10 run of 2026-08-31
+(`run_id 5f8c2fd7`), stored relevance converged to `LEXICON_VERSION 2026-08-31.4`.
+Naively joining `discoveries` without dedup gives rates above 100%, which is why the
+grain is stated. On-niche means the video's `cluster_members` row **in the seed's own
+cluster** has `relevance >= 0.55`; ballast replicates `inputs._ballast_channels` at
+`day=None`.
+
+**Corpus baseline: 2,106 of 3,766 pairs on-niche (55.9%)**, or 1,960 of 3,585 distinct
+videos (54.7%). A draft of this ADR divided the pair-grain numerator by the video-grain
+denominator and printed 58.7% — the exact error the population paragraph exists to
+prevent, one paragraph after stating it.
+
+| domain | query | videos | on-niche | ballast channels |
+|---|---|---|---|---|
+| history-of-ideas | `enlightenment philosophy history` | 150 | **4.0%** | 96 of 127 (75.6%) |
+| metaphysical-battles | `consciousness debate philosophy` | 140 | 24.3% | 47 of 109 (43.1%) |
+| esoterism-spirituality | `occult history documentary` | 121 | 21.5% | 51 of 101 (50.5%) |
+| ai-and-software | `ai software engineering` | 206 | 28.6% | 41 of 173 (23.7%) |
+| anthropocene-anthropology | `human impact environment documentary` | 28 | 32.1% | 17 of 28 (60.7%) |
+
+`enlightenment philosophy history`'s 96 is the largest single-query ballast source in the
+corpus; the next is 51. Active clusters hold **585 ballast channels over 2,608 members**
+at that run — ADR-0047 reports 503 over 2,307 earlier the same day, and the difference is
+intraday corpus growth, not a disagreement.
+
+**Selection rule: replace a query only where it is the sole laggard in its domain.** Where
+two of three queries lag together, the lexicon is the suspect and swapping one would
+launder a domain problem as a query fix.
+
+**Apply that rule with separation, not spread.** A draft used the within-domain range in
+percentage points and got two domains backwards, because spread ignores n:
+
+| domain | queries (n) | verdict |
+|---|---|---|
+| metaphysical-battles | 24.3 (140), 34.5 (84), 45.7 (127) | `consciousness` separates from `free will` at p = 0.0003 and from pooled siblings at p = 0.0013, CIs non-overlapping; `materialism` vs siblings is p = 1.00 — **one laggard, replace** |
+| logic-linguistics | 28.6 (98), 35.0 (120), 60.2 (83) | the two low queries are indistinguishable from each other (p = 0.38) and both separate from the third (p < 0.0001, p = 0.0005) — **two laggards, HOLD** |
+
+The draft held `consciousness debate philosophy` on the ground that "its siblings run 34.5%
+and 45.7%, so it is not an outlier". That is false: it is an outlier at p = 0.0003, it
+separates from its siblings *more* strongly than `human impact environment documentary`
+does from its own (p = 0.012), and it carries 47 ballast channels — more than three of the
+queries the draft did replace. It is replaced here. **`logic-linguistics-gnoseology` is the
+held domain**, correctly, and doubles as an untouched control: if its yield moves without
+its queries changing, the cause was never the queries.
+
+**The n = 28 case is replaced for exhaustion, not yield.** `human impact environment
+documentary` has a Wilson CI of [17.9%, 50.7%] that overlaps its sibling's, and Fisher
+p = 0.079 — not significant, and the ADR does not pretend otherwise. The real argument is
+that it returned 26 videos on both run-days for 28 distinct total: after night one it buys
+**~2 new videos for 200 units**. (`anthropocene explained` is worse still — 12 videos both
+nights, 12 distinct, **zero** new. That domain is search-supply-limited and is a separate
+question this ADR does not answer.)
+
+**The replacements.**
+
+| domain | from | to |
+|---|---|---|
+| history-of-ideas | `enlightenment philosophy history` | `age of reason philosophy explained` |
+| metaphysical-battles | `consciousness debate philosophy` | `philosophy of mind explained` |
+| esoterism-spirituality | `occult history documentary` | `occult philosophy explained` |
+| anthropocene-anthropology | `human impact environment documentary` | `human origins explained` |
+| ai-and-software | `ai software engineering` | `llm application development explained` |
+
+Failure modes were inspected: `enlightenment` is polysemous into the Buddhist register and
+pulls Shorts history-farms; `consciousness` pulls the new-age register; `documentary` pulls
+generic history channels; `ai software engineering` pulls business-news and podcast clips.
+Each replacement drops the token that caused the failure — an earlier draft proposed `age
+of enlightenment intellectual history`, which named `enlightenment` as the failure and then
+kept it, and `cultural anthropology explained`, a strict token-superset of the 58.0%
+sibling `anthropology explained`.
+
+**On the "explained" register: it is weak evidence and is not the reason.** Queries
+containing "explained" run 65.7% (n = 2,426) against "documentary" at 23.5% (n = 149).
+That reproduces, but the "documentary" arm is **two queries, both of them ones being
+replaced here** — it is a restatement of "these two yielded badly", fully confounded with
+query and domain, and it is recorded as a hypothesis to test against the new strings rather
+than as support for them.
+
+**Mechanics — the inverse of ADR-0039's trap, so read before reaching for SQL.**
+`apply_seeds` passes `update=["label", "keywords", "geo", "lang", "primary_sources",
+"notes"]` (`nh/seeds.py:1770`): **`keywords` is in the update set; `active` is not**, and
+two tests pin that asymmetry (`test_reseeding_updates_keywords_in_place`,
+`test_reseeding_does_not_reactivate_a_disabled_seed`). Discovery reads
+`NicheSeed.keywords` from the database row (`youtube_api.py:248`), not the literal. So
+editing `seeds.py` and running `uv run nh seed` is the entire application — verified, all
+five rows carry the new strings. **A hand `UPDATE` here would be cargo-culting ADR-0039
+into a case that does not need it.**
+
+**Quota unchanged**: 30 queries x 2 sort orders x 100 = 6,000 of 9,500, confirmed by
+`nh seed` before and after.
+
+**What this does not fix.** Discovery is **5,511 of 73,464 video member rows (7.5%)**; the
+rest arrive by RSS from channels already admitted. So this changes **no current metric
+value** — the 585 existing ballast channels stay members, stay polled at zero quota, and
+are already excluded at read time by ADR-0047. The benefit is entirely prospective. It also
+does nothing for the diluters ADR-0047 spares by design (fewer than ten decided videos, or
+one on-niche), and some measured "bad yield" is lexicon strictness rather than query
+badness — a Spinoza biography scoring 0.0 in `history-of-ideas` is not a query defect.
+
+**Verification at the next scheduled fire, not a manual run.** Today's *Pacific* quota day
+holds one `youtube_api` run at 6,447 units, leaving 3,053 of 9,500 — less than the 6,000 a
+discovery pass needs. (The 7,190-unit run stamped 2026-08-31 00:00:26 UTC belongs to the
+*previous* Pacific day; `_spent_today` windows on America/Los_Angeles midnight, and a draft
+of this ADR counted both against today, which is the very UTC-versus-Pacific confusion the
+runbook exists to prevent.) At the next fire the five new strings should appear in
+`discoveries.query` and the five old ones should not. Re-run the yield query a week later
+for the new strings and for the held `logic-linguistics-gnoseology` control.
