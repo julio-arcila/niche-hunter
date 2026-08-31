@@ -7,11 +7,15 @@ from datetime import timedelta
 import pytest
 import sqlalchemy as sa
 
+import nh.features.inputs as inputs
 from nh.db.session import session_scope
 from nh.features.inputs import BALLAST_DECIDED, numerator_coverage
 from nh.features.supply import (
+    DEFINITION,
+    DEFINITION_PRE_BALLAST,
     geo_concentration,
     median_views,
+    on_niche_share,
     uploads_per_week,
     views_per_new_video,
 )
@@ -423,3 +427,96 @@ def test_censoring_is_reported_over_the_channels_that_reach_the_value(engine):
     assert detail["contributing_span_censored"] == 1
     assert detail["channels_span_censored"] == 1
     assert detail["contributing_span_censored"] <= detail["channels_publishing_in_window"]
+
+
+# --- ADR-0050's sunset -------------------------------------------------------------
+#
+# ADR-0047 changed a published number threefold on machine judgement alone, and the
+# sample that can test it is drawn and unlabelled. The sunset is what stops that state
+# from becoming permanent by inattention, so it is the mechanism these pin — not the
+# date, which an ADR may move, but the two properties a later edit could break without
+# anyone noticing: that the switch actually reverts the predicate, and that the stored
+# row never claims a cut that did not happen.
+
+
+def test_the_sunset_reverts_the_predicate_and_leaves_the_numerator_alone(engine, monkeypatch):
+    """Past the sunset, ballast rows come back into the denominator and only there.
+
+    Numerator invariance is ADR-0047's load-bearing claim, so it is asserted on BOTH
+    sides of the switch rather than once: a ballast channel has no video above the
+    threshold, so flipping the rule can only ever move a denominator.
+    """
+    make_cluster(engine)
+    add_channel(engine, "real", videos=3, relevant=True)
+    add_channel(engine, "ballast", videos=BALLAST_DECIDED, relevant=False)
+    session = session_for(engine)
+
+    on_v3, judgeable_v3, total_v3 = numerator_coverage(session, CLUSTER, DAY)
+    monkeypatch.setattr(inputs, "BALLAST_SUNSET", DAY - timedelta(days=1))
+    on_v2, judgeable_v2, total_v2 = numerator_coverage(session, CLUSTER, DAY)
+
+    assert on_v3 == on_v2 == 3
+    # `total` is where the revert shows, and `judgeable` is where it must not:
+    # `judgeable` counts what is not decided off-niche, and every ballast row is
+    # decided off-niche by construction, so it is unmoved on both sides.
+    assert total_v3 == 3
+    assert total_v2 == 3 + BALLAST_DECIDED
+    assert judgeable_v3 == judgeable_v2 == 3
+
+
+def test_the_definition_tag_moves_in_the_same_instant_as_the_predicate(engine, monkeypatch):
+    """A row stamped v3 while the predicate is inert is worse than either state."""
+    make_cluster(engine)
+    add_channel(engine, "real", videos=3, relevant=True)
+    add_channel(engine, "ballast", videos=BALLAST_DECIDED, relevant=False)
+    session = session_for(engine)
+
+    before = on_niche_share(session, CLUSTER, DAY).detail
+    assert before["definition"] == DEFINITION
+    assert before["ballast"] == {
+        "active": True,
+        "n": BALLAST_DECIDED,
+        "channels": 1,
+        "rows": BALLAST_DECIDED,
+    }
+
+    monkeypatch.setattr(inputs, "BALLAST_SUNSET", DAY - timedelta(days=1))
+    after = on_niche_share(session, CLUSTER, DAY).detail
+    assert after["definition"] == DEFINITION_PRE_BALLAST
+    assert after["ballast"] == {"active": False, "n": BALLAST_DECIDED, "channels": 0, "rows": 0}
+    assert after["on_niche"] == before["on_niche"]
+    assert after["decided"] > before["decided"]
+
+
+def test_a_recorded_result_overrides_the_date_in_both_directions(engine, monkeypatch):
+    """`BALLAST_VALIDATED` is the human's verdict and outranks the calendar.
+
+    Both directions, because only one of them is the happy path: a sample that comes
+    back FAILING must revert immediately, not wait for a date that is still in the
+    future. ADR-0050 commits to both branches, so both are pinned.
+    """
+    from datetime import date
+
+    monkeypatch.setattr(inputs, "BALLAST_VALIDATED", True)
+    assert inputs.ballast_active(date(2099, 1, 1)) is True
+
+    monkeypatch.setattr(inputs, "BALLAST_VALIDATED", False)
+    assert inputs.ballast_active(date(2000, 1, 1)) is False
+
+
+def test_the_sunset_is_the_operators_calendar_not_the_decision_date(engine, monkeypatch):
+    """`day` must not reach the switch.
+
+    `inputs.py` promises a feature never sees a row that did not exist at its decision
+    date, and ADR-0047 was redesigned around exactly that. A sunset keyed on `day`
+    would put it straight back: a 2025 replay would silently run under v2 while today's
+    nightly runs under v3, and the two series would differ for a reason no stored row
+    records.
+    """
+    from datetime import date
+
+    monkeypatch.setattr(inputs, "BALLAST_SUNSET", date(2026, 9, 14))
+    assert inputs.ballast_active(date(2026, 9, 13)) is True
+    assert inputs.ballast_active(date(2026, 9, 14)) is False
+    # The feature's `day` is a different argument entirely and cannot reach it.
+    assert "day" not in inputs.ballast_active.__code__.co_varnames

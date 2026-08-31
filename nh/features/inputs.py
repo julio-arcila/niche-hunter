@@ -235,6 +235,42 @@ def _ballast_channels(cluster_id: str, day: date | None = None):
     )
 
 
+#: ADR-0050's sunset. Ballast raised `history-of-ideas on_niche_share` 0.076 -> 0.227
+#: with an IDENTICAL numerator of 230 — the whole move is denominator removal — on
+#: machine judgements alone, and the sample that could test it is drawn and unlabelled.
+#: On this date, with no recorded result, the rule reverts to v2 rather than continuing
+#: indefinitely. A date, not a reminder: the reviewer's complaint was precisely that an
+#: unvalidated 3x move could sit forever, and "validate it eventually" does not answer
+#: that. `reports/recall_labelling_2026-08-31.jsonl` is what clears it.
+BALLAST_SUNSET = date(2026, 9, 14)
+
+#: The result of ADR-0050, once a human has computed it. `None` means unlabelled or
+#: uncomputed — the sunset governs. `True` means the 95% Wilson UPPER bound on the hit
+#: rate came in at or below 0.10 (at most 4 of 100); `False` means it did not.
+#:
+#: **Deliberately a constant a person sets, not a file the code reads.** Completing the
+#: labels is not the same event as passing the bar, so auto-resuming v3 the moment the
+#: file fills would resume it on a FAILING sample. And code that graded its own
+#: validation would be the circularity ADR-0041 exists to prevent, one level up. Set it
+#: in the same commit that writes the result report and the k into ADR-0047.
+BALLAST_VALIDATED: bool | None = None
+
+
+def ballast_active(today: date | None = None) -> bool:
+    """Whether ADR-0047's exclusion applies at all (ADR-0050).
+
+    `today` is the operator's calendar, NOT the feature's decision date — the two are
+    different clocks and conflating them is how a replay starts depending on when it is
+    run. A `day`-bounded read stays `day`-bounded; what this switches is which
+    *definition* is in force, the same class of change as moving `BALLAST_DECIDED`, and
+    `supply.definition()` stamps it into every row so a stored series self-describes
+    across the step.
+    """
+    if BALLAST_VALIDATED is not None:
+        return BALLAST_VALIDATED
+    return (today or date.today()) < BALLAST_SUNSET
+
+
 def not_ballast(cluster_id: str, day: date | None = None):
     """This video's channel is not ballast in this cluster as of `day` (ADR-0047).
 
@@ -249,7 +285,13 @@ def not_ballast(cluster_id: str, day: date | None = None):
     Measured on the live corpus, applying this
     moves history-of-ideas coverage 2608/3246 -> 870/1384 and `on_niche_share`
     0.076 -> 0.226.
+
+    Returns a true-everywhere clause once `ballast_active()` goes false, so the revert
+    ADR-0050 commits to is this one line and no migration — which is the property that
+    let ADR-0047 ship on structure while its evidence was still outstanding.
     """
+    if not ballast_active():
+        return sa.true()
     return Video.channel_id.notin_(_ballast_channels(cluster_id, day))
 
 

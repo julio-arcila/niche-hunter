@@ -23,7 +23,7 @@ from nh.features.inputs import (
     relevance_coverage,
     window_start,
 )
-from nh.features.supply import DEFINITION
+from nh.features.supply import definition
 from nh.features.types import FeatureResult
 
 GROUP = "money"
@@ -129,7 +129,7 @@ def midroll_eligible_share(session: Session, cluster_id: str, day: date) -> Feat
         confidence=min(known / CONFIDENCE_N, 1.0) * _decided(session, cluster_id, day),
         inputs_n=known,
         detail={
-            "definition": DEFINITION,
+            "definition": definition(),
             "videos_with_known_duration": known,
             "midroll_eligible": eligible or 0,
             "window": [since.date().isoformat(), day.isoformat()],

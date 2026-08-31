@@ -13,7 +13,7 @@ from nh.db.models import Cluster, FeatureDaily
 from nh.db.provenance import Stamp
 from nh.db.upsert import upsert
 from nh.features import demand, money, openness, supply
-from nh.features.supply import DEFINITION
+from nh.features.supply import definition
 from nh.features.types import FeatureResult
 
 log = logging.getLogger(__name__)
@@ -196,7 +196,7 @@ def _cross_cluster(rows: list[dict], day: date, mark: Stamp) -> list[dict]:
                     ),
                     "inputs_n": len(clusters),
                     "detail": {
-                        "definition": DEFINITION,
+                        "definition": definition(),
                         "components": dict(zip(PRESSURE_FROM, parts, strict=True)),
                         "ranked_over": sorted(clusters),
                         "note": (
