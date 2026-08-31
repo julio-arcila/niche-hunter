@@ -41,6 +41,7 @@ asset is snapshot history; never break the collectors.
 - `uv run nh status [--check]` — what got collected; --check gates the cron ping
 - `uv run nh niche show <slug> [--unvalidated]` — every metric, with confidence and basis
 - `uv run nh niche trace <slug> <metric>` — the input rows behind one number (ADR-0052)
+- `uv run nh web` — the evidence surface; needs `uv sync --extra web`
 - `uv run nh prune [--dry-run]` — storage report + bounded retention on raw payloads
 - `uv run nh doctor` — database reachable, schema present
 - `uv run alembic upgrade head` / `alembic revision --autogenerate -m "..."`
@@ -70,9 +71,9 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
-- Phase: **Slice 7 (evidence surface) in progress — read layer done, web layer next.**
-  All of ADR-0038..0051 is on `main`; ADR-0052 and `nh/api/` are on
-  `adr-0052-evidence-surface`. Suite green at **920**. TWO drawn samples still wait on a human labeller, and one has a
+- Phase: **Slice 7 (evidence surface) in progress — read layer and web layer done;
+  insight rules next.** All of ADR-0038..0051 is on `main`; ADR-0052, `nh/api/` and
+  `nh/web/` are on `adr-0052-evidence-surface`. Suite green at **927**. TWO drawn samples still wait on a human labeller, and one has a
   2026-09-14 deadline. The ROADMAP headers for slices 9 and 11 said "PLANNED, not started"
   until 2026-08-31, three days after both shipped — read `nh/seeds.py` and
   `features/run.py::METRICS`, not the roadmap, for what exists.

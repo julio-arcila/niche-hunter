@@ -386,8 +386,12 @@ def _add_a_second_cluster_for_ranks(engine, day: date = DAY) -> None:
     """
     from nh.features.run import PRESSURE_FROM
 
+    # A real `clusters` row, not only feature rows. Without it `queries.niche_list` returns
+    # a single cluster and "is it alphabetical" is trivially true — measured: mutating the
+    # sort to `.desc()` left the test passing. A one-element list satisfies every ordering.
+    make_cluster(engine, "a-second-cluster", seed_id=1)
     with session_scope(engine) as s:
-        for i, cluster in enumerate((CLUSTER, "other-cluster")):
+        for i, cluster in enumerate((CLUSTER, "a-second-cluster")):
             for name in PRESSURE_FROM:
                 s.add(
                     FeatureDaily(

@@ -1,0 +1,17 @@
+# Local-only defaults for the evidence surface (ADR-0052).
+
+[browser]
+# Streamlit reports usage statistics to its own servers by default. This page renders the
+# operator's own corpus on the operator's own machine, and the repo's posture on sending
+# anything outward is explicit consent (.claude/rules/sources.md) — so it is off. Nothing
+# here needs it, and a local tool that phones home by default is a surprise, not a feature.
+gatherUsageStats = false
+
+[server]
+# Bind to the loopback interface only. The page has no authentication and shows an
+# unvalidated scorer's inputs; it is not a thing to put on a LAN by accident.
+address = "127.0.0.1"
+headless = true
+
+[theme]
+base = "light"

@@ -399,6 +399,31 @@ def compute(
     raise typer.Exit(0 if all(v == "ok" for v in statuses.values()) else 1)
 
 
+@app.command("web")
+def web(
+    port: int = typer.Option(8501, "--port"),
+) -> None:
+    """Serve the evidence surface (ADR-0052). Requires the `web` extra.
+
+    Execs `streamlit run` rather than importing it: Streamlit owns its own process model,
+    and re-implementing that here would be a second way to start the same app.
+    """
+    import os
+    import shutil
+    from pathlib import Path
+
+    if shutil.which("streamlit") is None:
+        typer.echo(
+            "streamlit is not installed — `uv sync --extra web` (kept optional so the "
+            "nightly never depends on a rendering library)",
+            err=True,
+        )
+        raise typer.Exit(2)
+    page = Path(__file__).parent / "web" / "app.py"
+    # Fixed argv, no shell, no user-supplied path.
+    os.execvp("streamlit", ["streamlit", "run", str(page), "--server.port", str(port)])
+
+
 niche_app = typer.Typer(no_args_is_help=True, help="Inspect one niche.")
 app.add_typer(niche_app, name="niche")
 
