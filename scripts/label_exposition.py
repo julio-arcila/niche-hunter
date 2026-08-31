@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Label the exposition validation sample, one question at a time (ADR-0042).
 
-    uv run python scripts/label_exposition.py             # next unfinished pass
+    uv run python scripts/label_exposition.py                    # next unfinished pass
     uv run python scripts/label_exposition.py --pass subject
     uv run python scripts/label_exposition.py --status
+    uv run python scripts/label_exposition.py --sample recall    # ADR-0050's sample
 
 **Two passes, not one compound judgement.** ADR-0041 asked whether a video was
 about the domain AND explanatory in a single call, and a labeller unsure which
@@ -17,6 +18,14 @@ subject-failures and exposition-failures say different things about the lexicon.
 Shows **only** domain, title and description. Never relevance, the band, or
 `detail.matched`: a labeller who sees the terms that fired is scoring the lexicon's
 reasoning rather than the video.
+
+**Two samples, one criterion (ADR-0050).** `--sample exposition` is ADR-0041's draw
+from ABOVE the threshold and measures precision. `--sample recall` is ADR-0050's draw
+of decided-noise rows on ballast channels and measures the false negative rate there —
+the stratum ADR-0041 says it cannot reach, and the only thing that can validate
+ADR-0047. The questions, the archetypes and the `unsure` rule are identical; only the
+frame differs, so the standard in the labeller's head does not have to change between
+them. Label them in either order, ideally in one sitting.
 
 **A model must not run this.** The objection ADR-0041 answers is that the existing
 evidence is 107 machine labels from one model family, and agreement between two
@@ -36,16 +45,34 @@ import textwrap
 import tty
 from pathlib import Path
 
+#: The two samples this tool labels, and the order they are offered in. Both use the
+#: SAME ADR-0042 criterion and the same two passes, which is why one tool serves both:
+#: `relevance` is the geometric mean of a domain axis and an exposition axis, so a row
+#: clears the threshold iff both passes are yes — and a row below it fails iff at least
+#: one is no. `exposition` samples ABOVE the threshold and measures precision (ADR-0041);
+#: `recall` samples decided-noise rows on ballast channels and measures the lexicon's
+#: false negative rate there (ADR-0050). Opposite strata, one instrument.
+SAMPLES = {
+    "exposition": "exposition_labelling_*.jsonl",
+    "recall": "recall_labelling_*.jsonl",
+}
 
-def _newest_sample() -> Path | None:
-    """The most recent draw, by the date in its filename.
+
+def _newest_sample(kind: str = "exposition") -> Path | None:
+    """The most recent draw of `kind`, by the date in its filename.
 
     Hardcoded to one date until 2026-08-31, which was a trap: two samples had been
     drawn and spent by then, and a stale default silently resumes a spent file
     rather than starting the fresh one. Filenames are ISO-dated, so lexical max is
     chronological max.
+
+    Keyed on kind rather than globbing both, added with ADR-0050. A single glob over
+    two samples would resolve by date, so drawing one would silently redirect the
+    other's `--status` and its next unfinished pass — and the two answer different
+    questions about the same lexicon. Which sample is being labelled is a decision,
+    not something a filename sort should make.
     """
-    found = sorted(Path("reports").glob("exposition_labelling_*.jsonl"))
+    found = sorted(Path("reports").glob(SAMPLES[kind]))
     return found[-1] if found else None
 
 
@@ -183,12 +210,19 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pass", dest="which", choices=sorted(PASSES), default=None)
     ap.add_argument("--status", action="store_true")
-    ap.add_argument("--file", type=Path, default=SAMPLE)
+    ap.add_argument("--sample", choices=sorted(SAMPLES), default="exposition")
+    ap.add_argument("--file", type=Path, default=None)
     args = ap.parse_args()
 
+    target = args.file or _newest_sample(args.sample)
+    if target is None:
+        print(f"no {args.sample} sample drawn yet", file=sys.stderr)
+        return 1
+    args.file = target
     if not args.file.exists():
         print(f"not found: {args.file}", file=sys.stderr)
         return 1
+    print(f"sample: {args.file}\n")
     rows = load(args.file)
     if args.status:
         report(rows)
