@@ -1927,10 +1927,12 @@ are the kind of thing discovered a month later:
   code no longer produces, and anyone re-running it must re-scan first.
 - **`nh/backtest/scan.py:192` folds `None` into the zero branch.** `if not value: continue`
   survives the new `None` without crashing, but treats a withdrawal as a zero, so
-  `counts.scorable` under-counts. Pre-existing for non-Latin script and harmless at that
-  volume; this gate makes it roughly 1,350x more common in the live grain. Not fixed here
-  because it is a different module with its own tests, and fixing it inside a scoring ADR
-  would hide it. **It is the first item of item-9 follow-up work.**
+  `counts.scorable` under-counts. **Checked after this ADR was first written: the field is
+  write-only** — assigned at `scan.py:196`, declared at `:46`, and read nowhere in the
+  codebase. So the defect is real and currently inert, and the follow-up is to decide
+  whether `ChannelCounts.scorable` should be wired up or deleted, not to hurry a fix for
+  a number nobody consumes. Recorded rather than fixed here because it is a different
+  module with its own tests and burying it in a scoring ADR would hide it.
 
 **The accepted limit, as a number rather than a hedge.** Roughly 250 known Euro-language
 rows remain decided-noise (222 by a prefix-match count, 251 by the exact-variant one — the
