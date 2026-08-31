@@ -268,3 +268,109 @@ Items 1, 2 and 4 are code changes and none has been made. Item 3 is a decision.
 - **The 7 retired clusters** still hold 97–272 channels each and keep compounding via RSS
   while producing zero features — features follow `niche_seeds.active`. That matches
   ADR-0040's intent and is noted only so it is not mistaken for a scoring failure.
+
+---
+
+# Addendum, 2026-08-30: sizing the `_latin_share` defect
+
+The plan that came out of this audit made one thing a prerequisite before any
+language-gate fix could be proposed: **the defect's size was not established**,
+because 43% of noise videos carry a NULL `audio_lang`. It is established now, and
+the answer is narrower and sharper than "non-English content is mis-scored".
+
+## The NULL rate has two causes, and only one is a limit
+
+| | videos | NULL `audio_lang` |
+|---|---|---|
+| unenriched | 17,689 | **100%** — never fetched |
+| enriched | 47,980 | 18.9% — YouTube does not always report it |
+
+So 81% of enriched cluster videos carry a known language. That is the base
+everything below is measured on.
+
+## "Non-English" is the wrong population
+
+Among enriched videos with a known language, non-English content is decided noise
+at **56.1%** against English's **58.8%** — indistinguishable — and 15% of it still
+scores on-niche. The gate is working where it can see: 15.2% of non-English videos
+are marked unscorable against 0.4% of English ones.
+
+Per language, on-niche share **among scorable videos**:
+
+| lang | n | unscorable | on-niche of scorable |
+|---|---|---|---|
+| ta | 246 | 34 | 37.7% |
+| en-US | 7,010 | 7 | 28.2% |
+| hi | 6,583 | 709 | 21.8% |
+| en | 16,913 | 25 | 20.2% |
+| ur | 877 | 17 | 16.3% |
+| mr | 320 | 214 | 4.7% |
+| **fr** | **171** | **0** | **1.2%** |
+| **es** | **226** | **0** | **0.9%** |
+| ko | 208 | 203 | 0.0% |
+
+Two different things are visible here and they must not be confused. Korean and
+Marathi score near zero because the gate **caught** them (203 of 208, 214 of 320
+unscorable) — that is the design working: unreadable is recorded as unknown, not
+as off-niche. Hindi, Urdu and Tamil score like English because their titles are
+romanized or already carry English domain vocabulary, so the lexicon reads them.
+
+## The real population: Latin-script European languages
+
+| lang | n | unscorable | decided noise | on-niche |
+|---|---|---|---|---|
+| es | 226 | 0 | 223 | 2 |
+| fr | 171 | 0 | 144 | 2 |
+| pt-BR | 140 | 0 | 138 | 0 |
+| es-419 | 115 | 0 | 103 | 2 |
+| de | 89 | 0 | 69 | 2 |
+| pt | 49 | 0 | 49 | 0 |
+| it | 33 | 0 | 22 | 0 |
+| es-ES | 31 | 0 | 28 | 1 |
+| **total** | **854** | **0** | **776** | **9 (1.1%)** |
+
+**Not one of 854 is caught.** `_latin_share` tests the share of *Latin letters*, and
+a Spanish or German title is ~100% Latin, so it passes; the English lexicon then
+matches nothing, the score is exactly 0.0, and `is_noise = value <= RELEVANCE_LOW`
+with `RELEVANCE_LOW = 0.0` files it as **decided** off-niche. That is precisely the
+outcome the gate's own comment forbids — "An English lexicon cannot read this.
+Scoring it 0 would call it off-niche."
+
+1.1% on-niche against English's 20.2% is an 18x gap. At the English rate, ~172 of
+these would be on-niche; 9 are. So roughly **163 videos are wrongly excluded from
+every supply numerator, and 776 are wrongly counted as decided** in
+`relevance_coverage`.
+
+It lands where the Fable taxonomy predicted its K4 kind would:
+
+| cluster | affected | on-niche |
+|---|---|---|
+| metaphysical-battles | 179 | 0 |
+| philosophy-of-science | 133 | 2 |
+| esoterism-spirituality | 121 | 2 |
+| geopolitics | 66 | 0 |
+| history-of-ideas | 63 | 2 |
+
+These are three of the four worst-precision domains in the main report, and the
+one with the single lowest supply score.
+
+## What this does and does not license
+
+**854 is a floor, not the population.** It counts only enriched videos with a
+reported language; the 17,689 unenriched ones have no language at all, so the true
+figure is larger by an unknown factor.
+
+**It is still a `score()` change and still hard-blocked** behind the 99-row
+labelling, for the reason in the main report: changing the scorer would leave those
+labels measuring a configuration no longer running.
+
+**It does not explain the precision spread on its own.** 854 videos cannot account
+for philosophy-of-science's 4,405 off-niche rows. The ballast finding stands as the
+larger mechanism; this is a second, independent, and much cheaper-to-fix one.
+
+**The fix is not more lexicon terms.** It is a language signal the gate can act on
+— `videos.audio_lang` already exists and is populated for 81% of enriched rows,
+which is why this was worth measuring before proposing anything. A video whose
+language the lexicon does not cover should be **unscorable**, exactly like Korean,
+not decided. That keeps it out of numerator and denominator alike and lowers
+confidence honestly, instead of counting a rejection nobody made.
