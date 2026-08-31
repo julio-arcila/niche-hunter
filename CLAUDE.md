@@ -82,6 +82,14 @@ reviewer. Summarize exploration briefly.
   Run `uv run python scripts/label_exposition.py` — it now defaults to the newest draw.
   ~20 minutes, and it need not be the operator: ADR-0041 requires a rater independent of
   the model family, not a specialist. See `reports/exposition_result_2026-08-30.md`.
+- **BUT THIS NO LONGER BLOCKS ANYTHING (ADR-0045).** The requirement now fires when an
+  exposition score is CITED — a scorecard row for an active exposition cluster carrying a
+  non-NULL `value`/`sustainability`/`opportunity` — not while the score merely exists. The
+  deferral is `kind="query"` and self-evaluates (verified both ways: False now, True on a
+  scratch copy with a value set), so it is a work queue rather than a wall. Until
+  something cites these numbers they are computed, unvalidated, and used for nothing
+  outward-facing. The BAR is unchanged when it fires: two passes, 0.70 lower bound,
+  79/100. This is a deliberate weakening of an evidence standard, recorded as one.
 - **What the machine runs did establish, and it is not the number.** ADR-0042's two-pass
   split decomposed the 21 failures into **subject 13, exposition 8** — the axis under
   test is not the main problem, the DOMAIN lexicons are. `philosophy-of-science` is the

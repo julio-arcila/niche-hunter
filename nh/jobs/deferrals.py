@@ -92,8 +92,14 @@ DEFERRALS: tuple[Deferral, ...] = (
             "eleven now would put a weaker-evidenced scorer beside a stronger one "
             "under the same `relevance` column"
         ),
-        kind="manual",
+        kind="query",
         trigger=(
+            "an exposition-domain score is CITED — a scorecard row for an active "
+            "exposition cluster carries a non-NULL value, sustainability or "
+            "opportunity, the first moment a number leaves the feature layer toward "
+            "a reader (ADR-0045). Until then the scores exist, unvalidated and "
+            "uncited, and this stays blocked without stopping anything. WHEN IT "
+            "FIRES the requirement is unchanged: "
             "a human labels 60-100 rows sampled FROM ABOVE the shipping threshold "
             "(not uniformly — the 2026-08-28 interrater audit's outstanding "
             "correction), drawn from pivot-domain videos scored by the committed "
@@ -328,6 +334,22 @@ def _query_fires(trigger: str, engine: Engine | None) -> bool | None:
                 if g
             }
             return bool(geos & set(tier1)) and bool(geos - set(tier1))
+        if "an exposition-domain score is CITED" in trigger:
+            # ADR-0045. Fires the moment a scorecard row for an ACTIVE exposition
+            # cluster carries a citable number. Deliberately reads the three Gate-E
+            # columns rather than gap/supply/demand: those stay inside the feature
+            # layer, and it is `value`/`sustainability`/`opportunity` that a page
+            # would put in front of a person.
+            cited = session.scalar(
+                sa.text(
+                    "SELECT count(*) FROM scorecards s "
+                    "JOIN niche_seeds n ON n.slug = s.cluster_id "
+                    "WHERE n.active = 1 AND ("
+                    "s.value IS NOT NULL OR s.sustainability IS NOT NULL "
+                    "OR s.opportunity IS NOT NULL)"
+                )
+            )
+            return (cited or 0) > 0
         if "distinct observed_dates" in trigger:
             days = session.scalar(
                 sa.text("SELECT count(DISTINCT observed_date) FROM video_snapshots")

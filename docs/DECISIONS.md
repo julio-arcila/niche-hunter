@@ -1718,3 +1718,55 @@ seed with a live lexicon scores nothing, because scoring runs per active cluster
 WHERE slug = 'philosophy-of-science'`. Its snapshots keep accruing meanwhile — `youtube_rss`
 polls every known channel regardless of seed state (ADR-0039), so the history is not lost,
 only the discovery spend.
+
+## ADR-0045 — The exposition human-label requirement fires when a score is CITED, not while it merely exists
+2026-08-31. Accepted. Narrows the trigger of the exposition deferral. **Weakens an
+evidence standard, deliberately**, and says so rather than dressing it as a clarification.
+The bar itself — two passes, 0.70 Wilson lower bound, 79/100 — is untouched.
+
+**The problem is that the deferral is a wall.** `nh/jobs/deferrals.py`'s own docstring
+sets the standard: *"a deferral without a trigger is a wall; a deferral with one is a work
+queue."* This entry's trigger was "a human labels 60-100 rows", which is not a condition
+the world can satisfy — it is a task waiting on one person, and it has now failed to
+happen for three days across three drawn samples, two of which a model consumed instead.
+A requirement nothing can discharge is not a standard; it is a stop.
+
+**And it currently gates nothing.** ADR-0043 established that `features/run.py` filters on
+`Cluster.active` alone, so the ten domains compute `features_daily` and `scorecards`
+whether or not the axis validates; `value`, `sustainability` and `opportunity` are NULL
+behind Gate E (ADR-0029) regardless; and no validation state exists anywhere for code to
+read. So a PASS today would change no number, unblock no path, and ship no page. The
+requirement is stricter than any consequence it protects, because the consequence does not
+exist yet.
+
+**The change.** Validation is required **before any artifact cites an exposition-domain
+score to a person** — an evidence page, a ranking, a recommendation, an alert, an API
+response a human reads. Until then the scores are computed, marked unvalidated, and used
+for nothing outward-facing. The trigger becomes `kind="query"` and self-evaluates: it
+fires when a scorecard row for an active exposition cluster carries a non-NULL `value`,
+`sustainability` or `opportunity` — the first moment a number leaves the feature layer
+toward a reader. A matching branch was added to `_query_fires`; a `query` trigger with no
+branch returns `None` forever and is worse than `manual`, because it pretends to be
+checkable, which that module already warns about in another entry.
+
+**What is given up, stated plainly.** The eleven-domain scores will exist, unvalidated,
+for as long as nothing cites them — possibly indefinitely. Anyone reading
+`features_daily` or `scorecards` for an exposition cluster is reading a number whose
+scorer has never been checked against an independent rater, and ADR-0043 already records
+that those rows carry no marker saying so. This ADR makes that condition durable rather
+than transitional, which is a real loss and the reason it is an ADR rather than an edit.
+
+**What is not given up.** The standard is unchanged when it fires: the same two-pass
+criterion (ADR-0042), the same 0.70 lower bound, the same drawn-once discipline. The
+sample is already drawn and waiting (`reports/exposition_labelling_2026-08-31.jsonl`, seed
+20260831, 100 rows across ten domains after ADR-0044). Nothing about this makes a pass
+easier to claim — it makes the *requirement* fire later, not the *bar* lower.
+
+**Rejected alternatives.** A second model family would partly answer the objection, which
+is specifically that two raters of *one* family cannot detect a shared bias — but every
+model reachable from this project is Anthropic, so it is the same family in the sense that
+matters. Outcome-based validation instead of labels needs a forward outcome per video;
+`video_snapshots` is one day deep and Gate E already returned a powered null at niche
+grain. Crowdsourced labels remain the cheap honest answer if this ever fires — 100 rows
+across three raters is roughly $20-40 and yields inter-rater agreement as well, which is
+better evidence than one operator.
