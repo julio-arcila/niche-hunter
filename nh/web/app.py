@@ -25,6 +25,7 @@ import streamlit as st
 
 from nh.api import queries
 from nh.web.shared import session
+from nh.web.views import alerts as alerts_view
 from nh.web.views import niche as niche_view
 from nh.web.views import niches as niches_view
 
@@ -40,11 +41,13 @@ def main() -> None:
         st.caption("Evidence surface. Nothing here is ranked (ADR-0029, ADR-0052).")
         choice = st.selectbox(
             "View",
-            ["All niches", *clusters],
+            ["All niches", "Alerts", *clusters],
             help="Alphabetical. The order is not a claim.",
         )
 
-    if choice == "All niches" or choice not in clusters:
+    if choice == "Alerts":
+        alerts_view.render()
+    elif choice == "All niches" or choice not in clusters:
         niches_view.render()
     else:
         niche_view.render(choice)

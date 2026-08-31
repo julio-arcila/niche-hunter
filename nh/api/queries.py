@@ -21,6 +21,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from nh.db.models import (
+    Alert,
     Channel,
     ChannelSnapshot,
     Cluster,
@@ -293,6 +294,29 @@ def definition_steps(points: list[MetricPoint]) -> list[tuple[date, str | None, 
         if previous.definition != current.definition:
             steps.append((current.day, previous.definition, current.definition))
     return steps
+
+
+@dataclass(slots=True)
+class AlertLine:
+    cluster_id: str
+    rule: str
+    severity: str
+    fired_on: date
+    evidence: dict
+
+
+def alerts_feed(session: Session, limit: int = 200) -> list[AlertLine]:
+    """Recent alerts, newest first, then by severity.
+
+    Ordered by WHEN, not by how alarming — the same reason `niche_list` is alphabetical.
+    A feed sorted by severity is a ranking of niches by badness, arrived at sideways.
+    """
+    rows = session.execute(
+        sa.select(Alert.cluster_id, Alert.rule, Alert.severity, Alert.fired_on, Alert.evidence)
+        .order_by(Alert.fired_on.desc(), Alert.cluster_id, Alert.rule)
+        .limit(limit)
+    ).all()
+    return [AlertLine(*row) for row in rows]
 
 
 def latest_day(session: Session, cluster_id: str | None = None) -> date | None:

@@ -21,9 +21,15 @@ DAY = date(2026, 8, 27)
 RUN = "77777777-7777-7777-7777-777777777777"
 
 
-def test_all_three_phases_run_in_dependency_order(engine):
-    """Features need clusters, scoring needs features."""
-    assert [name for name, _ in PHASES] == ["clustering", "features", "scoring"]
+def test_every_phase_runs_in_dependency_order(engine):
+    """Features need clusters, scoring needs features, rules need all of them.
+
+    Named "all three" until 2026-08-31, when `rules` made it four — the kind of name that
+    goes quietly wrong and then reads as authoritative. The list is asserted literally so
+    adding a phase has to be a deliberate edit here: `nh status --check` iterates `PHASES`,
+    so a new one silently extends the nightly gate.
+    """
+    assert [name for name, _ in PHASES] == ["clustering", "features", "scoring", "rules"]
     apply_seeds(engine)
     assert set(run_phases(RUN, DAY, engine=engine).values()) == {"ok"}
 
@@ -35,7 +41,7 @@ def test_each_phase_writes_a_job_run_under_the_nights_run_id(engine):
         rows = dict(
             s.execute(sa.select(JobRun.source, JobRun.status).where(JobRun.run_id == RUN)).all()
         )
-    assert rows == {"clustering": "ok", "features": "ok", "scoring": "ok"}
+    assert rows == {"clustering": "ok", "features": "ok", "scoring": "ok", "rules": "ok"}
 
 
 def test_phase_rows_carry_no_quota(engine):

@@ -275,6 +275,15 @@ BALLAST_SUNSET = date(2026, 9, 14)
 #: in the same commit that writes the result report and the k into ADR-0047.
 BALLAST_VALIDATED: bool | None = None
 
+#: Night-over-night movement in a cluster's ballast channel count, as a share of its
+#: member channels, above which something should say so. Lives here rather than in
+#: `jobs.status` because two consumers need it — the nightly gate and INSIGHT_RULES' Rule 2
+#: — and `rules -> status -> phases -> rules` is a cycle. **On the DELTA, never the level**:
+#: history-of-ideas sits at 126 ballast channels of 205 members by construction, and a
+#: check that fires on that fires every night forever, which is how a check stops being
+#: read.
+BALLAST_DRIFT_SHARE = 0.05
+
 
 #: Set only by `pinned_ballast`, and consulted before everything else. Run-scoped, so a
 #: run that straddles midnight on the sunset date cannot compute half its clusters one

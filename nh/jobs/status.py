@@ -29,6 +29,7 @@ from nh.db.models import (
 )
 from nh.db.session import session_scope
 from nh.db.types import utcnow
+from nh.features.inputs import BALLAST_DRIFT_SHARE
 from nh.jobs.phases import PHASES
 
 #: `observed_date` is a PERIOD END, so it already lags the export by up to a month
@@ -37,18 +38,10 @@ from nh.jobs.phases import PHASES
 #: not refreshed yet.
 KP_STALE_DAYS = 70
 
-#: Night-over-night movement in a cluster's ballast channel count, as a share of its
-#: member channels, above which the gate speaks up. ADR-0047 deferred this check and
-#: ADR-0050 makes it due: ballast removes over half the video rows from some
-#: denominators, and until the recall sample is labelled the only thing standing between
-#: a lexicon regression and a silently 3x-better number is that somebody notices the cut
-#: changed size.
-#:
-#: **On the DELTA, never on the level.** history-of-ideas sits at 126 ballast channels of
-#: 205 members by construction, and a check that fires on that fires every night forever,
-#: which is how a check stops being read. 5% of members is roughly ten channels there —
-#: above ordinary nightly drift, below a definition change.
-BALLAST_DRIFT_SHARE = 0.05
+#: Imported, not restated: INSIGHT_RULES' Rule 2 fires on the same threshold, and a
+#: gate and an alert disagreeing about what "a big move" is would be a defect nobody
+#: could see from either file. See `features.inputs.BALLAST_DRIFT_SHARE` for why the
+#: check is on the delta and never the level.
 
 #: Metrics that carry `detail.ballast` (`supply._ballast_detail`). Named rather than
 #: scanned, so adding the stamp somewhere new is a deliberate act.

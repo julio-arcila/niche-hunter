@@ -192,3 +192,20 @@ def test_no_page_imports_streamlit_into_the_read_layer():
     api = pathlib.Path(__file__).resolve().parents[1] / "nh" / "api"
     for path in api.rglob("*.py"):
         assert "streamlit" not in path.read_text(), f"{path.name} imports the renderer"
+
+
+def test_the_alerts_page_renders_and_is_not_ranked_by_severity(surface):
+    """A feed sorted by badness is a ranking of niches arrived at sideways."""
+    app = _run("Alerts")
+    assert not app.exception
+    text = _text(app)
+    assert "Alerts" in text
+    assert "Newest first" in text and "not ranked by severity" in text
+    assert "INSIGHT_RULES" in text, "a three-rule feed must say what it does not cover"
+
+
+def test_an_empty_alerts_feed_explains_itself(surface):
+    """Zero alerts on a fresh database is the normal state, not a fault — and a blank page
+    reads as a broken one."""
+    app = _run("Alerts")
+    assert "No alerts" in _text(app)

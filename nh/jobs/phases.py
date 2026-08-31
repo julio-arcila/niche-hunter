@@ -27,7 +27,7 @@ from nh.db.session import session_scope
 from nh.db.types import utcnow
 from nh.features import run as features_run
 from nh.features.inputs import pinned_ballast
-from nh.scoring import scorecard
+from nh.scoring import rules, scorecard
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +39,10 @@ PHASES: tuple[tuple[str, Phase], ...] = (
     ("clustering", clustering.assign),
     ("features", features_run.compute),
     ("scoring", scorecard.build),
+    # Last: every rule reads what the earlier phases wrote, and an alert derived from a
+    # half-computed day would be worse than no alert. A failing phase does not stop the
+    # next, so a broken rule cannot cost a night's features.
+    ("rules", rules.evaluate),
 )
 
 

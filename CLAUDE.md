@@ -71,9 +71,12 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
-- Phase: **Slice 7 (evidence surface) in progress — read layer and web layer done;
-  insight rules next.** All of ADR-0038..0051 is on `main`; ADR-0052, `nh/api/` and
-  `nh/web/` are on `adr-0052-evidence-surface`. Suite green at **927**. TWO drawn samples still wait on a human labeller, and one has a
+- Phase: **Slice 7 (evidence surface): read layer, web layer and insight rules done;
+  only the reports viewer is left, and it can slip.** All of ADR-0038..0051 is on `main`;
+  ADR-0052, `nh/api/`, `nh/web/` and `nh/scoring/rules.py` are on
+  `adr-0052-evidence-surface`. Suite green at **946**. **`PHASES` is now FOUR** —
+  clustering, features, scoring, rules — and `nh status --check` iterates it, so a new
+  phase silently extends the nightly gate. TWO drawn samples still wait on a human labeller, and one has a
   2026-09-14 deadline. The ROADMAP headers for slices 9 and 11 said "PLANNED, not started"
   until 2026-08-31, three days after both shipped — read `nh/seeds.py` and
   `features/run.py::METRICS`, not the roadmap, for what exists.
