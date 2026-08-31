@@ -33,7 +33,7 @@ from nh.db.models import (
     Video,
     VideoSnapshot,
 )
-from nh.features.inputs import demand_terms, member_channels
+from nh.features.inputs import _until, demand_terms, member_channels
 
 FEED_LIMIT = 50
 SERIES_LIMIT = 400
@@ -209,7 +209,10 @@ def source_feed(session: Session, cluster_id: str, day: date) -> list[FeedLine]:
     """Recently discovered videos and the query that surfaced each.
 
     The end of the three-click chain: a number, its input rows, and then the actual video
-    on YouTube. `outerjoin` on `discoveries` because most of the corpus arrives by RSS from
+    on YouTube. **Bounded by `day`** — it took the argument and ignored it until the
+    2026-08-31 review, so a page rendered for an older day showed videos published after
+    it. Latent, because the page always asks for the latest day, and exactly the shape of
+    the leak `inputs.py`'s docstring exists to prevent. `outerjoin` on `discoveries` because most of the corpus arrives by RSS from
     channels already admitted — 5,511 of 73,464 member rows came from discovery (ADR-0049)
     — and showing only the discovered 7.5% would misrepresent where the corpus comes from.
     """
@@ -231,6 +234,7 @@ def source_feed(session: Session, cluster_id: str, day: date) -> list[FeedLine]:
             ),
         )
         .outerjoin(Discovery, Discovery.video_id == Video.video_id)
+        .where(Video.published_at < _until(day))
         .order_by(Video.published_at.desc())
         .limit(FEED_LIMIT)
     ).all()
@@ -287,7 +291,8 @@ def definition_steps(points: list[MetricPoint]) -> list[tuple[date, str | None, 
 
     Separated from `metric_history` so a renderer cannot forget to look. A step is not an
     anomaly to smooth over — it is the one thing that makes two sides of the series
-    incomparable, and ADR-0047 moved `on_niche_share` 0.076 -> 0.227 across one.
+    incomparable: the stored series for `history-of-ideas on_niche_share` reads 0.0781 on
+    2026-08-29 and 0.2273 on 08-31, and a definition changed between them.
     """
     steps = []
     for previous, current in pairwise(points):

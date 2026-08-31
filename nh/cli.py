@@ -465,6 +465,15 @@ def niche_show(
 
     header = f"{view.cluster_id}" + (f" — {view.label}" if view.label else "")
     typer.echo(header)
+    if unvalidated:
+        # The artifact has to describe itself. Without this line the output of
+        # `--unvalidated` is byte-identical to the output after validation, so a paste
+        # into an issue or a doc becomes a stored, unmarked citation — the flag would then
+        # be doing exactly what ADR-0050 forbids, one copy-paste later.
+        typer.echo(
+            "UNVALIDATED — shown at operator request. These numbers rest on machine "
+            "labels only (ADR-0041) and are not citable."
+        )
     if not view.metrics:
         typer.echo("no features computed yet — run `nh compute`")
         raise typer.Exit(0)
@@ -536,6 +545,7 @@ def niche_trace(
         typer.echo(f"known: {', '.join(sorted(drilldown.REGISTRY))}", err=True)
         raise typer.Exit(2)
 
+    gated = not gates.citable(metric, slug)
     typer.echo(f"{metric} · {slug} · {on}")
     typer.echo(f"population: {basis_mod.basis(metric)}")
     # The rows are NOT gated even when the metric is, and the asymmetry is deliberate:
@@ -547,15 +557,21 @@ def niche_trace(
     # carries `relevance`, so anyone about to label ADR-0041's or ADR-0050's sample should
     # not browse it first. That is the same contamination rule ADR-0042 wrote for the
     # 2026-08-30 transcript.
-    if not gates.citable(metric, slug):
+    if gated:
         typer.echo(
             "note: this metric's VALUE is withheld (ADR-0052); its input rows are shown "
-            "so the scorer can be checked. Do not read them before labelling a sample."
+            "so the scorer can be checked, without the scorer's per-row judgement. "
+            "Do not read them before labelling a sample."
         )
-    # The count is the honest part: `LIMIT` caps what the query returned, and the metric's
-    # own `inputs_n` states the true n. Saying "showing X of the first Y" rather than
-    # "of N" avoids implying this is the whole population when it is not.
-    typer.echo(f"showing {min(limit, len(rows))} of {len(rows)} fetched\n")
+    # `LIMIT` caps what the query returned, so this is "of the first Y", never "of N" —
+    # implying it is the whole population would be the worse error. Suppressed entirely
+    # when the metric is gated: `len(rows)` is a step toward the withheld denominator, and
+    # for a cluster smaller than `LIMIT` it IS the numerator. Nothing pins that today —
+    # every active cluster happens to exceed the cap — and "happens to" is not a guard.
+    if gated:
+        typer.echo(f"showing {min(limit, len(rows))} rows\n")
+    else:
+        typer.echo(f"showing {min(limit, len(rows))} of {len(rows)} fetched\n")
     typer.echo(" · ".join(str(h) for h in headers))
     for row in rows[:limit]:
         typer.echo(" · ".join("—" if v is None else str(v) for v in row))

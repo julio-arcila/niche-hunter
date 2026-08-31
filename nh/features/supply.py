@@ -48,7 +48,9 @@ CONFIDENCE_N = 30
 #: 4, so a step change in a stored series is attributable rather than mysterious.
 #: Bumped 2026-08-31 (ADR-0047): every one of these metrics now excludes videos whose
 #: CHANNEL is ballast — a member with ten decided videos and not one on-niche. 503 of
-#: 2,307 member channels and 8,994 video rows leave the denominators (HEAD scorer;
+#: 2,307 member channels and 8,994 video rows leave the denominators AT INTRODUCTION —
+#: re-measured the same day it is 585 of 2,608 and 10,857 rows, because the set is
+#: recomputed on every read and the corpus grew (HEAD scorer;
 #: against the un-converged stored scores the same rule finds 543). Values move most
 #: where the audit found confidence inverted: history-of-ideas `on_niche_share`
 #: 0.076 -> 0.226 and its `relevance_coverage` FALLS 0.803 -> 0.629, both measured on

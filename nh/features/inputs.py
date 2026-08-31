@@ -197,9 +197,7 @@ def _ballast_channels(cluster_id: str, day: date | None = None):
     A channel joins a cluster on ONE discovered video (`clustering.trivial`) with no
     threshold, and `youtube_rss` then polls it forever, so its whole catalogue lands
     in the cluster whether or not the lexicon can read any of it. Measured 2026-08-31
-    under `LEXICON_VERSION 2026-08-31.4`: 503 of 2,307 member channels across the ten
-    active clusters have ten decided videos and not one on-niche, carrying 8,994 video
-    rows that sat in every coverage denominator.
+    503 of 2,307 member channels carrying 8,994 video rows **at introduction**, under `LEXICON_VERSION 2026-08-31.4`. Re-measured the same day after ADR-0051's re-seed and a further collection: **585 of 2,608, carrying 10,857**. Both are correct and both are dated 2026-08-31, which is why the qualifier is not optional — an independent review found the two figures under one date label, the exact defect `supply.DEFINITION`'s own comment warns about. **The ballast set is recomputed on every read, so any number here is a snapshot of a moving quantity**; `detail.ballast` on each stored row is the authority for that row's day.
 
     **Decided, not scored.** `decided = on-niche + decided-noise`; undecided mid-band
     and unscorable rows are not judgements and must not count as evidence against a
@@ -255,8 +253,9 @@ def _ballast_channels(cluster_id: str, day: date | None = None):
     )
 
 
-#: ADR-0050's sunset. Ballast raised `history-of-ideas on_niche_share` 0.076 -> 0.227
-#: with an IDENTICAL numerator of 230 — the whole move is denominator removal — on
+#: ADR-0050's sunset. Held against the same day's corpus, ballast takes
+#: `history-of-ideas on_niche_share` from 0.0758 to 0.2273 with an IDENTICAL numerator of
+#: 230 — so the whole difference is denominator removal — on
 #: machine judgements alone, and the sample that could test it is drawn and unlabelled.
 #: On this date, with no recorded result, the rule reverts to v2 rather than continuing
 #: indefinitely. A date, not a reminder: the reviewer's complaint was precisely that an

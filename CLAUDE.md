@@ -104,9 +104,11 @@ reviewer. Summarize exploration briefly.
   one sitting.
   Bar is the **95% Wilson UPPER bound <= 0.10, at most 4 of 100** — upper, because the
   claim being defended is that the excluded rows contain almost nothing.
-  **Why it is on a clock:** ADR-0047 moved `history-of-ideas on_niche_share` 0.076 ->
-  0.227 with an **identical numerator of 230**; the whole move is denominator removal,
-  and it is unvalidated. `inputs.BALLAST_SUNSET` is **2026-09-14**: past it, with
+  **Why it is on a clock:** Held against the SAME day's corpus, ADR-0047 takes
+  `history-of-ideas on_niche_share` from 0.0758 to 0.2273 with an **identical numerator of
+  230**, so the whole difference is denominator removal — and it is unvalidated. The
+  stored night-over-night step is 0.0781 -> 0.2273 (numerator 154 -> 230, the corpus grew);
+  quoting the A/B as if it were that step was corrected 2026-08-31 after review. `inputs.BALLAST_SUNSET` is **2026-09-14**: past it, with
   `BALLAST_VALIDATED` still `None`, `not_ballast` returns true-everywhere and
   `supply.definition()` reverts to `v2-on-niche` — verified end to end, it puts
   history-of-ideas back to 0.0758 with the numerator unmoved. Set `BALLAST_VALIDATED`
