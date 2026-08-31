@@ -76,10 +76,12 @@ reviewer. Summarize exploration briefly.
   failing the 0.70 bar by 0.0026 — one row, twice, from opposite sides of a criterion
   revision. **Neither is evidence**: it is fable-5 grading a lexicon built from fable-5
   labels, the exact circularity the test exists to prevent.
-  **A genuine result needs a THIRD draw and any human rater** —
-  `uv run python scripts/draw_exposition_sample.py --seed <new>`, then
-  `uv run python scripts/label_exposition.py` (two passes, `y`/`n`/`?`). ~20 minutes.
-  See `reports/exposition_result_2026-08-30.md`.
+  **The third sample is DRAWN and waiting**: `reports/exposition_labelling_2026-08-31.jsonl`,
+  seed 20260831, **100 rows, 10 per domain across the ten remaining domains** (ADR-0044),
+  4 rows overlapping what a model labelled. Bar is ADR-0041's tabulated **79/100**.
+  Run `uv run python scripts/label_exposition.py` — it now defaults to the newest draw.
+  ~20 minutes, and it need not be the operator: ADR-0041 requires a rater independent of
+  the model family, not a specialist. See `reports/exposition_result_2026-08-30.md`.
 - **What the machine runs did establish, and it is not the number.** ADR-0042's two-pass
   split decomposed the 21 failures into **subject 13, exposition 8** — the axis under
   test is not the main problem, the DOMAIN lexicons are. `philosophy-of-science` is the
@@ -99,7 +101,16 @@ reviewer. Summarize exploration briefly.
   against a 9.9 threshold, so ADR-0041's ">10% is itself a finding" did not trigger. The
   blinding rule is not starving the labeller, and the archetypes resolved cases that were
   coin-flips under the compound criterion. Keep both when re-running with a person.
-- **The eleven domains are ACTIVE and collecting** (ADR-0040), applied as both a
+- **TEN domains are active** — `philosophy-of-science` was retired 2026-08-31 (ADR-0044)
+  as an EDITORIAL choice (the operator will not make that content), applied as code AND
+  an `UPDATE`, verified 1 -> 0. Recorded there and repeated here because it is the thing
+  a later reader will suspect: it was also the worst-scoring domain, and dropping it
+  flips the machine precision run from FAIL to PASS (78/99 lb 0.6974 -> 74/90 lb 0.7306).
+  That is a side effect, not the reason, and **no pass may be claimed from the old
+  sample** — dropping the second-worst domain flips it too, so the bar is on a knife
+  edge. Its lexicon stays in `LEXICONS`: `weights()` is discriminative, so removing one
+  re-weights all the rest. Discovery now costs 6,000 of 9,500.
+- **The remaining ten domains are ACTIVE and collecting** (ADR-0040), applied as both a
   catalogue change and an `UPDATE` — `apply_seeds` keeps `active` outside its upsert
   update set, so a code edit alone never reaches an existing row. That mistake already
   happened once (ADR-0039 addendum) and is the repo's standing example. Discovery costs

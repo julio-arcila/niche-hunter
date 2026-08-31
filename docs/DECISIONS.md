@@ -1648,3 +1648,73 @@ scored 4 of 9 above threshold, failing almost entirely on SUBJECT
 (`reports/exposition_result_2026-08-30.md`), and its supply figures rest on a corpus
 where 60.9% of member channels have never produced an on-niche video
 (`reports/supply_audit_2026-08-30.md`). Computing a number is not evidence for it.
+
+## ADR-0044 — `philosophy-of-science` is retired as an editorial choice, and the sample re-drawn over ten domains
+2026-08-31. Accepted. Retires one of the eleven pivot niches and narrows the exposition
+validation frame with it. Written **before any label exists** on the replacement sample.
+
+**The decision is editorial.** The operator will not make philosophy-of-science videos,
+which is the same reason ADR-0028 retired `landmark-court-cases` and ADR-0039 retired the
+five disaster niches: `search.list` spend on a niche nobody will publish into buys
+nothing. Applied as code **and** data, because `apply_seeds` keeps `active` outside its
+upsert update set and a code edit alone never reaches an existing row — the ADR-0039
+addendum, which cost five nightlies of quota the last time it was forgotten:
+
+```sql
+UPDATE niche_seeds SET active = 0 WHERE slug = 'philosophy-of-science';  -- 1 row, 2026-08-31
+```
+
+Verified after: seed `active` 1 → 0, ten active seeds remain. `Cluster.active` reconciles
+from the seed on the next clustering run (`nh/clustering/phase.py:215`), so features and
+scorecards stop for it there rather than needing a second hand-edit.
+
+### The side effect, stated because it is the thing a later reader will suspect
+
+`philosophy-of-science` was **the worst-scoring of the eleven** on both machine labelling
+runs — 4 of 9 above threshold, failing almost entirely on SUBJECT — and dropping it
+**flips the machine precision result from FAIL to PASS**:
+
+| sample | precision | 95% lower bound | verdict |
+|---|---|---|---|
+| all eleven domains | 78/99 | 0.6974 | FAIL |
+| without philosophy-of-science | 74/90 | 0.7306 | PASS |
+
+That is recorded here rather than discovered later, and three things follow from it.
+
+**It is not why the niche is retired.** The editorial reason stands on its own and would
+hold if the domain had scored best of the eleven.
+
+**The flip is not evidence the axis works.** Dropping the *second*-worst domain
+(`logic-linguistics-gnoseology`) also flips it to PASS, at 72/90 and 0.7059. A verdict
+that moves when either weak domain is removed says the bar sits on a knife edge, not that
+one niche was uniquely broken. Both numbers come from machine labels and are not evidence
+about the axis at all (ADR-0042, `reports/exposition_result_2026-08-30.md`).
+
+**No pass may be claimed from the old sample.** The 2026-08-30 sample is spent and its
+result is discarded; a pass has to come from a human labelling the fresh draw. Removing a
+domain and re-reading an old number would be exactly the post-hoc selection this section
+exists to flag.
+
+### The frame narrows, and the draw script now enforces it
+
+`AXES` is keyed on `LEXICONS`, not on seeds, so a retired niche keeps its axis entry and
+the family alone would have kept sampling it. `scripts/draw_exposition_sample.py` now
+intersects the exposition family with **active** seeds: a validation sample for a
+shipping decision has no business sampling a niche that is not shipping.
+
+Replacement draw, seed `20260831`: **100 rows, 10 per domain across 10 domains**, capped
+draw 150, relevance span 0.553–0.798. n is now the pre-registered *target* of 100 rather
+than 99, so the bar is ADR-0041's own tabulated **79/100** for a 0.70 lower bound —
+unchanged in substance. Overlap with the sample a model labelled is 4 rows of 100.
+
+**Its lexicon stays in `LEXICONS`.** ADR-0028 removed `landmark-court-cases`' lexicon when
+retiring it, and that is deliberately *not* done here: `weights()` is discriminative
+across the family, so removing one lexicon re-weights every remaining one and would
+re-score every live niche and invalidate the drawn frame. The measured case is in that
+function's docstring — `crash` fell from 1.00 to 0.032 when the family grew. A retired
+seed with a live lexicon scores nothing, because scoring runs per active cluster.
+
+**Reactivation**, if the editorial judgement changes: `UPDATE niche_seeds SET active = 1
+WHERE slug = 'philosophy-of-science'`. Its snapshots keep accruing meanwhile — `youtube_rss`
+polls every known channel regardless of seed state (ADR-0039), so the history is not lost,
+only the discovery spend.

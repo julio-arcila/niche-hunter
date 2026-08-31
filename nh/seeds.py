@@ -227,11 +227,20 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
-        # (ADR-0034), because a niche cannot gain a member without discovery on
-        # its own seeds and the validation sample cannot be drawn until it does.
+        "active": False,  # RETIRED 2026-08-31 (ADR-0044) as an EDITORIAL choice:
+        # the operator will not make philosophy-of-science videos, the same reason
+        # ADR-0028 retired landmark-court-cases and ADR-0039 the disaster niches.
+        # NOT retired for its measurements. It happened to be the worst-scoring of
+        # the eleven, and dropping it flips the machine precision run from FAIL to
+        # PASS (78/99, lower bound 0.6974 -> 74/90, lower bound 0.7306). ADR-0044
+        # records that side effect explicitly so no later reader mistakes the
+        # retirement for a fix, and the validation sample was re-drawn over the
+        # remaining ten domains BEFORE any label existed.
+        # Its LEXICON stays in `LEXICONS` deliberately: `weights()` is
+        # discriminative across the family, so removing one re-weights all the
+        # others and would re-score every live niche (ADR-0044).
         "primary_sources": [],
-        "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
+        "notes": "Eleven-domain pivot (ADR-0033). Retired 2026-08-31, ADR-0044.",
     },
     {
         "slug": "esoterism-spirituality",

@@ -33,7 +33,7 @@ import sqlalchemy as sa
 
 from nh.clustering.lexicon import AXES
 from nh.clustering.relevance import RELEVANCE_HIGH
-from nh.db.models import ClusterMember, Video
+from nh.db.models import ClusterMember, NicheSeed, Video
 from nh.db.session import get_engine, session_scope
 
 PER_DOMAIN = 9  # 9 x 11 domains = 99; target 100, and an even split is what the
@@ -44,8 +44,19 @@ MIN_DOMAINS = 6
 
 
 def frame(session) -> dict[str, list[tuple[str, float, str, str]]]:
-    """Eligible rows per exposition domain, sorted by video_id so the draw is stable."""
-    domains = sorted(slug for slug, axis in AXES.items() if axis == "exposition")
+    """Eligible rows per ACTIVE exposition domain, sorted by video_id for stability.
+
+    Active as well as exposition-family, added 2026-08-31 with ADR-0044: `AXES` is
+    keyed on `LEXICONS` and a retired niche keeps its lexicon, so the family alone
+    would keep drawing rows from a domain nobody is going to make videos about. A
+    validation sample for a shipping decision has no business sampling a niche that
+    is not shipping.
+    """
+    axis_domains = {slug for slug, axis in AXES.items() if axis == "exposition"}
+    active = set(session.scalars(sa.select(NicheSeed.slug).where(NicheSeed.active)))
+    domains = sorted(axis_domains & active)
+    if not domains:
+        return {}
     rows = session.execute(
         sa.select(
             ClusterMember.cluster_id,
