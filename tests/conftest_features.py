@@ -10,12 +10,17 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
 
+import sqlalchemy as sa
+
 from nh.db.models import (
     Channel,
     ChannelSnapshot,
     Cluster,
     ClusterMember,
+    DemandSeries,
+    DemandSnapshot,
     Discovery,
+    FeatureDaily,
     KeywordMetric,
     NicheSeed,
     SeedTerm,
@@ -271,3 +276,144 @@ def add_keyword_metrics(
                     at=_at(day),
                 )
             )
+
+
+def rich_corpus(engine):
+    """A world rich enough that every relevance-reading metric actually moves.
+
+    **Deliberately not minimal, and every element below earns its place.** A thin fixture
+    makes the derivation test pass vacuously: the metric returns `empty()` at BOTH
+    thresholds, nothing moves, and it is classified citable forever. The first version of
+    this fixture did exactly that for four of the eight, each for its own reason — no
+    `Channel.country` (`geo_concentration`), every video older than the 28-day supply
+    window (`format_mix`), fewer than 20 on-niche videos with views
+    (`top10_concentration`), and no `Channel.created_at` (`winner_age_years`). Not one of
+    those is a relevance fact, and all four would have shipped classified as "the scorer
+    does not touch this".
+
+    `test_every_gated_metric_is_computable_here` fails if that regresses, so a later
+    tightening of some metric's minimum cannot quietly re-empty the fixture.
+    """
+    make_cluster(engine)
+    # Inside the 28-day supply window, with known formats, and enough on-niche videos with
+    # views to clear top10_concentration's floor of 20.
+    add_channel(engine, "big", subs=50_000, videos=12, views=list(range(900, 780, -10)), age_days=3)
+    add_channel(
+        engine, "small", subs=800, videos=10, views=[5_000, *range(40, 130, 10)], age_days=5
+    )
+    add_channel(engine, "shorts", subs=3_000, videos=6, views=250, age_days=7, is_short=True)
+    # Mixed relevance is what gives the threshold something to change its mind about.
+    add_channel(
+        engine,
+        "mixed",
+        subs=2_000,
+        videos=4,
+        views=300,
+        age_days=9,
+        relevant=[True, True, False, None],
+    )
+    add_channel(engine, "offniche", subs=1_500, videos=4, views=200, age_days=11, relevant=False)
+    # `geo_concentration` reads relevance only THROUGH ballast, so the fixture needs a
+    # channel whose ballast status flips with the threshold — nothing else exercises that
+    # path. Ten decided-noise videos plus one on-niche: at the real threshold it has an
+    # on-niche video and stays a member; at an impossible one it has ten decided and zero
+    # on-niche, becomes ballast, and leaves the channel population. A channel that is
+    # ballast on BOTH sides would move nothing and teach nothing.
+    add_channel(
+        engine,
+        "tipping",
+        subs=900,
+        videos=11,
+        views=150,
+        age_days=13,
+        relevant=[True, *([False] * 10)],
+    )
+    add_keyword_metrics(engine)
+    _give_channels_a_country_and_an_age(engine)
+    add_demand(engine)
+    _add_a_second_cluster_for_ranks(engine)
+    return session_for(engine)
+
+
+def add_demand(engine, *, cluster_id: str = CLUSTER, seed_id: int = 1, day: date = DAY) -> None:
+    """Wikipedia dailies and one Trends curve, plus the seed terms that claim them.
+
+    Both halves again, for the reason `add_keyword_metrics` states: without the
+    `seed_terms` rows `demand_terms` returns nothing and every wiki metric — and every
+    wiki DRILLDOWN — comes back empty while passing any assertion that only checks it did
+    not raise.
+
+    The Trends row carries the whole curve in `points`, because a Trends response is
+    renormalised to its own peak and the curve-as-observed is the only honest unit
+    (ADR-0015). A fixture storing one point per row would model a table that does not
+    exist.
+    """
+    with session_scope(engine) as s:
+        for source, term in (("wikipedia", "Test_Article"), ("trends", "test term")):
+            s.add(
+                SeedTerm(seed_id=seed_id, source=source, term=term, lang="en", geo="", active=True)
+            )
+        for offset in range(400):
+            s.add(
+                DemandSnapshot(
+                    term="Test_Article",
+                    source="wikipedia",
+                    geo="",
+                    observed_date=day - timedelta(days=offset),
+                    value=1_000.0 + offset % 7 * 50,
+                    run_id=RUN,
+                )
+            )
+        s.add(
+            DemandSeries(
+                term="test term",
+                geo="",
+                timeframe="today 5-y",
+                observed_date=day,
+                points=[[str(day - timedelta(weeks=w)), 50.0 - w] for w in range(26, -1, -1)],
+                source="trends",
+                run_id=RUN,
+            )
+        )
+
+
+def _add_a_second_cluster_for_ranks(engine, day: date = DAY) -> None:
+    """`pressure_index` is a rank ACROSS clusters, so one cluster cannot exercise it.
+
+    Its drilldown returns every cluster's component values, because a rank is not checkable
+    from the ranked row alone — which is also why the metric stamps `ranked_over` and warns
+    that it is not comparable across days whose cluster set changed.
+    """
+    from nh.features.run import PRESSURE_FROM
+
+    with session_scope(engine) as s:
+        for i, cluster in enumerate((CLUSTER, "other-cluster")):
+            for name in PRESSURE_FROM:
+                s.add(
+                    FeatureDaily(
+                        cluster_id=cluster,
+                        day=day,
+                        metric_group="supply",
+                        name=name,
+                        value=1.0 + i,
+                        confidence=0.5,
+                        inputs_n=10,
+                        detail={},
+                        source="features",
+                        run_id=RUN,
+                    )
+                )
+
+
+def _give_channels_a_country_and_an_age(engine):
+    """`add_channel` sets neither, and two metrics return `empty()` without them.
+
+    Set here rather than in `conftest_features` because that builder is shared by the whole
+    feature suite: giving every fixture channel a country would change what
+    `geo_concentration` returns in tests that assert on its absence.
+    """
+    with session_scope(engine) as s:
+        for i, channel_id in enumerate(sorted(s.scalars(sa.select(Channel.channel_id)))):
+            channel = s.get(Channel, channel_id)
+            channel.country = "US" if i % 2 == 0 else "GB"
+            channel.created_at = _at(DAY - timedelta(days=400 + 100 * i))

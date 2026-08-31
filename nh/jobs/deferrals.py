@@ -194,22 +194,35 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="~45 minutes of reading, plus the pre-registration paragraph",
     ),
     Deferral(
-        metric="geo_basis stamped into feature detail, and rendered",
+        metric="geo_basis — the SCORECARD half; the per-metric half is discharged",
         blocker=(
-            "ADR-0035 requires every metric to carry the population it measures, but "
-            "nothing stamps it. `nh niche show` prints a demand number and a supply "
-            "number from different populations with nothing saying so"
+            "PARTLY DISCHARGED 2026-08-31 (ADR-0052). `nh/api/basis.py` resolves the "
+            "population of every registered metric, exhaustively by test, and it is "
+            "resolved from the metric's IDENTITY rather than from a `detail` key — "
+            "which is what this entry's own cost note warned about: `cli.py::"
+            "_provenance` renders a fixed list of named keys, so a stamped key no "
+            "renderer reads repeats ADR-0031's `currency` bug instead of fixing it. "
+            "What REMAINS is the half that note called out and this metric name now "
+            "says: `gap` lives in `scorecards`, not `features_daily`, so nothing "
+            "carries the population of a DIFFERENCE between two populations. "
+            "`basis.comparable()` can answer whether two metrics count the same "
+            "people; no scorecard row records that its `gap` mixed them"
         ),
         kind="manual",
-        trigger="SLICE 9 — it becomes arithmetically live the day a geo=US level ships",
-        consumer="every demand and supply metric; scorecards.gap above all",
+        trigger=(
+            "a scorecard field is displayed to a reader — which today it is NOT: "
+            "ADR-0052 withholds the whole `scorecards` row for an unvalidated axis, "
+            "and every active cluster is on one. So this is blocked behind the "
+            "exposition labelling rather than behind more code"
+        ),
+        consumer="scorecards.gap, and any surface that displays it",
         cost=(
-            "larger than it looks. Not just a constant and a detail key: `cli.py::"
-            "_provenance` renders a FIXED list of named keys, so an unrendered key "
-            "repeats ADR-0031's `currency` bug exactly — fold it into Slice 9's "
-            "existing _provenance task. And `gap` lives in `scorecards`, not "
-            "`features_daily`, so a per-feature detail key never reaches the place "
-            "ADR-0035 decision 2 actually requires it"
+            "small now that `nh/api/basis.py` exists: stamp `scorecards.detail` with "
+            "the basis of each side at build time, and render it beside `gap`. "
+            "METRICS.md measured that mixing populations does NOT currently move "
+            "`gap` — it is a difference of within-day percentile ranks, and "
+            "restricting supply to US channels left all five niches' ranking "
+            "identical — but that is a measurement about August 2026, not a property"
         ),
     ),
     Deferral(

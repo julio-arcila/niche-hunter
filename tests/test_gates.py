@@ -14,8 +14,6 @@ establishing that openness is unaffected by ballast. It is. `winner_age_years` s
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 import pytest
 
 import nh.features.inputs as inputs
@@ -24,11 +22,7 @@ from nh.features.run import METRICS
 from tests.conftest_features import (
     CLUSTER,
     DAY,
-    _at,
-    add_channel,
-    add_keyword_metrics,
-    make_cluster,
-    session_for,
+    rich_corpus,
 )
 
 IMPOSSIBLE = 1.01  # above the maximum a geometric mean of two saturating axes can reach
@@ -36,77 +30,8 @@ IMPOSSIBLE = 1.01  # above the maximum a geometric mean of two saturating axes c
 
 @pytest.fixture
 def corpus(engine):
-    """A world rich enough that every relevance-reading metric actually moves.
-
-    **Deliberately not minimal, and every element below earns its place.** A thin fixture
-    makes the derivation test pass vacuously: the metric returns `empty()` at BOTH
-    thresholds, nothing moves, and it is classified citable forever. The first version of
-    this fixture did exactly that for four of the eight, each for its own reason — no
-    `Channel.country` (`geo_concentration`), every video older than the 28-day supply
-    window (`format_mix`), fewer than 20 on-niche videos with views
-    (`top10_concentration`), and no `Channel.created_at` (`winner_age_years`). Not one of
-    those is a relevance fact, and all four would have shipped classified as "the scorer
-    does not touch this".
-
-    `test_every_gated_metric_is_computable_here` fails if that regresses, so a later
-    tightening of some metric's minimum cannot quietly re-empty the fixture.
-    """
-    make_cluster(engine)
-    # Inside the 28-day supply window, with known formats, and enough on-niche videos with
-    # views to clear top10_concentration's floor of 20.
-    add_channel(engine, "big", subs=50_000, videos=12, views=list(range(900, 780, -10)), age_days=3)
-    add_channel(
-        engine, "small", subs=800, videos=10, views=[5_000, *range(40, 130, 10)], age_days=5
-    )
-    add_channel(engine, "shorts", subs=3_000, videos=6, views=250, age_days=7, is_short=True)
-    # Mixed relevance is what gives the threshold something to change its mind about.
-    add_channel(
-        engine,
-        "mixed",
-        subs=2_000,
-        videos=4,
-        views=300,
-        age_days=9,
-        relevant=[True, True, False, None],
-    )
-    add_channel(engine, "offniche", subs=1_500, videos=4, views=200, age_days=11, relevant=False)
-    # `geo_concentration` reads relevance only THROUGH ballast, so the fixture needs a
-    # channel whose ballast status flips with the threshold — nothing else exercises that
-    # path. Ten decided-noise videos plus one on-niche: at the real threshold it has an
-    # on-niche video and stays a member; at an impossible one it has ten decided and zero
-    # on-niche, becomes ballast, and leaves the channel population. A channel that is
-    # ballast on BOTH sides would move nothing and teach nothing.
-    add_channel(
-        engine,
-        "tipping",
-        subs=900,
-        videos=11,
-        views=150,
-        age_days=13,
-        relevant=[True, *([False] * 10)],
-    )
-    add_keyword_metrics(engine)
-    _give_channels_a_country_and_an_age(engine)
-    return session_for(engine)
-
-
-def _give_channels_a_country_and_an_age(engine):
-    """`add_channel` sets neither, and two metrics return `empty()` without them.
-
-    Set here rather than in `conftest_features` because that builder is shared by the whole
-    feature suite: giving every fixture channel a country would change what
-    `geo_concentration` returns in tests that assert on its absence.
-    """
-    import sqlalchemy as sa
-
-    from nh.db.models import Channel
-    from nh.db.session import session_scope
-
-    with session_scope(engine) as s:
-        for i, channel_id in enumerate(sorted(s.scalars(sa.select(Channel.channel_id)))):
-            channel = s.get(Channel, channel_id)
-            channel.country = "US" if i % 2 == 0 else "GB"
-            channel.created_at = _at(DAY - timedelta(days=400 + 100 * i))
+    """The shared rich corpus — see `conftest_features.rich_corpus` for why each part."""
+    return rich_corpus(engine)
 
 
 def _moves_with_the_threshold(session, metric) -> bool:
