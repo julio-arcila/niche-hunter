@@ -12,6 +12,7 @@ from datetime import date
 
 import pytest
 
+from nh.db.types import utcnow
 from nh.jobs.deferrals import DEFERRALS, Deferral, fires
 
 
@@ -26,11 +27,40 @@ def test_every_deferral_carries_all_four_things():
         assert deferral.consumer and deferral.cost
 
 
-def test_the_keyword_planner_clock_fires_after_it_expires():
-    """ADR-0016's expiry, made mechanical."""
-    kp = next(d for d in DEFERRALS if "2026-09-24" in d.trigger)
-    assert fires(kp, date(2026, 9, 23)) is False
-    assert fires(kp, date(2026, 9, 25)) is True
+def test_the_tier1_trigger_needs_both_geo_classes(engine):
+    """`tier1_cpc_ratio` compares tier-1 against the rest, so one class is not enough.
+
+    This replaces the Keyword Planner date clock, which died with the last `date`
+    deferral. The clock was the wrong instrument in the end: a `date` kind never looks
+    at the database, so it went on reporting "blocked" for four months while the data
+    it waited on sat ingested. An evidence trigger cannot drift that way.
+    """
+    from nh.db.models import KeywordMetric
+    from nh.db.session import session_scope
+
+    tier1 = next(d for d in DEFERRALS if d.metric == "money.tier1_cpc_ratio")
+
+    def _row(keyword: str, geo: str) -> KeywordMetric:
+        return KeywordMetric(
+            keyword=keyword,
+            geo=geo,
+            lang="en",
+            observed_date=date(2026, 7, 31),
+            source="keyword_planner",
+            run_id="t",
+            at=utcnow(),
+        )
+
+    assert fires(tier1, date(2026, 8, 29), engine) is False, "empty database"
+
+    with session_scope(engine) as s:
+        s.add(_row("a", "US"))
+        s.add(_row("b", "GB"))
+    assert fires(tier1, date(2026, 8, 29), engine) is False, "two tier-1 geos are still one class"
+
+    with session_scope(engine) as s:
+        s.add(_row("c", "CO"))
+    assert fires(tier1, date(2026, 8, 29), engine) is True, "a non-tier-1 geo completes the pair"
 
 
 def test_a_setting_trigger_reads_the_settings(monkeypatch):

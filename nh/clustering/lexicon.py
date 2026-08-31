@@ -9,14 +9,16 @@ could not be reviewed at all.
 alternative, IDF over the collected videos, is rejected deliberately: it drifts as
 the corpus grows, so the same video would score differently on two different days
 and a Slice 6 replay of a historical date could not reproduce the decision that was
-actually made. Discriminative weight here is instead a function of how many of the
-five lexicons contain the term:
+actually made. Discriminative weight here is instead a function of how many lexicons **in the
+family being computed** contain the term — 16 of them today, five when this was
+written, and the number is a parameter rather than a constant precisely so it can
+change without anyone editing this paragraph:
 
     k = 1 (unique to one niche)  -> 1.00    strong evidence
     k = 2                        -> 0.50    half a vote
     k = 3                        -> 0.33
-    k = 4                        -> 0.25
-    k = 5 (in every niche)       -> 0.00    genre vocabulary, no evidence
+    ...
+    k = every lexicon in family  -> 0.00    genre vocabulary, no evidence
 
 That last row is the point. `documentary`, `investigation`, `analysis`, `explained`,
 `disaster` are what these five niches have in common, not what separates them —
@@ -31,7 +33,7 @@ a row's decision stays attributable to the vocabulary that produced it.
 
 from __future__ import annotations
 
-LEXICON_VERSION = "2026-08-28.1"
+LEXICON_VERSION = "2026-08-31.4"  # ADR-0046: latin-script non-english gate
 
 #: Failure and case markers, shared by all five niches by construction.
 #:
@@ -391,7 +393,525 @@ LEXICONS: dict[str, tuple[str, ...]] = {
         "confession",
         "bodycam",
     ),
+    # --- the eleven-domain pivot (ADR-0033) ---------------------------------
+    "philosophy-of-science": (
+        "falsification",
+        "falsifiability",
+        "paradigm",
+        "popper",
+        "kuhn",
+        "hypothesis",
+        "empirical",
+        "experiment",
+        "theory",
+        "scientific method",
+        "induction",
+        "deduction",
+        "demarcation",
+        "replication",
+        "reproducibility",
+        "peer review",
+        "positivism",
+        "realism",
+        "instrumentalism",
+        "underdetermination",
+        "observation",
+        "empirical evidence",
+        "causation",
+        "explanation",
+        "prediction",
+        "law of nature",
+        "scientific revolution",
+        "incommensurability",
+        "bayesian",
+        "confirmation",
+        "anomaly",
+        "methodology",
+        "objectivity",
+    ),
+    "esoterism-spirituality": (
+        "occult",
+        "esoteric",
+        "hermetic",
+        "hermeticism",
+        "alchemy",
+        "kabbalah",
+        "gnostic",
+        "gnosticism",
+        "mysticism",
+        "mystic",
+        "initiation",
+        "ritual",
+        "magic",
+        "magick",
+        "tarot",
+        "astrology",
+        "theosophy",
+        "rosicrucian",
+        "arcane",
+        "symbolism",
+        "archetype",
+        "spirit",
+        "spiritual",
+        "meditation",
+        "consciousness",
+        "enlightenment",
+        "divination",
+        "sigil",
+        "thelema",
+        "occultism",
+        "sacred",
+        "transcendence",
+        "esoterica",
+        "initiate",
+    ),
+    "metaphysical-battles": (
+        "worldview",
+        "materialism",
+        "idealism",
+        "dualism",
+        "monism",
+        "physicalism",
+        "naturalism",
+        "supernatural",
+        "theism",
+        "atheism",
+        "ontology",
+        "being",
+        "substance",
+        "essence",
+        "existence",
+        "reality",
+        "free will",
+        "determinism",
+        "emergence",
+        "panpsychism",
+        "reductionism",
+        "teleology",
+        "cosmology",
+        "first cause",
+        "necessity",
+        "contingency",
+        "universals",
+        "nominalism",
+        "phenomenology",
+        "transcendental",
+        "immanence",
+        "metaphysical",
+        "mind body",
+        "consciousness",
+    ),
+    "logic-linguistics-gnoseology": (
+        "logic",
+        "syllogism",
+        "inference",
+        "premise",
+        "conclusion",
+        "validity",
+        "soundness",
+        "fallacy",
+        "propositional",
+        "predicate",
+        "quantifier",
+        "modal",
+        "semantics",
+        "syntax",
+        "pragmatics",
+        "grammar",
+        "morphology",
+        "phonology",
+        "linguistics",
+        "language",
+        "meaning",
+        "reference",
+        "truth value",
+        "knowledge",
+        "justification",
+        "belief",
+        "epistemic",
+        "gettier",
+        "skepticism",
+        "a priori",
+        "a posteriori",
+        "analytic",
+        "synthetic",
+        "proposition",
+    ),
+    "history-of-ideas": (
+        "intellectual history",
+        "enlightenment",
+        "renaissance",
+        "scholasticism",
+        "humanism",
+        "romanticism",
+        "modernity",
+        "postmodernism",
+        "zeitgeist",
+        "canon",
+        "tradition",
+        "genealogy",
+        "historiography",
+        "thinker",
+        "treatise",
+        "manuscript",
+        "salon",
+        "academy",
+        "movement",
+        "school of thought",
+        "reception",
+        "influence",
+        "precursor",
+        "periodization",
+        "secularization",
+        "discourse",
+        "episteme",
+        "milieu",
+        "doctrine",
+        "philosopher",
+        "idea",
+        "corpus",
+        "commentary",
+        "polemic",
+    ),
+    "anthropocene-anthropology": (
+        "anthropology",
+        "ethnography",
+        "fieldwork",
+        "kinship",
+        "culture",
+        "cultural",
+        "society",
+        "tribe",
+        "indigenous",
+        "archaeology",
+        "artifact",
+        "hominin",
+        "prehistory",
+        "holocene",
+        "anthropocene",
+        "climate",
+        "extinction",
+        "biodiversity",
+        "ecosystem",
+        "sustainability",
+        "planetary boundary",
+        "geology",
+        "strata",
+        "human impact",
+        "deforestation",
+        "carbon",
+        "epoch",
+        "civilization",
+        "ritual",
+        "material culture",
+        "subsistence",
+        "urbanization",
+    ),
+    "macro-economy": (
+        "macroeconomics",
+        "inflation",
+        "deflation",
+        "gdp",
+        "monetary policy",
+        "fiscal policy",
+        "central bank",
+        "interest rate",
+        "recession",
+        "unemployment",
+        "stagflation",
+        "currency",
+        "exchange rate",
+        "debt",
+        "deficit",
+        "bond",
+        "yield",
+        "quantitative easing",
+        "liquidity",
+        "trade balance",
+        "tariff",
+        "keynesian",
+        "business cycle",
+        "output gap",
+        "productivity",
+        "sovereign debt",
+        "credit",
+        "money supply",
+        "economy",
+        "economic growth",
+        "stimulus",
+        "austerity",
+    ),
+    "trading": (
+        "trading",
+        "trader",
+        "day trading",
+        "swing trading",
+        "scalping",
+        "stop loss",
+        "take profit",
+        "leverage",
+        "margin",
+        "futures",
+        "options",
+        "derivatives",
+        "candlestick",
+        "chart",
+        "technical analysis",
+        "indicator",
+        "moving average",
+        "rsi",
+        "macd",
+        "support",
+        "resistance",
+        "breakout",
+        "backtest",
+        "algorithmic",
+        "order book",
+        "liquidity",
+        "volatility",
+        "risk management",
+        "portfolio",
+        "drawdown",
+        "entry",
+        "exit",
+        "position sizing",
+    ),
+    "ai-and-software": (
+        "machine learning",
+        "neural network",
+        "deep learning",
+        "transformer",
+        "training",
+        "inference",
+        "dataset",
+        "gradient",
+        "backpropagation",
+        "llm",
+        "embedding",
+        "fine tuning",
+        "prompt",
+        "token",
+        "gpu",
+        "algorithm",
+        "software",
+        "code",
+        "programming",
+        "framework",
+        "api",
+        "deployment",
+        "agent",
+        "benchmark",
+        "overfitting",
+        "parameter",
+        "architecture",
+        "open source",
+        "compiler",
+        "artificial intelligence",
+        "agi",
+        "model",
+    ),
+    "biohacking": (
+        "biohacking",
+        "nootropic",
+        "supplement",
+        "longevity",
+        "healthspan",
+        "lifespan",
+        "fasting",
+        "ketogenic",
+        "metabolic",
+        "mitochondria",
+        "sleep",
+        "circadian",
+        "glucose",
+        "insulin",
+        "peptide",
+        "sarms",
+        "testosterone",
+        "cortisol",
+        "microbiome",
+        "epigenetic",
+        "methylation",
+        "senescence",
+        "telomere",
+        "wearable",
+        "protocol",
+        "stack",
+        "dosage",
+        "biomarker",
+        "optimization",
+        "recovery",
+        "hormesis",
+        "supplementation",
+    ),
+    "geopolitics": (
+        "geopolitics",
+        "geopolitical",
+        "sovereignty",
+        "alliance",
+        "nato",
+        "sanctions",
+        "diplomacy",
+        "treaty",
+        "border",
+        "territory",
+        "hegemony",
+        "multipolar",
+        "sphere of influence",
+        "strategic",
+        "military",
+        "deterrence",
+        "proliferation",
+        "energy security",
+        "energy pipeline",
+        "chokepoint",
+        "realpolitik",
+        "balance of power",
+        "containment",
+        "insurgency",
+        "conflict",
+        "war",
+        "statecraft",
+        "intelligence",
+        "great power",
+        "foreign policy",
+        "bloc",
+        "escalation",
+    ),
 }
+
+
+#: The second axis for **topic** families, and the counterpart to `EVENT` above.
+#:
+#: `EVENT` asks "did something fail". Measured 2026-08-28 against 120 real discovered
+#: videos from the pivot domains, it matches **1 of 120** titles — and `score()` is a
+#: geometric mean, so 119 of 120 scored 0.0 however well their domain axis fitted
+#: (ADR-0033). Philosophy, trading, geopolitics and biohacking are not about things
+#: failing. This axis asks the question that does transfer: **is this explaining
+#: something**.
+#:
+#: Every marker traces to a clause of `reports/labelling_criterion_topic_domains_v4.md`,
+#: which was written before any row was labelled, so the labelled rows were a test set
+#: rather than a training set. Held-out on 107 labels (base rate 0.523), `domain x
+#: exposition` scored P 0.866 / R 0.736 / F1 0.794 against a domain-alone baseline of
+#: 0.549 / 0.807 / 0.652, winning 168 of 200 splits; replicated under a second rule and
+#: rater at kappa 0.845. Reproduce with `scripts/eval_topic_axis.py`.
+#:
+#: **These were MACHINE labels.** `EVENT`'s 0.781 rests on 298 human ones. The two
+#: figures are also at different base rates (0.286 vs 0.523) and are not comparable.
+#: That gap is why every consumer of this axis is inactive — see the deferral register.
+#:
+#: The negative markers that the criterion leans on hardest — selling, tool tutorials,
+#: signals — are deliberately NOT here. Measured, adding them buys 0.035 precision for
+#: 0.051 recall and loses on F1 (0.777 vs 0.794), because an exposition signal already
+#: excludes most of what they catch. Recorded so it is not re-litigated.
+EXPOSITION: tuple[str, ...] = (
+    "explained",
+    "explain",
+    "explains",
+    "explaining",
+    "why",
+    "how",
+    "what is",
+    "what are",
+    "introduction",
+    "intro to",
+    "lecture",
+    "analysis",
+    "analyse",
+    "analyzed",
+    "critique",
+    "debate",
+    "understanding",
+    "understand",
+    "theory",
+    "evidence",
+    "research",
+    "study",
+    "mechanism",
+    "framework",
+    "breakdown",
+    "deep dive",
+    "discussion",
+    "essay",
+    "guide",
+    "history of",
+    "meaning",
+    "argument",
+    "case for",
+    "case against",
+    "review of",
+)
+
+#: Which second axis each niche is scored against. **Total over `LEXICONS` by test**, so
+#: a new lexicon cannot land without declaring its family.
+#:
+#: A registry rather than a seed field or an inference, and both alternatives were
+#: rejected on evidence. A **seed field** would put part of the scoring definition in a
+#: database row applied by `nh seed`, where it could drift out from under
+#: `LEXICON_VERSION` — and the backtest niches have no seeds at all yet must be scorable.
+#: **Inferring** the family from lexicon content fails on this repo's own data: the live
+#: lexicons deliberately share 2-8 terms with `EVENT`, so any overlap rule is a silent
+#: flip waiting on an innocent vocabulary edit.
+#:
+#: There is no default. A niche whose family is unset is skipped loudly at the phase
+#: boundary, never guessed: defaulting to `event` would reproduce ADR-0033's measured
+#: failure invisibly — every video marked noise, the cluster retired as empty, and a
+#: pipeline that collects nothing while looking like one that works.
+AXES: dict[str, str] = {
+    # The five live niches. `EVENT` measured against 298 human labels, held-out
+    # precision 0.781 (reports/relevance_2026-08-27.md).
+    "aviation-disasters": "event",
+    "maritime-disasters": "event",
+    "corporate-collapse": "event",
+    "engineering-failures": "event",
+    "true-crime-trials": "event",
+    # `landmark-court-cases` is deliberately absent: ADR-0028 removed its lexicon when
+    # it was retired, and this registry is keyed on LEXICONS, not on seeds. A retired
+    # niche with no lexicon has nothing to score and so has no axis to declare.
+    # The eleven-domain pivot. `EXPOSITION`, 107 machine labels, held-out 0.866.
+    # ACTIVE and collecting since ADR-0040 — an earlier version of this comment said
+    # "all inactive pending human validation (ADR-0034)", which stopped being true the
+    # day they were activated. The validation itself is still outstanding: a human
+    # labels a 99-row sample under ADR-0042's two-pass criterion, and until it clears a
+    # 95% Wilson lower bound of 0.70 these scores ship nothing.
+    "philosophy-of-science": "exposition",
+    "esoterism-spirituality": "exposition",
+    "metaphysical-battles": "exposition",
+    "logic-linguistics-gnoseology": "exposition",
+    "history-of-ideas": "exposition",
+    "anthropocene-anthropology": "exposition",
+    "macro-economy": "exposition",
+    "trading": "exposition",
+    "ai-and-software": "exposition",
+    "biohacking": "exposition",
+    "geopolitics": "exposition",
+}
+
+
+def second_axis(slug: str) -> tuple[str, dict[str, float]]:
+    """`(axis_name, weights)` for one niche. Raises `KeyError` if the family is unset.
+
+    Loud rather than defaulting, for the reason in `AXES`: a guessed axis is the one
+    failure mode that looks exactly like a working pipeline.
+    """
+    name = AXES[slug]
+    return name, {"event": event_weights, "exposition": exposition_weights}[name]()
+
+
+def exposition_weights() -> dict[str, float]:
+    """Every exposition marker weighs 1.0, for the same reason `event_weights` does.
+
+    The axis asks a binary question about the video — is this an explanation — not a
+    comparison between niches, so there is nothing for a term to be discriminative
+    *against*. It is also how the 0.866 was measured: graded weights would put an
+    unmeasured scorer behind a measured citation.
+
+    Deliberately not routed through `weights()`. Axis vocabularies are shared by every
+    niche in their family by construction, so `1/k` would drive every term to 0.0 and
+    collapse the axis entirely.
+    """
+    return dict.fromkeys(EXPOSITION, 1.0)
 
 
 def event_weights() -> dict[str, float]:

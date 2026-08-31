@@ -176,6 +176,36 @@ def test_unknown_raw_kind_is_an_error(settings, engine):
         _collector(settings, engine).normalize(Raw("nonsense", "k", {}))
 
 
+# -- the geo basis is sent, not inferred (ADR-0037) --------------------------
+
+
+@responses.activate
+def test_discovery_sends_the_seeds_stated_geo_as_region_code(settings, engine):
+    """Omitting regionCode is not neutral — the API's own reference documents a
+    US default on the response's regionCode field — so the basis must be sent
+    explicitly when the seed states one, and recorded in the raw payload."""
+    apply_seeds(engine, ({**ONE_SEED[0], "geo": "US"},))
+    _mock_api()
+    collector = _collector(settings, engine)
+    raws = [r for r in collector.fetch() if r.kind == "search_hit"]
+    searches = [c.request.url for c in responses.calls if "/search" in c.request.url]
+    assert searches and all("regionCode=US" in url for url in searches)
+    assert all(r.payload["region"] == "US" for r in raws)
+
+
+@responses.activate
+def test_a_seed_without_a_geo_sends_no_region_code(settings, engine):
+    """No invented geo becomes a request parameter (ADR-0024's rule, kept): a seed
+    that states no market accepts the server default and records that as None."""
+    apply_seeds(engine, ONE_SEED)  # no geo key
+    _mock_api()
+    collector = _collector(settings, engine)
+    raws = [r for r in collector.fetch() if r.kind == "search_hit"]
+    searches = [c.request.url for c in responses.calls if "/search" in c.request.url]
+    assert searches and all("regionCode" not in url for url in searches)
+    assert all(r.payload["region"] is None for r in raws)
+
+
 # -- end to end -------------------------------------------------------------
 
 

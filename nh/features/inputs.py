@@ -13,6 +13,7 @@ a row that did not exist at the decision date.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 
 import sqlalchemy as sa
@@ -25,6 +26,7 @@ from nh.db.models import (
     Cluster,
     ClusterMember,
     Discovery,
+    KeywordMetric,
     SeedTerm,
     Video,
     VideoSnapshot,
@@ -129,13 +131,126 @@ def member_join(column, cluster_id: str, item_type: str = "channel", day: date |
 
 
 def member_channels(session: Session, cluster_id: str, day: date | None = None) -> list[str]:
+    """Non-noise, non-ballast channel members of a cluster as of `day`.
+
+    Ballast is excluded here as well as in the video-side predicates, and it has to
+    be: `supply._confidence` takes `universe` from this and `contributing` from a
+    `member_join` query, and its clamp comment says coverage above 1.0 "means those
+    two populations have drifted apart again — a bug in the query, not a value". Two
+    predicates would be exactly that drift.
+    """
     return list(
         session.scalars(
             sa.select(ClusterMember.item_id)
             .join(Channel, Channel.channel_id == ClusterMember.item_id)
-            .where(member_join(ClusterMember.item_id, cluster_id, day=day))
+            .where(
+                member_join(ClusterMember.item_id, cluster_id, day=day),
+                ClusterMember.item_id.notin_(_ballast_channels(cluster_id, day)),
+            )
         )
     )
+
+
+#: Decided videos a channel must have in a cluster before "never on-niche" is
+#: evidence rather than absence. **A judgement call, not a derivation, and saying
+#: otherwise would be the failure docs/METRICS.md warns about three times.** Measured
+#: on the live corpus, marked counts fall smoothly — 605 / 556 / 503 / 465 / 301 / 57
+#: at N = 5/8/10/12/15/20 — with no break at ten. The one real cliff is 12 -> 15, and
+#: it is `FEED_DEPTH` biting: above the cap the rule stops asking for evidence a feed
+#: can supply and exempts exactly the RSS-fed channels it exists for, which bounds N
+#: from above. Ten is "comfortably below the cap, comfortably above the range where a
+#: catalogue is barely known".
+#:
+#: Two things make the dial tolerable. Numerator invariance holds at EVERY N and every
+#: day (see below), so N moves denominators only. And it is a read-time constant like
+#: `RELEVANCE_HIGH`: retuning it is a query, never a rewrite of stored rows — the
+#: series steps and `supply.DEFINITION` marks the step. Two earlier drafts of this
+#: comment also promised the value was stamped into metric `detail` as `ballast_n`.
+#: It never was, and the claim is deleted rather than left standing: this constant is
+#: the single place N lives.
+BALLAST_DECIDED = 10
+
+
+def _ballast_channels(cluster_id: str, day: date | None = None):
+    """Sub-select of channel ids that have published nothing this cluster can read.
+
+    A channel joins a cluster on ONE discovered video (`clustering.trivial`) with no
+    threshold, and `youtube_rss` then polls it forever, so its whole catalogue lands
+    in the cluster whether or not the lexicon can read any of it. Measured 2026-08-31
+    under `LEXICON_VERSION 2026-08-31.4`: 503 of 2,307 member channels across the ten
+    active clusters have ten decided videos and not one on-niche, carrying 8,994 video
+    rows that sat in every coverage denominator.
+
+    **Decided, not scored.** `decided = on-niche + decided-noise`; undecided mid-band
+    and unscorable rows are not judgements and must not count as evidence against a
+    channel — data rule 7's absent-is-not-zero at channel grain. That is what makes
+    this safe beside ADR-0046's language gate: 43 channels whose catalogue the gate
+    reveals as unreadable have `decided = 0`, are NOT ballast, stay members, and
+    correctly drag `relevance_coverage` down as unscorable instead.
+
+    **Zero on-niche, not a small share.** 342 channels sit at exactly one on-niche
+    video, so any tolerance above zero takes them and removes real on-niche rows from
+    numerators. Zero buys **numerator invariance**: a ballast channel has contributed
+    nothing above the threshold, so this can only ever shrink a denominator. It holds
+    per day as well as overall — zero on-niche across a catalogue implies zero across
+    every published-before-`day` prefix of it.
+
+    **Day-bounded, and that is the whole reason this is a query rather than a stored
+    flag.** An earlier design marked `cluster_members.is_noise` on the channel row in
+    the clustering phase. That flag is an aggregate as of the RUN date, so it leaked
+    post-`day` information into day-bounded reads — measured, 114 pre-2026 video rows
+    vanished from a replay at a 2025 decision date, and five of the nine
+    `BACKTEST_METRICS` route through these predicates. This module's own docstring
+    promises the opposite ("a feature must never see a row that did not exist at the
+    decision date"). Computing the set per read removes the leak by construction, and
+    deletes the stored flag, its clobber hazard and its reconciliation ordering with
+    it — there is no state to move.
+
+    Uncorrelated with respect to the outer row: it depends only on `cluster_id` and
+    `day`, so it is evaluated once per statement rather than per video. Measured
+    19-23ms per execution live, 87ms on `data/backtest.db`. Per feature PASS, after
+    the tautological `on_niche_join` clause was removed, it materialises 99 times and
+    three A/B runs against a neutralised predicate measured -2.81s / +0.47s / +0.09s
+    on a ~35s pass — indistinguishable from noise. An earlier version of this line
+    read "~0.4s across all ten clusters", which was a per-execution figure presented
+    as a per-pass one.
+
+    One impurity remains and is pre-existing, not new: "decided" is read under the
+    CURRENT lexicon, the accepted caveat of every relevance read (ADR-0018).
+    """
+    decided = sa.case((ClusterMember.relevance >= RELEVANCE_HIGH, 1), (ClusterMember.is_noise, 1))
+    on_niche = sa.case((ClusterMember.relevance >= RELEVANCE_HIGH, 1))
+    inner = sa.orm.aliased(Video)
+    return (
+        sa.select(inner.channel_id)
+        .join(ClusterMember, ClusterMember.item_id == inner.video_id)
+        .where(
+            ClusterMember.item_type == "video",
+            ClusterMember.cluster_id == cluster_id,
+            sa.true() if day is None else inner.published_at < _until(day),
+        )
+        .group_by(inner.channel_id)
+        .having(sa.func.count(decided) >= BALLAST_DECIDED)
+        .having(sa.func.count(on_niche) == 0)
+    )
+
+
+def not_ballast(cluster_id: str, day: date | None = None):
+    """This video's channel is not ballast in this cluster as of `day` (ADR-0047).
+
+    Named for what it tests. An earlier version was called `from_a_member_channel`,
+    which described the stored-flag design it came from and stopped being true when
+    the predicate became a ballast tally — it does not check membership at all.
+
+    Applied where it can bite: `relevance_coverage`, `numerator_coverage` and
+    `member_channels`. Not `on_niche_join`, where it is a tautology (see there), and
+    not `member_join`, which is what leaves `openness.*` deliberately unfiltered.
+
+    Measured on the live corpus, applying this
+    moves history-of-ideas coverage 2608/3246 -> 870/1384 and `on_niche_share`
+    0.076 -> 0.226.
+    """
+    return Video.channel_id.notin_(_ballast_channels(cluster_id, day))
 
 
 def on_niche_join(cluster_id: str, day: date | None = None):
@@ -146,6 +261,16 @@ def on_niche_join(cluster_id: str, day: date | None = None):
     a NULL-relevance (unscorable) or mid-band (undecided) video is not noise and is
     also not on-niche. Both are excluded from numerator *and* denominator, and
     lower confidence instead of being guessed into one side.
+
+    **Deliberately does NOT carry the ballast filter (ADR-0047).** It would be a
+    tautology: this predicate already requires `relevance >= RELEVANCE_HIGH`, and a
+    ballast channel has zero videos above that threshold by definition, so the clause
+    could never remove a row. Measured — 0 of 297 cluster-day-metric cells changed
+    with it present, and the whole suite passed with it removed. It also cost ~4s per
+    feature pass and was the only route by which the predicate reached three call
+    sites that wrap this in `sa.exists(...).correlate(Video)`, where an earlier
+    version compiled wrong. Ballast is filtered where it can actually bite: the two
+    coverage functions and `member_channels`.
     """
     predicate = sa.and_(
         ClusterMember.item_id == Video.video_id,
@@ -191,10 +316,54 @@ def relevance_coverage(
         .where(
             ClusterMember.item_type == "video",
             ClusterMember.cluster_id == cluster_id,
+            not_ballast(cluster_id, day),
             sa.true() if day is None else Video.published_at < _until(day),
         )
     ).one()
     return decided or 0, total or 0
+
+
+def numerator_coverage(
+    session: Session, cluster_id: str, day: date | None = None
+) -> tuple[int, int, int]:
+    """`(on_niche, judgeable, total)` videos in the cluster.
+
+    The counterpart to `relevance_coverage`, for metrics whose claim is sized by
+    their **numerator** rather than by the whole cluster. `relevance_coverage` asks
+    "how much of the cluster could we decide about" and counts a decided negative
+    as knowledge, which is right for a share metric like `supply.on_niche_share`
+    where that negative sits in the denominator. It is wrong for a volume metric:
+    a video decided off-niche contributes nothing to the volume, so deciding it
+    must not raise confidence in the volume.
+
+    `judgeable` is every video that could still have entered the numerator —
+    on-niche, undecided, or unscorable — i.e. everything not decided off-niche.
+    The three states are not two (`on_niche_join`), so all three are counted here
+    for the same reason they are excluded there.
+
+    Callers read the ratio `on_niche / judgeable`. Two degenerate cases, and they
+    are different: `judgeable == 0` with videos present means the scorer decided
+    every one of them off-niche, which is full decisiveness and reads 1.0;
+    `total == 0` means the cluster holds no videos and there was nothing to be
+    decisive about, which reads 0.0. Returning all three counts keeps that
+    distinction at the call site rather than hiding it in a ratio.
+    """
+    on_niche, judgeable, total = session.execute(
+        sa.select(
+            sa.func.count(sa.case((ClusterMember.relevance >= RELEVANCE_HIGH, 1))),
+            sa.func.count(sa.case((ClusterMember.is_noise.is_(False), 1))),
+            sa.func.count(),
+        )
+        .select_from(ClusterMember)
+        .join(Video, Video.video_id == ClusterMember.item_id)
+        .where(
+            ClusterMember.item_type == "video",
+            ClusterMember.cluster_id == cluster_id,
+            not_ballast(cluster_id, day),
+            sa.true() if day is None else Video.published_at < _until(day),
+        )
+    ).one()
+    return on_niche or 0, judgeable or 0, total or 0
 
 
 def eligible_niche_videos(
@@ -379,3 +548,85 @@ def demand_terms(
             .order_by(SeedTerm.term)
         )
     )
+
+
+#: A Keyword Planner basket's honest sample unit is the KEYWORD, and the first US
+#: export carried 30 of them. Deliberately not `money.CONFIDENCE_N`, which is
+#: documented as per-video ("videos are the honest n") and named for
+#: `midroll_eligible_share`: reusing 100 here would pin every KP confidence near
+#: 0.30 forever regardless of how well curated the niche is.
+KP_ADEQUATE_KEYWORDS = 30
+
+
+@dataclass(frozen=True, slots=True)
+class KpInputs:
+    """What one cluster's Keyword Planner basket looks like in one market.
+
+    `curated` is the denominator that makes coverage meaningful: how many keywords
+    this niche *claims*, against how many we could actually observe. It counts seed
+    terms, not rows, so a market with no export reads as 0/6 rather than as a niche
+    that happens to have no keywords.
+    """
+
+    rows: list[KeywordMetric]
+    curated: int
+
+
+def keyword_planner_rows(session: Session, cluster_id: str, day: date, geo: str) -> KpInputs:
+    """The latest Keyword Planner reading per curated term, in one market, as of `day`.
+
+    **`geo` has no default, deliberately (ADR-0038).** A seed term asserts "this niche
+    cares about this keyword", which is geo-independent curation; which market a number
+    was measured in is a property of the *observation* and lives on
+    `keyword_metrics.geo`. A default here would silently pick a market on the caller's
+    behalf, which is the conflation ADR-0038 removed.
+
+    Joins on `(lower(term), lang)` — the same key `nh kp ingest`'s match report uses, so
+    the report cannot claim a coverage the features do not get. `demand_terms` is
+    deliberately not reused: it returns bare strings, dropping the `lang` this join needs,
+    and has no notion of `day`.
+
+    **The day bound is `observed_date <= day`, and it is approximate on purpose.**
+    `observed_date` is the last day of the twelve-month period the numbers describe
+    (ADR-0027's third reading), so it precedes the export by up to a month and
+    `period_start` may be ~365 days earlier. Bounding on provenance `at` instead would be
+    stricter but would break the feature layer's uniform time axis, where every metric
+    bounds on the date a value describes rather than the date we fetched it — the same
+    approximation the Wikipedia backfill already accepts.
+
+    When a second monthly export lands, the newer period wins per term and the older row
+    stays for history: `keyword_metrics` is append-only and never overwritten.
+    """
+    terms = session.execute(
+        sa.select(SeedTerm.term, SeedTerm.lang)
+        .join(Cluster, Cluster.seed_id == SeedTerm.seed_id)
+        .where(
+            Cluster.cluster_id == cluster_id,
+            SeedTerm.source == "keyword_planner",
+            SeedTerm.active.is_(True),
+        )
+    ).all()
+    if not terms:
+        return KpInputs(rows=[], curated=0)
+
+    wanted = {(t.lower(), ln) for t, ln in terms}
+    ranked = (
+        sa.select(
+            KeywordMetric,
+            sa.func.row_number()
+            .over(
+                partition_by=(sa.func.lower(KeywordMetric.keyword), KeywordMetric.lang),
+                order_by=KeywordMetric.observed_date.desc(),
+            )
+            .label("rn"),
+        )
+        .where(KeywordMetric.geo == geo, KeywordMetric.observed_date <= day)
+        .subquery()
+    )
+    latest = session.scalars(
+        sa.select(KeywordMetric).from_statement(
+            sa.select(ranked).where(ranked.c.rn == 1).order_by(ranked.c.keyword)
+        )
+    ).all()
+    rows = [r for r in latest if (r.keyword.lower(), r.lang) in wanted]
+    return KpInputs(rows=rows, curated=len(terms))

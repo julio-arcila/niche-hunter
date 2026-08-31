@@ -167,3 +167,50 @@ def test_a_partial_run_does_not_poison_the_gate(settings, engine):
     result = check(engine, settings)
     assert result.ok
     assert result.run_id == RUN_ID  # the last real nightly, not the partial
+
+
+def test_a_stale_keyword_planner_export_warns_but_does_not_fail(settings, engine):
+    """A manual source cannot fail a nightly it never joins, so staleness is the only
+    way it degrades — and it degrades silently, because every KP metric goes on
+    returning the last export's numbers at full confidence.
+
+    A warning rather than a problem: ADR-0030 already excludes manual sources from the
+    ported-source gate, and paging someone because a human has not opened a browser in
+    ten weeks would train them to ignore the gate.
+    """
+    from datetime import date
+
+    from nh.db.models import KeywordMetric
+    from nh.jobs.status import KP_STALE_DAYS
+
+    _healthy(engine)
+    stale = (utcnow().date() - timedelta(days=KP_STALE_DAYS + 5)).replace(day=1)
+    with session_scope(engine) as s:
+        s.add(
+            KeywordMetric(
+                keyword="inflation",
+                geo="US",
+                lang="en",
+                observed_date=stale,
+                source="keyword_planner",
+                run_id=RUN_ID,
+                at=utcnow(),
+            )
+        )
+    result = check(engine, settings)
+
+    assert result.ok, "a stale manual export is not a failed night"
+    assert any("keyword_planner is" in w and "stale" in w for w in result.warnings)
+    assert not any("keyword_planner" in p for p in result.problems)
+    assert isinstance(stale, date)
+
+
+def test_no_keyword_planner_rows_at_all_is_silent(settings, engine):
+    """Absence is already carried by the metrics, which return NULL with a reason, and
+    by the deferral register. Warning here as well would fire on every fresh database
+    and on every fixture that does not happen to seed an export."""
+    _healthy(engine)
+    result = check(engine, settings)
+
+    assert result.ok
+    assert not any("keyword_planner" in w for w in result.warnings)

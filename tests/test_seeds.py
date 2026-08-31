@@ -70,14 +70,17 @@ def test_geo_states_the_market_the_niche_is_about(engine):
     Measured, 234 of 719 channels are Indian against 290 US. That gap is invisible
     unless the seed says what it meant.
 
-    Keyword Planner is a third case, added 2026-08-28 and deliberately outside the
-    `seed_terms.geo == ""` rule. Its collector never reads `seed_terms` — the geo
-    comes from the `--geo` argument — so nothing there can become a request
-    parameter. What its geo does is record which export a term's numbers came from,
-    because `keyword_metrics` is unique over (keyword, geo, lang, observed_date,
-    source) and a second country's export will sit beside the first. Leaving it ""
-    would claim the US numbers were worldwide, and would break the feature join
-    silently: measured, 0 of 30 rows matched until the two agreed."""
+    Keyword Planner went through both wrong answers before landing here
+    (ADR-0038). Its collector never reads `seed_terms` — the geo comes from the
+    `--geo` argument — so first the terms defaulted to "" against a
+    (keyword, geo, lang) match report, which read 0/30; then they were stamped
+    "US" to satisfy that report, which made a GB export match 96/162 and would
+    have needed 66 duplicate rows per market. The conflation was in the JOIN:
+    a seed term asserts "this niche cares about this keyword", which is
+    geo-independent, while `keyword_metrics.geo` records which export a number
+    came from. So KP terms carry "" like every other source — here it means
+    "curation, no market" rather than "worldwide observation" — and features
+    join on (term, lang), choosing the market against `keyword_metrics.geo`."""
     apply_seeds(engine)
     apply_terms(engine)
     with session_scope(engine) as s:
@@ -90,10 +93,10 @@ def test_geo_states_the_market_the_niche_is_about(engine):
             sa.select(SeedTerm.geo).where(SeedTerm.source.in_(("wikipedia", "trends")))
         )
         assert all(g == "" for g in driven)
-        # Keyword Planner carries one, and it is a join key rather than a request:
-        # its collector never reads seed_terms at all.
+        # Keyword Planner terms are geo-independent curation (ADR-0038): the geo
+        # of a NUMBER lives on keyword_metrics, never on the term that claims it.
         kp = set(s.scalars(sa.select(SeedTerm.geo).where(SeedTerm.source == "keyword_planner")))
-        assert kp == {"US"}
+        assert kp == {""}
 
 
 def test_search_budget_counts_both_sort_orders():

@@ -22,6 +22,39 @@ cannot be reviewed, backtested, or compared across a schema change.
 Every `features_daily` row stores `value`, `confidence` and `inputs_n`. Absent
 inputs produce NULL, never 0.
 
+
+## Geo basis — which population each source measures
+
+Recorded because the four sources are **not** scoped to the same people (ADR-0035), and
+a reader must not have to know that `en.wikipedia` is a language while `geo=US` is a
+country in order to avoid comparing them.
+
+| Source | Population | Set by |
+|---|---|---|
+| `keyword_planner` | United States | `--geo` per export |
+| `trends` | Worldwide | `geo=""`, per ADR-0024 |
+| `wikipedia` | English readers globally (`en.wikipedia`) | `PROJECT` constant |
+| `youtube_api` | Search as served for the seed's stated market (US today), English relevance | `regionCode` from `niche_seeds.geo` + `relevanceLanguage: "en"` (ADR-0037) |
+
+The `youtube_api` row previously read "Unfiltered, English-relevance only", which
+was never true: a `search.list` request without `regionCode` is served with a
+**US default** (documented on the response's `regionCode` property), so the basis
+was inferred rather than recorded. Since ADR-0037 (2026-08-29) discovery sends the
+seed's stated geo explicitly and stamps it into the raw payload; all live seeds
+state US, so no behavioural change is expected — see the ADR for the caveat.
+
+So a composite mixing them mixes populations. **This does not currently move
+`scorecards.gap`**, which is `demand_rank − supply_rank` — a difference of within-day
+percentile ranks, not a ratio. Measured 2026-08-28: restricting supply to US-domiciled
+channels moves the medians substantially and leaves the ranking of all five niches
+**identical**, so the composition cannot move a rank difference. Consistent with the
+`median_views` entry below, where a 0.42x–3.37x value change also left ranks unmoved.
+
+It becomes live in **Slice 9**, the first time a `geo=US` demand level (Keyword Planner)
+sits beside global-English supply. Note also that `geo_concentration` counts *channels*
+while supply weighs *videos*, so it is not a supply-composition measurement — do not
+reuse its numbers as one (ADR-0035's retracted claim did exactly that).
+
 ## Entry template
 
 ```
@@ -41,28 +74,52 @@ Feeds        : which composite score, if any
 
 ## Defined
 
-Eighteen metrics across four of the six groups (`voice` and `cost_risk` are still
-empty). Each was verified to **vary across the five live niches** before
+Twenty-three metrics across four of the six groups (`voice` and `cost_risk` are still
+empty). Twenty-two are registered in `nh/features/run.py::METRICS`; `supply.pressure_index`
+is computed cross-cluster after them and `supply.views_per_new_video` is backtest-only. Each was verified to **vary across the five live niches** before
 implementation — a metric that is flat across the units it
 compares is not a comparator, however plausible its formula.
 
 ### supply.uploads_per_week
 ```
-Formula      : count of videos with published_at in (day-28d, day], is_short IS FALSE,
-               belonging to the cluster's member channels, divided by 4.0. A cluster
-               TOTAL, not a per-channel average: supply is the volume of competing
-               long-form content entering the niche. Per-channel median cadence is
-               recorded in detail.per_channel_median for reference.
+Formula      : sum over member channels of (on-niche long-form uploads with
+               published_at in the 28-day window ending on day) divided by the
+               channel's OBSERVED span in weeks, where the span runs from
+               max(window start, the channel's oldest known video of any kind)
+               through day, inclusive in civil days. A cluster TOTAL, not a
+               per-channel average: supply is the volume of competing long-form
+               content entering the niche. For a channel observed across the whole
+               window this is exactly count/4.0; for a channel whose known history
+               starts inside the window — the RSS 15-entry cap discards everything
+               older — it reads as a rate over what was actually seen instead of
+               censoring at the cap (data rule 9).
+               CHANGED 2026-08-29 (definition "v3-span-rate-on-niche"): until then
+               the shipped code divided a fixed-window count by 4.0, despite rule 9
+               and this entry's own failure mode saying it must not — and despite
+               two doc passages claiming the rate form had already shipped. Values
+               rise wherever detail.channels_span_censored > 0; not comparable
+               across 2026-08-29.
+               The span marker is the oldest known video of ANY kind, not the
+               oldest on-niche one: observation coverage is a property of the feed,
+               and an on-niche marker would turn a channel with one on-niche upload
+               into a one-day span at 7/wk.
 Inputs       : videos(published_at, is_short, channel_id); cluster_members
                (item_type='channel'); window (day-28d, day].
 Join key     : cluster_id, via videos.channel_id -> cluster_members.item_id, AND
                videos.video_id -> cluster_members(item_type='video').relevance
-Confidence   : min(known_n / 30, 1) * (known_n / member_n) * relevance_coverage
-               -- sample adequacy TIMES coverage TIMES how much of the niche could
-               be scored at all. Adequacy alone saturates: 74 contributing channels
+Confidence   : min(known_n / 30, 1) * (known_n / member_n) * numerator_decisiveness
+               -- sample adequacy TIMES coverage TIMES how decisively the numerator
+               was filled. Adequacy alone saturates: 74 contributing channels
                of 197 scores 1.00 while the metric sees 38% of the niche, and those
                74 are the enriched, discovery-biased ones. Coverage alone would
                under-report a small but fully observed cluster.
+               numerator_decisiveness = on_niche / (on_niche + undecided +
+               unscorable) -- "of the videos that could have entered my numerator,
+               how many did I decide into it". When nothing is unjudged and nothing
+               is on-niche the ratio is 0/0 and is defined as 1.0: a niche whose
+               members' output was entirely DECIDED, none of it on-niche, has
+               earned a confident low volume. When the cluster holds no videos at
+               all it is 0.0 -- there is nothing to have been decisive about.
                CORRECTED 2026-08-28: this block previously specified
                `publishing_n / member_n` -- channels that published IN THE WINDOW --
                and claimed "the product gives 0.38 for aviation-disasters, which is
@@ -79,14 +136,55 @@ CHANGED 2026-08-27 (Slice 4, definition "v2-on-niche"): the numerator counts onl
                videos judged on-niche, and confidence gained a relevance_coverage
                leg. Values fell 15-30% for every cluster. Not comparable across
                2026-08-27.
-Failure mode : RSS feeds cap at 15 entries, so a channel uploading >15 times in 28
-               days is undercounted. MUST NOT be computed as a count over a fixed
-               window using RSS rows -- measured, that censors at the cap and every
-               niche converges on 1.17/wk (1.1x spread) against 2.2x for the
-               span-based form. Unknown-format videos are excluded, biasing low
-               until the enrichment backfill completes. No member channels -> NULL.
+CHANGED 2026-08-30: the third leg moved from relevance_coverage
+               (decided/total) to numerator_decisiveness. VALUES DO NOT MOVE; only
+               confidence does. Measured on run a6d35aee: because known_n ==
+               member_n for all eleven clusters, the two other legs were both 1.0
+               and confidence reduced EXACTLY to relevance_coverage -- verified to
+               three decimals (philosophy-of-science 4.3% on-niche + 77.7% noise =
+               82.0% against a stored 0.820). That made confident REJECTION raise
+               confidence in a volume the rejected videos contribute nothing to:
+               Spearman(value, confidence) across the eleven was -0.346, most
+               confident where supply was lowest. A decided negative is real
+               information about that video and belongs in a SHARE metric's
+               denominator, which is why supply.on_niche_share keeps the old form
+               unchanged; it does not belong in a VOLUME metric's confidence.
+               Expected effect: philosophy-of-science ~0.19 (from 0.820), trading
+               ~0.63 (from 0.743). Series are not comparable across 2026-08-30.
+               Neither form prices the scorer's own held-out precision of 0.781,
+               which pushes share and volume symmetrically.
+               See reports/supply_audit_2026-08-30.md.
+Failure mode : the span form assumes a censored channel's cadence was constant
+               across the window -- an extrapolation, honest about rate but not a
+               realized count. A channel observed for a single day contributes a
+               noisy rate (n*7 per upload); no floor constant is added to damp it,
+               by the ADR-0023 zero-tuned-constants argument, so a very young
+               corpus is volatile at the channel level and detail records
+               channels_span_censored for exactly that reading.
+               CAVEAT on that counter, and the reason detail gained a second one on
+               2026-08-30: channels_span_censored counts censored channels among ALL
+               KNOWN member channels, while the value sums only CONTRIBUTING ones,
+               so it cannot say how much of a stored value is affected. Measured on
+               run a6d35aee: history-of-ideas stores 68 but only 13 of its 34
+               contributing channels are censored; philosophy-of-science stores 87
+               against 22 of 51. detail.contributing_span_censored (and
+               detail.channels_publishing_in_window as its denominator) is the pair
+               data rule 9's attribution marker actually needs. The old counter is
+               kept, unchanged, so rows on both sides stay readable. A channel uploading
+               >15 times BETWEEN polls still loses the overflow permanently -- the
+               span form fixes censoring of the window, not feed overflow. Unknown-
+               format videos are excluded, biasing low until the enrichment
+               backfill completes. No member channels -> NULL.
 Feeds        : scorecards.supply; gap from Slice 3
-Measured     : 2.2x spread across the five seeds (2.31 to 5.01 /wk)
+Measured     : 2026-08-29, span form vs fixed-window form on the live corpus at
+               day 2026-08-28: 17-52% of each cluster's known channels are
+               span-censored, and the span form reads 1.6x-2.1x the fixed count
+               (aviation-disasters 174.8 vs 100.0/wk; true-crime-trials 328.1 vs
+               158.5/wk) -- the fixed form was underreading every niche's cadence,
+               worst where cadence is highest. Spread across the five active
+               niches: 81.1-328.1/wk (4.0x). The Slice 2 measurement that forced
+               rule 9: a 90-day fixed count landed EVERY niche on 1.17/wk (1.1x
+               spread) against 2.2x for the span form.
 ```
 
 ### supply.median_views
@@ -105,12 +203,19 @@ Formula      : median of current views over the pooled eligible ON-NICHE videos 
 Inputs       : videos; video_snapshots(observed_date, views, source); cluster_members
                (item_type='channel' for the pool, item_type='video' for relevance)
 Join key     : cluster_id
-Confidence   : min(contributing_channels / 30, 1) * coverage * relevance_coverage.
-               Channels, not videos, for the first leg: views are correlated within
-               a channel, so channels are the effective sample. relevance_coverage
-               is decided_videos / all_videos in the cluster -- a metric computed
-               over videos we judged depends on how much of the cluster we could
-               judge, and that is a distinct way it lies.
+Confidence   : min(contributing_channels / 30, 1) * coverage *
+               numerator_decisiveness. Channels, not videos, for the first leg:
+               views are correlated within a channel, so channels are the effective
+               sample. numerator_decisiveness is on_niche / (on_niche + undecided +
+               unscorable) -- the pooled median is taken over on-niche videos, so
+               what bounds trust in it is how much of the pool it COULD have drawn
+               from was actually decided into it. A video decided off-niche never
+               had a place in this pool and must not raise confidence in it.
+CHANGED 2026-08-30: third leg moved from relevance_coverage
+               (decided/total) for the reason above; shares the change with
+               supply.uploads_per_week, whose entry carries the measurement.
+               VALUES DO NOT MOVE, only confidence. Not comparable across
+               2026-08-30. See reports/supply_audit_2026-08-30.md.
 
 CHANGED 2026-08-27 (Slice 4, definition "v2-on-niche"): the pool moved from every
                eligible video to eligible videos judged on-niche. Values moved
@@ -195,6 +300,27 @@ Feeds        : openness composite from Slice 5
 Measured     : 5.3x spread cohort-restricted (0.43 to 2.26); 3.8x unrestricted
 ```
 
+### supply.format_mix
+```
+Formula      : among on-niche member-channel videos with published_at in
+               (day-28d, day] and is_short IS NOT NULL, the share with
+               is_short IS TRUE. Unknown is_short is excluded from numerator AND
+               denominator -- never counted as long-form.
+Inputs       : videos(is_short, published_at, channel_id); cluster_members
+Join key     : cluster_id
+Confidence   : min(known_format_videos / 30, 1) x relevance coverage. Videos are the
+               honest n because is_short is a per-video property; 30 is the supply
+               group's constant, not money's 100, because the 28-day supply window is
+               far thinner than money's 90-day one.
+Failure mode : Shorts skew toward off-niche filler, so computing this over a channel's
+               whole output rather than its on-niche output would measure the channel's
+               posting habits instead of the niche's supply. On-niche only for that
+               reason. A cluster the enrichment has not reached returns NULL, not 0.0.
+Registered   : 2026-08-28, when its deferral trigger fired (is_short known for 99.6%
+               of videos against a 92%-NULL blocker). Consumer is a future supply
+               composite; nothing ranked uses it while ADR-0029 stands.
+```
+
 ### money.midroll_eligible_share
 ```
 Formula      : among member-channel videos with published_at in (day-90d, day] and
@@ -217,6 +343,84 @@ Failure mode : depends entirely on the enrichment backfill. Before it runs the
                discovery-biased subset. Deleted videos leave unknown durations; if
                deletions skew short, the share biases up. Zero known -> NULL.
 Feeds        : money composite in Slice 5; display-only in Slice 2
+```
+
+### money.priced_share
+```
+Formula      : among the cluster's curated keyword_planner terms with a
+               keyword_metrics reading in `geo` and observed_date <= day, the share
+               carrying at least one REAL bid cell. A bid cell is real when it is
+               non-NULL and not one of the two imputed sentinels (see below).
+Inputs       : keyword_metrics(bid_low, bid_high, geo, observed_date); seed_terms
+Join key     : cluster_id, then (lower(term), lang) against keyword_metrics
+Confidence   : curation coverage x sample adequacy =
+               min(observed/curated, 1) x min(n/30, 1). Coverage is the
+               relevance_coverage analogue for a source with no videos: what we can
+               fail to see is a curated keyword. 30 = KP_ADEQUATE_KEYWORDS, the
+               first export's basket size. NOT money.CONFIDENCE_N, which is
+               documented per-video and would pin this near 0.30 forever.
+               At today's 6-keyword baskets this caps near 0.20 BY CONSTRUCTION.
+Failure mode : zero is a MEASUREMENT here, not an absence — keywords observed, none
+               bid on. That is honest only because the denominator is day-bounded;
+               before any export exists the metric returns NULL instead. The two
+               cases are pinned by a matching pair of tests.
+Feeds        : nothing. scorecards.value stays deferred behind ADR-0029.
+```
+
+### money.competition_index_mean
+```
+Formula      : mean of competition_index (0-100, verbatim from the export) over the
+               cluster's observed keywords in `geo` as of day. Keywords without an
+               index are excluded from both sides.
+Inputs       : keyword_metrics(competition_index, geo, observed_date); seed_terms
+Join key     : cluster_id, then (lower(term), lang)
+Confidence   : as priced_share.
+Failure mode : this is advertiser competition for SEARCH ads. It says nothing about
+               how much video already exists in the niche — that is supply.*, a
+               different auction in a different market. A reader who conflates them
+               will think a cheap niche is an empty one.
+Feeds        : nothing yet.
+```
+
+### money.vw_cpc
+```
+Formula      : volume-weighted mean bid, sum(v*p)/sum(v), where v is
+               avg_monthly_searches and p is the mean of whichever of (bid_low,
+               bid_high) are real for that keyword. A keyword missing either a real
+               price or a volume is excluded from BOTH sides, never counted as zero.
+Inputs       : keyword_metrics(avg_monthly_searches, bid_low, bid_high, currency);
+               seed_terms
+Join key     : cluster_id, then (lower(term), lang)
+Confidence   : as priced_share, with n = keywords contributing to the weighting.
+Failure mode : the weights are power-of-ten bucket MIDPOINTS (measured: six distinct
+               values across 152 priced rows), so the weighting is order-of-magnitude
+               at best. Value is in the ACCOUNT's currency, stored verbatim — COP on
+               every row today — and no exchange rate is applied (ADR-0031). Rows
+               spanning more than one currency return NULL rather than an average.
+Feeds        : nothing yet.
+```
+
+### money.median_bid_high
+```
+Formula      : median of REAL top-of-page high bids across the cluster's observed
+               keywords in `geo` as of day.
+Inputs       : keyword_metrics(bid_high, currency, geo, observed_date); seed_terms
+Join key     : cluster_id, then (lower(term), lang)
+Confidence   : as priced_share, with n = keywords carrying a real high bid.
+Failure mode : an advertiser's SEARCH-ad bid, NOT YouTube RPM — a different auction
+               with different inventory and different bidders. The RPM disclosure
+               pass of 2026-08-28 returned n=0 across nine measurement units, so this
+               proxy is what exists; treat it as a tier signal, never as a price.
+Registered   : 2026-08-29. SENTINEL BIDS: two values, 64,083.40 and 6,408.34 COP,
+               are imputed estimator defaults rather than measurements — exactly
+               US$16.00 and US$1.60 at one implied rate, on eight unrelated keywords
+               across both markets (10 cells of 107 priced rows) while every other
+               priced cell is non-round. They are excluded PER CELL, not per row:
+               `humanism` GB carries a sentinel low beside a real 47,045.50 high, and
+               a per-row rule would discard a genuine measurement. Detection is two
+               exact literals in money.SENTINEL_BIDS and deliberately NOT a roundness
+               heuristic, which would silently drop real round bids.
+Feeds        : nothing yet.
 ```
 
 ### demand.wiki_weekly_views
@@ -254,6 +458,70 @@ Measured     : 590x spread across the five seeds with agent=user. NOTE: an earli
                runs 19-54% and is NOT uniform across niches (Corporate_scandal 54%,
                Aviation 19%), so bots were inflating small niches relative to large.
 ```
+
+### demand.wiki_weekly_views_event
+```
+Formula      : identical to demand.wiki_weekly_views above, computed over the seed's
+               wikipedia terms with stratum='event' instead of stratum='topic'. Same
+               window, same lag, same maturation rule. `_named()` appends the suffix,
+               so the two strata are separate series that never mix.
+Inputs       : demand_snapshots joined to seed_terms WHERE source='wikipedia' AND
+               stratum='event'; the same 28-day window as the topic variant
+Join key     : cluster_id
+Confidence   : as the topic variant -- `_adequacy` = coverage TIMES volume adequacy,
+               i.e. (days observed / days expected) * min(window_views / 10,000, 1).
+               Both factors, not coverage alone: coverage pins at 1.00 for every niche
+               once the backfill completes and proves nothing, so count scarcity has to
+               be in the number too. See the topic entry above, which argues this at
+               length.
+Feeds        : NOTHING today. `scorecards.demand` reads the TOPIC stratum. ADR-0022
+               carries both and says "Gate E decides"; it has not.
+Failure mode : NULL for any niche with no event-stratum articles -- every niche except
+               the six that carry them: the five disaster niches and
+               `landmark-court-cases`, which is not one of them but was curated the
+               same way (ADR-0024 split it out of `court-cases`).
+```
+
+**This entry was missing until 2026-08-31, and the metric has existed since Slice 5.**
+docs/METRICS.md's own non-negotiable is that a metric starts as an entry here, then
+code, then a test. This one had code and tests and no entry, which is how it came to be
+described in a session report as "structurally inapplicable" when the truth is narrower.
+
+**NULL for the ten live domains is a fact about them, not a defect.** Event-stratum
+wikipedia terms exist for exactly **six seeds, 20 each** -- the five disaster niches plus
+`landmark-court-cases` -- selected under ADR-0022 as a fixed-K uniform sample from
+Wikidata class and category pools. That method presupposes a pool of named occurrences
+("Category:Aviation accidents..."), which evergreen domains like `trading` or
+`history-of-ideas` mostly do not have. No event pool was ever curated for them.
+
+**It has produced values, which is why it is not deleted.** Measured over all stored
+history: 14 non-NULL rows across 2026-08-27 to 2026-08-29, all five disaster clusters.
+From 2026-08-29 the eleven activated and the disasters retired on the same run
+(ADR-0040), so only NULL producers have computed since. Steady state is 10 NULL rows a
+night.
+
+**Two live paths make deletion wrong**, and both would be foreclosed silently:
+- The disaster niches are retired from *discovery*, not deleted (ADR-0039), and
+  reactivation is one `UPDATE niche_seeds SET active = 1`. On that day this metric
+  resumes with an intact series; deleting it would put a permanent hole in one.
+- ADR-0022's stratum arbitration is **still open**. The two strata rank niches in
+  reverse (Spearman -0.70) and neither was promoted -- "Gate E decides". Gate E did
+  not: `reports/backtest_2026-08-28.md` ran topic-only, because `nh/backtest/load.py`
+  records that the event stratum was never loaded. Deleting one of the two things
+  being arbitrated would resolve the arbitration by accident.
+
+**Its standing cost is not the compute** -- that is a local query. It is that
+`nh/collectors/wikipedia.py::_terms` filters on `SeedTerm.active` with no join to
+`niche_seeds`, so the 120 event articles of the six retired niches are still fetched
+nightly. The behaviour is real; do not read intent into it that is not there. That
+function's comment explains why it does not join through `clusters` (clustering runs
+after collectors) and says "terms belong to seeds" -- it does not address the seed's
+own `active` flag either way. De-registering the metric would not
+stop that; it is a collector property, and it is what keeps reactivation instant.
+
+**Also promised and never built:** ADR-0022 called `demand.event_topic_ratio` "a metric
+in its own right" feeding `cost_risk`. It has zero implementation -- no code outside the
+ADR and its report. Recorded here rather than left dangling.
 
 ### demand.wiki_momentum_28d
 ```
@@ -390,6 +658,30 @@ Failure mode : +/-5 point sampling jitter between fetches moves the ratio; the
                (aviation disasters documentary = NaN) must be replaced in
                seed_terms, never padded here.
 Feeds        : none yet — corroboration display in Slice 3
+```
+
+### demand.total_monthly_searches
+```
+Formula      : sum of avg_monthly_searches over the cluster's curated
+               keyword_planner terms with a reading in `geo` and observed_date <=
+               day, taking the newest reading per term. Keywords the export carried
+               no volume for are EXCLUDED, never counted as zero.
+Inputs       : keyword_metrics(avg_monthly_searches, geo, observed_date); seed_terms
+Join key     : cluster_id, then (lower(term), lang) — geo resolves on the
+               observation, never on the seed (ADR-0038)
+Confidence   : curation coverage x min(n/30, 1), as the money KP metrics.
+Failure mode : every value is a power-of-ten bucket MIDPOINT, not a count — measured
+               2026-08-28, a zero-spend export takes only six distinct values (50,
+               500, 5k, 50k, 500k, 5M) across 152 priced rows. This is
+               order-of-magnitude arithmetic and NOTHING downstream may de-bucket it.
+               It is also GOOGLE SEARCH volume, not YouTube search volume, which no
+               source publishes; and it is scoped to a COUNTRY while every other
+               demand metric here is scoped to a LANGUAGE (ADR-0035). 10 of 162 live
+               rows carry no volume at all; treating those as zero would understate a
+               niche for the crime of being unmeasured (data rule 7).
+Registered   : 2026-08-29, US only. 66 GB rows are ingested and loader-readable but
+               unregistered — ADR-0035 rule 3, and the deferral register carries why.
+Feeds        : nothing. Corroborates the Wikipedia demand level; does not replace it.
 ```
 
 ### supply.views_per_new_video
@@ -554,10 +846,70 @@ Measured     : Slice 5, on-niche videos only -- 4.9x spread, maritime 1.58y (mos
 
 ---
 
+## Ballast -- members that publish nothing the niche can read
+
+**ADR-0047, 2026-08-31.** A channel joins a cluster on one discovered video and is then
+polled forever, so its whole catalogue lands in that cluster. A member with **>= 10
+decided videos and zero on-niche** is ballast, and the `supply.*` and `money.*` read paths
+exclude its videos. **`openness.*` deliberately does not** — measured, none of its values
+or confidences move — because openness measures a channel against its own baseline over
+its whole output, which is the supply/openness pool separation this file already documents
+under `supply.median_views`. Measured at introduction under
+`LEXICON_VERSION 2026-08-31.4`: 503 of 2,307 member channels, 8,994 video rows.
+
+**Computed per read and bounded by the decision date**, not stored. A stored flag would be
+an aggregate as of the run date and would leak post-`day` evidence into day-bounded
+features — measured, 114 pre-2026 rows vanished from a replay at a 2025 date. `decided`
+counts on-niche plus decided-noise only; unscorable rows are not judgements and do not
+count against a channel, which is what keeps this safe beside ADR-0046's language gate.
+`BALLAST_DECIDED = 10` is a judgement call bounded above by `FEED_DEPTH`, not a
+derivation: history-of-ideas `on_niche_share` reads 0.241/0.226/0.155 at N = 5/10/15.
+
+Exclusion can only shrink a denominator, never a numerator -- the rule requires zero
+on-niche videos, so a ballast channel contributes nothing above the threshold (verified, 0
+on-niche rows across all 503), and that holds at every date because zero on-niche over a
+catalogue implies zero over every earlier prefix of it. There is nothing to reverse: the
+set is recomputed on every read, so a channel leaves it the moment one of its videos
+crosses 0.55.
+
+Effect on stored series (`detail.definition` = `v3-non-ballast-members` marks the step):
+history-of-ideas `on_niche_share` 0.076 -> 0.226 and `relevance_coverage` 0.803 -> 0.629.
+Coverage FALLS because ballast was mostly decided-noise and had been inflating the
+confidence input.
+
 ## Relevance -- the rule every supply number now depends on
 
 Not a metric, but `supply.*` and `money.*` are all computed over the videos it
 selects, so it is defined here rather than only in code.
+
+**Three states, not two, and 2026-08-31 widened one of them (ADR-0046).** A video is
+on-niche (>= 0.55), decided off-niche (`is_noise`, score exactly 0.0), or *unscorable*
+-- excluded from numerator and denominator alike rather than guessed into either. Until
+2026-08-31 the only unscorable case was non-Latin SCRIPT, which was read as covering
+non-English languages. It did not: a Spanish or German title is ~100% Latin letters, so
+it passed the gate, matched nothing in an English lexicon, scored 0.0 and was filed as a
+DECISION nobody made. Measured over ENRICHED rows with an exact-variant `audio_lang`:
+854 es/fr/pt/de/it rows, none caught, 1.1% on-niche against English's 22.1% under the
+same filter. (A looser prefix match over all rows gives 1,075 / 2.5%; both are real, and
+the filter has to be stated or the two figures disagree for no reason.) A function-word
+gate now withdraws them: **979 rows** become unscorable, of which **923 were decided
+off-niche** and the rest sat in the undecided band and move no coverage number.
+
+**This cannot move a number, only withdraw a row** -- it is an early return before any
+axis is computed, so a title that passes scores exactly what it scored before. Held-out
+precision **0.781 is therefore unaffected**: it is measured over above-threshold rows,
+and 0 of 11,495 currently on-niche rows are caught. Of the 298 labels, 5 fire, all
+genuinely Spanish or French; the highest stored relevance among them is 0.408, so none is
+above threshold and precision is arithmetically unchanged. `calibrate.py` splits on
+`sha256(video_id) % 2`, a per-row hash, so dropping rows cannot reshuffle the halves
+either. A future **recall** recomputation would shift by those 5.
+
+Those 298 labels are **machine labels** — `relevance_labels.labeller` is
+`claude-opus-5` for all 298, and reports/relevance_2026-08-27.md says so twice: "the
+same system that wrote the lexicon" and "the labeller is not independent". An earlier
+version of this paragraph called 3 of them "human-confirmed", which was false, and is
+exactly the conflation ADR-0041 and ADR-0045 exist to prevent. Independent human
+validation remains outstanding and now fires when a score is cited (ADR-0045).
 
 A video is scored against its cluster on two axes, and relevance is their geometric
 mean, so either at zero means zero:
@@ -691,16 +1043,16 @@ is only the I/O around it that needs replacing.
 | demand | `season_strength`, `season_index`, `peak_month` | `niche_hunter_trends.py` `trend_features` | no |
 | demand | `breakout_z`, `breakout` | `niche_hunter_trends.py` `trend_features` (z > 2.5) | no |
 | demand | `volatility` | `niche_hunter_trends.py` `trend_features` | no |
-| demand | `total_monthly_searches` | `niche_hunter_kp.py` `niche_features` | no |
+| demand | `total_monthly_searches` | `niche_hunter_kp.py` `niche_features` | **yes** |
 | demand | `kp_trend_last3_vs_first3` | `niche_hunter_kp.py` `niche_features` | no |
 | voice | `question_rate` | `niche_hunter_reddit.py` `question_clusters` | no |
 | voice | `unanswered_rate` | `niche_hunter_reddit.py` `supply_signals` | no |
 | voice | `recommendation_threads` | `niche_hunter_reddit.py` `supply_signals` | no |
 | voice | `top_shared_video_ids` | `niche_hunter_reddit.py` `supply_signals` | no |
-| money | `vw_cpc` | `niche_hunter_kp.py` `niche_features` (volume-weighted) | no |
-| money | `priced_share` | `niche_hunter_kp.py` `niche_features` | no |
-| money | `median_bid_high` | `niche_hunter_kp.py` `niche_features` | no |
-| money | `competition_index_mean` | `niche_hunter_kp.py` `niche_features` | no |
+| money | `vw_cpc` | `niche_hunter_kp.py` `niche_features` (volume-weighted) | **yes** |
+| money | `priced_share` | `niche_hunter_kp.py` `niche_features` | **yes** |
+| money | `median_bid_high` | `niche_hunter_kp.py` `niche_features` | **yes** |
+| money | `competition_index_mean` | `niche_hunter_kp.py` `niche_features` | **yes** |
 | money | `tier1_cpc_ratio` | `niche_hunter_kp.py` `cpc_geo_spread` | no |
 | money | `tier1_share` (search geo) | `niche_hunter_trends.py` `geo_tier1_share` | no |
 | money | `rpm_disclosure_calibration` | `niche_hunter_reddit.py` `rpm_disclosures` (needs n≥5) | no |
@@ -737,8 +1089,10 @@ collection window and would have read as "every niche is a news treadmill".
 
 That is data rule 9 in a new place: *"a metric that normalises away the dimension
 you are comparing on comes out flat, and flat reads as a finding rather than as a
-bug."* `uploads_per_week` was redefined as a rate over an observed span for the
-same reason. The code stays; `nh deferrals` carries the trigger that would register
+bug."* `uploads_per_week` became a rate over an observed span on **2026-08-29** —
+this sentence claimed that redefinition a day before it existed, which rule 9 and
+the metric's own entry record; the claim is true of the code only from that date.
+The code stays; `nh deferrals` carries the trigger that would register
 it (a fifth of on-niche videos older than a year).
 
 Two names removed from this list rather than implemented:

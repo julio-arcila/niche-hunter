@@ -45,7 +45,41 @@ if [ "$bak_t" -lt 1 ] || [ "$src_t" != "$bak_t" ] || [ "$src_s" != "$bak_s" ]; t
 fi
 
 OUT="$DEST/niche_hunter_$(date +%Y-%m-%d).db.gz"
-gzip -c "$TMP" > "$OUT"
+# Checked explicitly, and the check is not paranoia — it is a regression this
+# script actually shipped on 2026-08-30. A redirection failure does NOT reliably
+# trip `set -e`, so when TCC denied this write (see the retention comment below)
+# the script sailed past it and reported "backup ok -> ... (208M)" — the size
+# came from `du` reading YESTERDAY'S file, still sitting at that path. A stale
+# backup reported as a fresh one is the worst failure this script has, and it is
+# the same class of lie the header warns about for `PRAGMA integrity_check`.
+#
+# Overwriting an EXISTING file in the TCC-protected destination is the operation
+# that gets denied; creating a new one is allowed. Normal daily runs use a new
+# date-stamped filename and are unaffected — this bites a same-day re-run.
+if ! gzip -c "$TMP" > "$OUT"; then
+  log "FAILED: could not write $OUT — the file at that path, if any, is STALE"
+  alert "niche-hunter backup: could not write $OUT (stale file may remain)"
+  exit 1
+fi
+# Belt and braces: prove the file we are about to call a backup was written by
+# THIS run, not left behind by a previous one.
+if [ ! -s "$OUT" ] || [ -n "$(find "$OUT" -mmin +10 2>/dev/null)" ]; then
+  log "FAILED: $OUT is empty or was not written by this run"
+  alert "niche-hunter backup: $OUT is empty or stale"
+  exit 1
+fi
+
 # Rolling 30-day window, matching the retention pattern already in your crontab.
-find "$DEST" -name 'niche_hunter_*.db.gz' -mtime +30 -delete
+#
+# Non-fatal, and the `|| log` is load-bearing rather than defensive: under cron
+# this `find` cannot traverse iCloud Drive (TCC denies the unattended process,
+# giving "Operation not permitted"), it exits non-zero, and `set -e` above then
+# killed the script HERE — after the backup was safely written, but before the
+# success line below. Measured 2026-08-29: a correct 150MB backup existed on
+# disk while backup.log contained nothing but two find errors and no "backup ok"
+# at all, so the log could not distinguish a good night from a total failure.
+# Failing to reclaim disk is not a reason to report the night as lost — the same
+# judgement `run_nightly.sh` already applies to `nh prune`.
+find "$DEST" -name 'niche_hunter_*.db.gz' -mtime +30 -delete \
+  || log "retention sweep failed (non-fatal) — backups are kept, not pruned"
 log "backup ok -> $OUT ($(du -h "$OUT" | cut -f1), $bak_t tables, $bak_s snapshots)"

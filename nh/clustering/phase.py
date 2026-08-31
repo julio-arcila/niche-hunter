@@ -25,7 +25,7 @@ from datetime import date
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from nh.clustering.lexicon import LEXICON_VERSION, event_weights, weights
+from nh.clustering.lexicon import AXES, LEXICON_VERSION, second_axis, weights
 from nh.clustering.relevance import RELEVANCE_HIGH, RELEVANCE_LOW, score
 from nh.clustering.trivial import assign_channels
 from nh.db.models import Cluster, ClusterMember, NicheSeed, Video
@@ -93,11 +93,23 @@ def assign_videos(session: Session, mark: Stamp) -> int:
     `nh/features/inputs.py`, so moving a threshold is a query rather than a rewrite
     of every stored row.
     """
-    domain, event = weights(), event_weights()
+    domain = weights()
+    # The second axis is per family (ADR-0034). Resolved once per run, per cluster, and
+    # a cluster whose family is unset is skipped loudly below rather than defaulted --
+    # defaulting to EVENT is precisely ADR-0033's measured failure, where a topic niche
+    # marks every video noise and retires as empty while looking like it worked.
+    axes = {slug: second_axis(slug) for slug in domain if slug in AXES}
     # Loud, once per run, before any row is written. The skip below is correct --
     # there is nothing to score a video against -- but silently skipping an ACTIVE
     # niche is how two of them sat inert for a day while still spending quota.
     unscorable, _ = lexicon_gaps(session)
+    for slug in sorted(set(domain) - set(axes)):
+        log.warning(
+            "niche %r has a lexicon but no entry in lexicon.py::AXES, so there is no "
+            "second axis to score it against. Its videos are skipped rather than "
+            "scored against a guessed axis. Declare its family in AXES.",
+            slug,
+        )
     for slug in unscorable:
         log.warning(
             "active seed %r has no lexicon: its videos cannot be scored, its cluster "
@@ -112,7 +124,11 @@ def assign_videos(session: Session, mark: Stamp) -> int:
         if cluster_id not in domain:
             skipped.add(cluster_id)
             continue
-        result = score(title, description, domain[cluster_id], event)
+        if cluster_id not in axes:
+            skipped.add(cluster_id)
+            continue
+        axis_name, axis = axes[cluster_id]
+        result = score(title, description, domain[cluster_id], axis, axis_name)
         rows.append(
             mark(
                 ClusterMember,

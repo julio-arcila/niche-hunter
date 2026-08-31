@@ -26,32 +26,106 @@ If it overruns, cut `NH_YT_SEARCH_PAGES` first, then keywords per seed. Never cu
 a seed: dropping one means that niche's history never starts, and history is the
 one thing that cannot be recovered later.
 
-## Cron
+## Scheduling — two mechanisms, on purpose
 
-Append to `crontab -e`, matching the `PATH=` block style already in that file.
-Log paths are absolute so a failed `cd` cannot spray output somewhere unwatched.
+**The nightly runs from launchd. The backup and the disk check run from cron.**
+Each job has exactly one scheduler; two would mean two runs in one Pacific quota
+day, which is the collision `.skip-once` exists to prevent.
 
-```cron
-# ── Niche Hunter ──
-NH=/Users/mac/Projects/youtube/niche-hunter
-0  9 * * *  $NH/scripts/run_nightly.sh >> $NH/logs/nightly.log 2>&1
-30 9 * * *  $NH/scripts/backup_db.sh   >> $NH/logs/backup.log  2>&1
+| job | scheduler | when | why there |
+|---|---|---|---|
+| `run_nightly.sh` | launchd | 09:10 | cron cannot survive a sleeping Mac |
+| `backup_db.sh` | cron | 09:40 | launchd agent has no Full Disk Access |
+| disk check | cron | every 6h | a monitor, not a data job; skips cost nothing |
+
+### The nightly, and why launchd
+
+```
+~/Library/LaunchAgents/com.niche-hunter.nightly.plist
+source of truth: scripts/launchd/ — edit there and re-copy, never edit in place
 ```
 
-09:00 local is deliberate. This Mac has `sleep 1`, `powernap 0`, `womp 0` and no
-`pmset repeat` wake, so a 03:00 job silently never fires. 09:00 local = 07:00
-Pacific, inside a fresh YouTube quota day. Snapshots key on `observed_date`, so
+```sh
+cp scripts/launchd/com.niche-hunter.nightly.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.niche-hunter.nightly.plist
+launchctl print gui/$UID/com.niche-hunter.nightly | grep -E '"Hour"|"Minute"'
+launchctl bootout gui/$UID/com.niche-hunter.nightly     # to remove
+```
+
+09:10 local = 07:10 Pacific, inside a fresh YouTube quota day, offset from the
+09:00 Opencode job so they do not contend. Snapshots key on `observed_date`, so
 the hour is irrelevant — only that it happens once per 24h.
 
-**While you are in there, delete the four `auto-helpdesk` entries.** That project
-no longer exists; those jobs have been failing silently into a directory that is
-also gone. They are the reason the dead-man switch below is not optional.
+**This section used to say 09:00 was safe because "this Mac has `sleep 1`,
+`powernap 0`, `womp 0` and no `pmset repeat` wake, so a 03:00 job silently never
+fires."** The reasoning was right and the conclusion was wrong: a 09:00 job does
+not fire either if the Mac happens to be asleep at 09:00. **Measured 2026-08-30**
+— the machine entered Maintenance Sleep at 09:05:10 for 722s and woke at
+09:17:12, cron skipped the fire and never retried, and that day's snapshots are
+gone for good because no source serves history. The backup was lost the same
+morning; two silent jobs on one day is what identified the scheduler rather than
+the pipeline.
+
+launchd fixes exactly this: a missed `StartCalendarInterval` job runs **once when
+the system next wakes**. Note the one caveat — a wake after 19:00 local puts the
+catch-up run past the UTC `observed_date` boundary, so it collects for *tomorrow*.
+Still better than nothing, but do not read a late run as having filled the gap.
+
+### The backup, and why it is NOT on launchd
+
+The plist is written and correct (`scripts/launchd/com.niche-hunter.backup.plist`)
+and installing it today would **break the backup**. Measured 2026-08-30: the agent
+could not open its own output file — `Operation not permitted`, exit 1. The
+destination is iCloud Drive, which is TCC-protected, and macOS grants Full Disk
+Access per *responsible process*: cron holds that grant here, a launchd agent is a
+different process holding nothing. So the agent fails harder than the missed fire
+it would have fixed.
+
+To finish the move: grant the agent Full Disk Access in System Settings > Privacy
+& Security, bootstrap it, `launchctl kickstart -p`, and confirm `logs/backup.log`
+says `backup ok` **before** removing the cron line. The plist header carries the
+same instructions.
+
+Known, unfixed, and separate: under cron the retention `find` cannot traverse
+iCloud either, so the rolling 30-day sweep never runs and backups accumulate
+(26 → 90 → 150 → 214MB across four days). It is non-fatal since 2026-08-30 and
+says so in the log; granting Full Disk Access fixes both this and the paragraph
+above.
+
+**The four `auto-helpdesk` entries are gone** — verified absent from `crontab -l`
+on 2026-08-30. That project no longer exists and those jobs had been failing
+silently into a directory that was also gone. They remain the reason the dead-man
+switch below is not optional.
+
+### Skipping one night
+
+```sh
+echo "why" > .skip-once     # consumed by the next scheduled fire, then gone
+rm .skip-once               # changed your mind before it fired
+```
+
+`run_nightly.sh` consumes the sentinel and exits 0 *before* collecting, pinging
+healthchecks as a success — a deliberate skip is not a failure and must not page
+anyone. It cannot become a habit, because skipping is what deletes it.
+
+**Do not disable the scheduled job instead** — neither by commenting out a
+crontab line nor by `launchctl bootout`. Nothing in the system ever
+reminds anyone to put it back, and a pipeline that quietly stopped looks exactly
+like a pipeline that is running. ADR-0039 is this repo's standing example: a
+retirement written in code that never reached the database, and spent 3,000
+units a night for a day while everyone believed otherwise.
+
+**When you actually need this**: `QuotaLedger`'s budget is per-**run**, not
+per-day. A manual `nh nightly` and the 09:10 cron fire land in the same Pacific
+quota day, and each believes it has the full 9,500 — so the second spends into
+Google's real 10,000/day cap and takes 403s partway through discovery. The
+quota day resets at midnight Pacific, which is 02:00 local.
 
 ## Alerting: two layers
 
 | Layer | Catches | How |
 |---|---|---|
-| healthchecks.io | the run never happened — Mac off, stale cron line, dead host | ping on success; the service alerts when a ping does not arrive |
+| healthchecks.io | the run never happened — Mac off, unloaded agent, dead host | ping on success; the service alerts when a ping does not arrive |
 | ntfy.sh | the run happened and something in it failed | `alert()` in `scripts/_common.sh` |
 
 Create one check: period 1 day, grace 6 hours, notification channel pointed at
@@ -62,13 +136,16 @@ the same ntfy topic. Put the ping URL in `.env` as `NH_HEALTHCHECK_URL`.
 ported source is skipped for missing credentials, so gating on it alone would
 report green while collecting nothing.
 
-## Drill: kill the cron (do this in week 1)
+## Drill: kill the scheduler (do this in week 1)
 
 An untested dead-man switch is not a dead-man switch.
 
-1. Comment out the nightly crontab line before 09:00.
+1. `launchctl bootout gui/$UID/com.niche-hunter.nightly` before 09:10. (This
+   drill is the one sanctioned exception to the rule just above — put it back in
+   step 3.)
 2. Confirm the healthchecks "down" alert arrives by ~15:00 (period 1d + grace 6h).
-3. Uncomment it; confirm the next run turns the check green again.
+3. Bootstrap it again; confirm the next run turns the check green again, and
+   that `launchctl list | grep niche-hunter` shows it loaded.
 4. Record the date performed: **alert routing verified 2026-08-27** (`/fail` ping → healthchecks → ntfy, all HTTP 200). The *timing* half —
    confirming a missed ping is detected after the grace window — has not
    been run; it needs a real skipped day. Do it in week 1.

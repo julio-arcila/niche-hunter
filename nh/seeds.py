@@ -6,11 +6,20 @@ Slice 1's convenience. `docs/SOURCES.md` lists `primary/` (ntsb, edgar,
 courtlistener) under "Planned"; no such collector exists yet.
 
 That premise held for two of the five. Tested live 2026-08-27: CourtListener's
-REST API works unauthenticated and carries `dateFiled`; SEC EDGAR's submissions
-and full-text endpoints work unauthenticated; NTSB's CAROL query API is reachable
-but rejects documented-looking payloads and its shape is undocumented; USCG
-returns 403; NIST has no API. Per-seed findings live in `NicheSeed.primary_sources`
-so the research is dated and reviewable rather than folded into a score (ADR-0020).
+REST API appeared to work unauthenticated and carries `dateFiled`; SEC EDGAR's
+submissions and full-text endpoints work unauthenticated; NTSB's CAROL query API is
+reachable but rejects documented-looking payloads and its shape is undocumented;
+USCG returns 403; NIST has no API. Per-seed findings live in
+`NicheSeed.primary_sources` so the research is dated and reviewable rather than
+folded into a score (ADR-0020).
+
+**The CourtListener half of that is no longer true.** Re-tested 2026-08-29
+(03:30 UTC): an unauthenticated GET to `/api/rest/v4/dockets/` returns **401
+"Authentication credentials were not provided"** with `WWW-Authenticate: Bearer`.
+Free Law Project moved API access into memberships on 2026-05-07; free accounts get
+5 req/min, 50/hour, **125/day**. The 2026-08-27 "works unauthenticated" claim
+postdated that change and cannot be reproduced — either it hit a not-yet-enforced
+path or it was wrong. The measurement wins. Details in `docs/SOURCES.md`.
 
 Quota follows directly from what is here: cost is
 ``seeds x keywords x 2 sort orders x pages x 100 units``. Five seeds of three
@@ -51,7 +60,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": True,
+        "active": False,  # discovery retired 2026-08-29 (ADR-0039); RSS still polls
         "primary_sources": [
             {
                 "name": "NTSB CAROL",
@@ -73,7 +82,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": True,
+        "active": False,  # discovery retired 2026-08-29 (ADR-0039); RSS still polls
         "primary_sources": [
             {
                 "name": "US Coast Guard NCOE",
@@ -95,7 +104,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": True,
+        "active": False,  # discovery retired 2026-08-29 (ADR-0039); RSS still polls
         "primary_sources": [
             {
                 "name": "SEC EDGAR",
@@ -121,7 +130,7 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": True,
+        "active": False,  # discovery retired 2026-08-29 (ADR-0039); RSS still polls
         "primary_sources": [
             {
                 "name": "NIST investigations",
@@ -162,8 +171,13 @@ SEEDS: tuple[dict[str, Any], ...] = (
                 "name": "CourtListener",
                 "url": "https://www.courtlistener.com/api/rest/v4/",
                 "status": "exists_uncollected",
-                "reviewed_on": "2026-08-27",
-                "note": "unauthenticated REST v4; carries dateFiled, so cadence is a real series",
+                "reviewed_on": "2026-08-29",
+                "note": (
+                    "carries dateFiled, so cadence is a real series — but measured "
+                    "2026-08-29 the API returns 401 unauthenticated; a free account "
+                    "(125 req/day) is now required. The 2026-08-27 'unauthenticated' "
+                    "finding does not reproduce"
+                ),
             }
         ],
         "notes": (
@@ -182,14 +196,18 @@ SEEDS: tuple[dict[str, Any], ...] = (
         ],
         "geo": "US",
         "lang": "en",
-        "active": True,
+        "active": False,  # discovery retired 2026-08-29 (ADR-0039); RSS still polls
         "primary_sources": [
             {
                 "name": "CourtListener",
                 "url": "https://www.courtlistener.com/api/rest/v4/",
                 "status": "exists_uncollected",
-                "reviewed_on": "2026-08-27",
-                "note": "covers opinions; live trial coverage has no primary-source equivalent",
+                "reviewed_on": "2026-08-29",
+                "note": (
+                    "covers opinions; live trial coverage has no primary-source "
+                    "equivalent. Measured 2026-08-29: 401 unauthenticated — a free "
+                    "account (125 req/day) is now required"
+                ),
             }
         ],
         "notes": (
@@ -197,6 +215,192 @@ SEEDS: tuple[dict[str, Any], ...] = (
             "per-trial, so they are event-stratum by nature — the one niche where "
             "the topic stratum has no natural articles at all."
         ),
+    },
+    # --- the eleven-domain pivot (ADR-0033) ---------------------------------
+    {
+        "slug": "philosophy-of-science",
+        "label": "Philosophy of science",
+        "keywords": [
+            "philosophy of science explained",
+            "scientific method critique",
+            "paradigm shift science",
+        ],
+        "geo": "US",
+        "lang": "en",
+        "active": False,  # RETIRED 2026-08-31 (ADR-0044) as an EDITORIAL choice:
+        # the operator will not make philosophy-of-science videos, the same reason
+        # ADR-0028 retired landmark-court-cases and ADR-0039 the disaster niches.
+        # NOT retired for its measurements. It happened to be the worst-scoring of
+        # the eleven, and dropping it flips the machine precision run from FAIL to
+        # PASS (78/99, lower bound 0.6974 -> 74/90, lower bound 0.7306). ADR-0044
+        # records that side effect explicitly so no later reader mistakes the
+        # retirement for a fix, and the validation sample was re-drawn over the
+        # remaining ten domains BEFORE any label existed.
+        # Its LEXICON stays in `LEXICONS` deliberately: `weights()` is
+        # discriminative across the family, so removing one re-weights all the
+        # others and would re-score every live niche (ADR-0044).
+        "primary_sources": [],
+        "notes": "Eleven-domain pivot (ADR-0033). Retired 2026-08-31, ADR-0044.",
+    },
+    {
+        "slug": "esoterism-spirituality",
+        "label": "Esoterism and spirituality",
+        "keywords": [
+            "western esotericism explained",
+            "occult philosophy explained",
+            "hermeticism explained",
+        ],
+        "geo": "US",
+        "lang": "en",
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
+        "primary_sources": [],
+        "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
+    },
+    {
+        "slug": "metaphysical-battles",
+        "label": "Metaphysical battles (clashes between worldviews)",
+        "keywords": [
+            "materialism vs idealism",
+            "free will debate philosophy",
+            "philosophy of mind explained",
+        ],
+        "geo": "US",
+        "lang": "en",
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
+        "primary_sources": [],
+        "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
+    },
+    {
+        "slug": "logic-linguistics-gnoseology",
+        "label": "Logic, linguistics and gnoseology",
+        "keywords": [
+            "logic explained philosophy",
+            "epistemology explained",
+            "philosophy of language explained",
+        ],
+        "geo": "US",
+        "lang": "en",
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
+        "primary_sources": [],
+        "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
+    },
+    {
+        "slug": "history-of-ideas",
+        "label": "History of ideas",
+        "keywords": [
+            "history of ideas lecture",
+            "intellectual history explained",
+            "age of reason philosophy explained",
+        ],
+        "geo": "US",
+        "lang": "en",
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
+        "primary_sources": [],
+        "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
+    },
+    {
+        "slug": "anthropocene-anthropology",
+        "label": "Anthropocene and anthropology",
+        "keywords": [
+            "anthropology explained",
+            "anthropocene explained",
+            "human origins explained",
+        ],
+        "geo": "US",
+        "lang": "en",
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
+        "primary_sources": [],
+        "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
+    },
+    {
+        "slug": "macro-economy",
+        "label": "Macro economy",
+        "keywords": [
+            "macroeconomics explained",
+            "inflation explained economics",
+            "monetary policy explained",
+        ],
+        "geo": "US",
+        "lang": "en",
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
+        "primary_sources": [],
+        "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
+    },
+    {
+        "slug": "trading",
+        "label": "Trading",
+        "keywords": [
+            "day trading strategy explained",
+            "technical analysis tutorial",
+            "algorithmic trading explained",
+        ],
+        "geo": "US",
+        "lang": "en",
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
+        "primary_sources": [],
+        "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
+    },
+    {
+        "slug": "ai-and-software",
+        "label": "AI and software",
+        "keywords": [
+            "large language model explained",
+            "machine learning explained",
+            "llm application development explained",
+        ],
+        "geo": "US",
+        "lang": "en",
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
+        "primary_sources": [],
+        "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
+    },
+    {
+        "slug": "biohacking",
+        "label": "Biohacking",
+        "keywords": [
+            "biohacking protocol explained",
+            "nootropics explained",
+            "longevity research explained",
+        ],
+        "geo": "US",
+        "lang": "en",
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
+        "primary_sources": [],
+        "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
+    },
+    {
+        "slug": "geopolitics",
+        "label": "Geopolitics",
+        "keywords": [
+            "geopolitics explained",
+            "geopolitical analysis",
+            "balance of power explained",
+        ],
+        "geo": "US",
+        "lang": "en",
+        "active": True,  # discovery only, ADR-0040 — the axis stays unshipped
+        # (ADR-0034), because a niche cannot gain a member without discovery on
+        # its own seeds and the validation sample cannot be drawn until it does.
+        "primary_sources": [],
+        "notes": "Eleven-domain pivot (ADR-0033). No primary source researched yet.",
     },
 )
 
@@ -1047,174 +1251,464 @@ TERMS: tuple[dict[str, Any], ...] = (
     # `stratum` is left to default: these are topic-level vocabulary, not the
     # named-event sample the wikipedia event stratum carries.
     #
-    # `geo` is "US" and must stay in step with how the export was ingested. The
-    # `keyword_metrics` unique key is (keyword, geo, lang, observed_date, source),
-    # so a feature joining on (keyword, geo, lang) sees nothing when the two
-    # disagree. Measured 2026-08-28: seed terms defaulted to geo="" while the rows
-    # carried geo="US", and the join returned 0 of 30 while `nh kp ingest` still
-    # reported "matched a seed term: 30/30" -- because that check compared keyword
-    # strings alone. An empty geo also means WORLDWIDE in this schema, which would
-    # be a false claim about a US export.
+    # `geo` is deliberately '' — curation is geo-independent (ADR-0038). A seed
+    # term asserts "this niche cares about this keyword"; which market a number
+    # was measured in is a property of the OBSERVATION and lives on
+    # `keyword_metrics.geo`, set by `nh kp ingest --geo`. Features join seed terms
+    # on (term, lang) and pick the market via a geo argument against
+    # keyword_metrics. An earlier fix put geo="US" here so the ingest match report
+    # would agree with a (keyword, geo, lang) join — which made the GB export
+    # match 96/162 and would have required 66 duplicate rows per market. The
+    # conflation, not the default, was the bug.
     {
         "slug": "aviation-disasters",
         "source": "keyword_planner",
         "term": "air crash analysis",
-        "geo": "US",
     },
     {
         "slug": "aviation-disasters",
         "source": "keyword_planner",
         "term": "air traffic control",
-        "geo": "US",
     },
     {
         "slug": "aviation-disasters",
         "source": "keyword_planner",
         "term": "aviation accidents and incidents",
-        "geo": "US",
     },
     {
         "slug": "aviation-disasters",
         "source": "keyword_planner",
         "term": "aviation disasters documentary",
-        "geo": "US",
     },
     {
         "slug": "aviation-disasters",
         "source": "keyword_planner",
         "term": "aviation safety",
-        "geo": "US",
     },
     {
         "slug": "aviation-disasters",
         "source": "keyword_planner",
         "term": "plane crash investigation",
-        "geo": "US",
     },
     {
         "slug": "corporate-collapse",
         "source": "keyword_planner",
         "term": "accounting scandals",
-        "geo": "US",
     },
-    {"slug": "corporate-collapse", "source": "keyword_planner", "term": "bankruptcy", "geo": "US"},
+    {"slug": "corporate-collapse", "source": "keyword_planner", "term": "bankruptcy"},
     {
         "slug": "corporate-collapse",
         "source": "keyword_planner",
         "term": "business failure analysis",
-        "geo": "US",
     },
     {
         "slug": "corporate-collapse",
         "source": "keyword_planner",
         "term": "company collapse documentary",
-        "geo": "US",
     },
     {
         "slug": "corporate-collapse",
         "source": "keyword_planner",
         "term": "corporate fraud explained",
-        "geo": "US",
     },
     {
         "slug": "corporate-collapse",
         "source": "keyword_planner",
         "term": "corporate scandal",
-        "geo": "US",
     },
     {
         "slug": "engineering-failures",
         "source": "keyword_planner",
         "term": "bridge collapse investigation",
-        "geo": "US",
     },
     {
         "slug": "engineering-failures",
         "source": "keyword_planner",
         "term": "engineering disaster documentary",
-        "geo": "US",
     },
     {
         "slug": "engineering-failures",
         "source": "keyword_planner",
         "term": "engineering disasters",
-        "geo": "US",
     },
     {
         "slug": "engineering-failures",
         "source": "keyword_planner",
         "term": "list of structural failures and collapses",
-        "geo": "US",
     },
     {
         "slug": "engineering-failures",
         "source": "keyword_planner",
         "term": "structural failure",
-        "geo": "US",
     },
     {
         "slug": "engineering-failures",
         "source": "keyword_planner",
         "term": "structural failure analysis",
-        "geo": "US",
     },
     {
         "slug": "maritime-disasters",
         "source": "keyword_planner",
         "term": "list of shipwrecks",
-        "geo": "US",
     },
     {
         "slug": "maritime-disasters",
         "source": "keyword_planner",
         "term": "maritime disaster investigation",
-        "geo": "US",
     },
     {
         "slug": "maritime-disasters",
         "source": "keyword_planner",
         "term": "maritime transport",
-        "geo": "US",
     },
-    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "shipwreck", "geo": "US"},
+    {"slug": "maritime-disasters", "source": "keyword_planner", "term": "shipwreck"},
     {
         "slug": "maritime-disasters",
         "source": "keyword_planner",
         "term": "shipwreck documentary",
-        "geo": "US",
     },
     {
         "slug": "maritime-disasters",
         "source": "keyword_planner",
         "term": "sinking ship analysis",
-        "geo": "US",
     },
     {
         "slug": "true-crime-trials",
         "source": "keyword_planner",
         "term": "court trial testimony analysis",
-        "geo": "US",
     },
     {
         "slug": "true-crime-trials",
         "source": "keyword_planner",
         "term": "criminal procedure",
-        "geo": "US",
     },
     {
         "slug": "true-crime-trials",
         "source": "keyword_planner",
         "term": "criminal trial verdict explained",
-        "geo": "US",
     },
-    {"slug": "true-crime-trials", "source": "keyword_planner", "term": "jury trial", "geo": "US"},
+    {"slug": "true-crime-trials", "source": "keyword_planner", "term": "jury trial"},
     {
         "slug": "true-crime-trials",
         "source": "keyword_planner",
         "term": "murder trial live coverage",
-        "geo": "US",
     },
-    {"slug": "true-crime-trials", "source": "keyword_planner", "term": "trial law", "geo": "US"},
+    {"slug": "true-crime-trials", "source": "keyword_planner", "term": "trial law"},
+    # --- the eleven-domain pivot (ADR-0033) ---------------------------------
+    {"slug": "philosophy-of-science", "source": "wikipedia", "term": "Philosophy_of_science"},
+    {"slug": "philosophy-of-science", "source": "wikipedia", "term": "Scientific_method"},
+    {"slug": "philosophy-of-science", "source": "wikipedia", "term": "Falsifiability"},
+    {"slug": "philosophy-of-science", "source": "wikipedia", "term": "Paradigm_shift"},
+    {"slug": "philosophy-of-science", "source": "wikipedia", "term": "Thomas_Kuhn"},
+    {"slug": "philosophy-of-science", "source": "wikipedia", "term": "Karl_Popper"},
+    {"slug": "philosophy-of-science", "source": "wikipedia", "term": "Demarcation_problem"},
+    {"slug": "philosophy-of-science", "source": "wikipedia", "term": "Replication_crisis"},
+    {"slug": "esoterism-spirituality", "source": "wikipedia", "term": "Western_esotericism"},
+    {"slug": "esoterism-spirituality", "source": "wikipedia", "term": "Occult"},
+    {"slug": "esoterism-spirituality", "source": "wikipedia", "term": "Hermeticism"},
+    {"slug": "esoterism-spirituality", "source": "wikipedia", "term": "Alchemy"},
+    {"slug": "esoterism-spirituality", "source": "wikipedia", "term": "Kabbalah"},
+    {"slug": "esoterism-spirituality", "source": "wikipedia", "term": "Gnosticism"},
+    {"slug": "esoterism-spirituality", "source": "wikipedia", "term": "Mysticism"},
+    {"slug": "esoterism-spirituality", "source": "wikipedia", "term": "Theosophy"},
+    {"slug": "metaphysical-battles", "source": "wikipedia", "term": "Metaphysics"},
+    {"slug": "metaphysical-battles", "source": "wikipedia", "term": "Philosophy_of_mind"},
+    {"slug": "metaphysical-battles", "source": "wikipedia", "term": "Free_will"},
+    {"slug": "metaphysical-battles", "source": "wikipedia", "term": "Determinism"},
+    {"slug": "metaphysical-battles", "source": "wikipedia", "term": "Mind–body_problem"},
+    {"slug": "metaphysical-battles", "source": "wikipedia", "term": "Panpsychism"},
+    {"slug": "metaphysical-battles", "source": "wikipedia", "term": "Materialism"},
+    {"slug": "metaphysical-battles", "source": "wikipedia", "term": "Idealism"},
+    {"slug": "logic-linguistics-gnoseology", "source": "wikipedia", "term": "Logic"},
+    {"slug": "logic-linguistics-gnoseology", "source": "wikipedia", "term": "Epistemology"},
+    {"slug": "logic-linguistics-gnoseology", "source": "wikipedia", "term": "Linguistics"},
+    {"slug": "logic-linguistics-gnoseology", "source": "wikipedia", "term": "Semantics"},
+    {"slug": "logic-linguistics-gnoseology", "source": "wikipedia", "term": "Syllogism"},
+    {"slug": "logic-linguistics-gnoseology", "source": "wikipedia", "term": "Gettier_problem"},
+    {"slug": "logic-linguistics-gnoseology", "source": "wikipedia", "term": "Mathematical_logic"},
+    {
+        "slug": "logic-linguistics-gnoseology",
+        "source": "wikipedia",
+        "term": "Philosophy_of_language",
+    },
+    {"slug": "history-of-ideas", "source": "wikipedia", "term": "Intellectual_history"},
+    {"slug": "history-of-ideas", "source": "wikipedia", "term": "History_of_philosophy"},
+    {"slug": "history-of-ideas", "source": "wikipedia", "term": "Age_of_Enlightenment"},
+    {"slug": "history-of-ideas", "source": "wikipedia", "term": "Renaissance"},
+    {"slug": "history-of-ideas", "source": "wikipedia", "term": "Scholasticism"},
+    {"slug": "history-of-ideas", "source": "wikipedia", "term": "Humanism"},
+    {"slug": "history-of-ideas", "source": "wikipedia", "term": "Postmodernism"},
+    {"slug": "history-of-ideas", "source": "wikipedia", "term": "Historiography"},
+    {"slug": "history-of-ideas", "source": "wikipedia", "term": "Zeitgeist"},
+    {"slug": "anthropocene-anthropology", "source": "wikipedia", "term": "Anthropology"},
+    {"slug": "anthropocene-anthropology", "source": "wikipedia", "term": "Anthropocene"},
+    {"slug": "anthropocene-anthropology", "source": "wikipedia", "term": "Ethnography"},
+    {"slug": "anthropocene-anthropology", "source": "wikipedia", "term": "Cultural_anthropology"},
+    {"slug": "anthropocene-anthropology", "source": "wikipedia", "term": "Archaeology"},
+    {"slug": "anthropocene-anthropology", "source": "wikipedia", "term": "Holocene"},
+    {"slug": "anthropocene-anthropology", "source": "wikipedia", "term": "Biodiversity_loss"},
+    {
+        "slug": "anthropocene-anthropology",
+        "source": "wikipedia",
+        "term": "Human_impact_on_the_environment",
+    },
+    {"slug": "macro-economy", "source": "wikipedia", "term": "Macroeconomics"},
+    {"slug": "macro-economy", "source": "wikipedia", "term": "Inflation"},
+    {"slug": "macro-economy", "source": "wikipedia", "term": "Monetary_policy"},
+    {"slug": "macro-economy", "source": "wikipedia", "term": "Recession"},
+    {"slug": "macro-economy", "source": "wikipedia", "term": "Gross_domestic_product"},
+    {"slug": "macro-economy", "source": "wikipedia", "term": "Central_bank"},
+    {"slug": "macro-economy", "source": "wikipedia", "term": "Fiscal_policy"},
+    {"slug": "macro-economy", "source": "wikipedia", "term": "Quantitative_easing"},
+    {"slug": "trading", "source": "wikipedia", "term": "Day_trading"},
+    {"slug": "trading", "source": "wikipedia", "term": "Technical_analysis"},
+    {"slug": "trading", "source": "wikipedia", "term": "Algorithmic_trading"},
+    {"slug": "trading", "source": "wikipedia", "term": "Futures_contract"},
+    {"slug": "trading", "source": "wikipedia", "term": "Option_(finance)"},
+    {"slug": "trading", "source": "wikipedia", "term": "Volatility_(finance)"},
+    {"slug": "trading", "source": "wikipedia", "term": "Risk_management"},
+    {"slug": "trading", "source": "wikipedia", "term": "Candlestick_chart"},
+    {"slug": "ai-and-software", "source": "wikipedia", "term": "Artificial_intelligence"},
+    {"slug": "ai-and-software", "source": "wikipedia", "term": "Machine_learning"},
+    {"slug": "ai-and-software", "source": "wikipedia", "term": "Deep_learning"},
+    {"slug": "ai-and-software", "source": "wikipedia", "term": "Large_language_model"},
+    {"slug": "ai-and-software", "source": "wikipedia", "term": "Neural_network_(machine_learning)"},
+    {"slug": "ai-and-software", "source": "wikipedia", "term": "Transformer_(deep_learning)"},
+    {"slug": "ai-and-software", "source": "wikipedia", "term": "Software_engineering"},
+    {"slug": "ai-and-software", "source": "wikipedia", "term": "Artificial_general_intelligence"},
+    {"slug": "biohacking", "source": "wikipedia", "term": "Biohacking"},
+    {"slug": "biohacking", "source": "wikipedia", "term": "Nootropic"},
+    {"slug": "biohacking", "source": "wikipedia", "term": "Longevity"},
+    {"slug": "biohacking", "source": "wikipedia", "term": "Intermittent_fasting"},
+    {"slug": "biohacking", "source": "wikipedia", "term": "Ketogenic_diet"},
+    {"slug": "biohacking", "source": "wikipedia", "term": "Circadian_rhythm"},
+    {"slug": "biohacking", "source": "wikipedia", "term": "Human_microbiome"},
+    {"slug": "biohacking", "source": "wikipedia", "term": "Epigenetics"},
+    {"slug": "geopolitics", "source": "wikipedia", "term": "Geopolitics"},
+    {"slug": "geopolitics", "source": "wikipedia", "term": "Sovereignty"},
+    {"slug": "geopolitics", "source": "wikipedia", "term": "NATO"},
+    {
+        "slug": "geopolitics",
+        "source": "wikipedia",
+        "term": "Balance_of_power_(international_relations)",
+    },
+    {"slug": "geopolitics", "source": "wikipedia", "term": "Economic_sanctions"},
+    {"slug": "geopolitics", "source": "wikipedia", "term": "Deterrence_theory"},
+    {"slug": "geopolitics", "source": "wikipedia", "term": "Hegemony"},
+    {"slug": "geopolitics", "source": "wikipedia", "term": "Realpolitik"},
+    {"slug": "philosophy-of-science", "source": "trends", "term": "philosophy of science"},
+    {"slug": "esoterism-spirituality", "source": "trends", "term": "occult"},
+    {"slug": "metaphysical-battles", "source": "trends", "term": "metaphysics"},
+    {"slug": "logic-linguistics-gnoseology", "source": "trends", "term": "epistemology"},
+    {"slug": "history-of-ideas", "source": "trends", "term": "intellectual history"},
+    {"slug": "anthropocene-anthropology", "source": "trends", "term": "anthropology"},
+    {"slug": "macro-economy", "source": "trends", "term": "macroeconomics"},
+    {"slug": "trading", "source": "trends", "term": "day trading"},
+    {"slug": "ai-and-software", "source": "trends", "term": "machine learning"},
+    {"slug": "biohacking", "source": "trends", "term": "biohacking"},
+    {"slug": "geopolitics", "source": "trends", "term": "geopolitics"},
+    {
+        "slug": "philosophy-of-science",
+        "source": "keyword_planner",
+        "term": "philosophy of science",
+    },
+    {
+        "slug": "philosophy-of-science",
+        "source": "keyword_planner",
+        "term": "scientific method",
+    },
+    {
+        "slug": "philosophy-of-science",
+        "source": "keyword_planner",
+        "term": "falsifiability",
+    },
+    {
+        "slug": "philosophy-of-science",
+        "source": "keyword_planner",
+        "term": "paradigm shift",
+    },
+    {
+        "slug": "philosophy-of-science",
+        "source": "keyword_planner",
+        "term": "epistemology of science",
+    },
+    {
+        "slug": "philosophy-of-science",
+        "source": "keyword_planner",
+        "term": "karl popper",
+    },
+    {
+        "slug": "esoterism-spirituality",
+        "source": "keyword_planner",
+        "term": "western esotericism",
+    },
+    {"slug": "esoterism-spirituality", "source": "keyword_planner", "term": "occult"},
+    {
+        "slug": "esoterism-spirituality",
+        "source": "keyword_planner",
+        "term": "hermeticism",
+    },
+    {"slug": "esoterism-spirituality", "source": "keyword_planner", "term": "alchemy"},
+    {
+        "slug": "esoterism-spirituality",
+        "source": "keyword_planner",
+        "term": "gnosticism",
+    },
+    {
+        "slug": "esoterism-spirituality",
+        "source": "keyword_planner",
+        "term": "mysticism",
+    },
+    {
+        "slug": "metaphysical-battles",
+        "source": "keyword_planner",
+        "term": "metaphysics",
+    },
+    {"slug": "metaphysical-battles", "source": "keyword_planner", "term": "free will"},
+    {
+        "slug": "metaphysical-battles",
+        "source": "keyword_planner",
+        "term": "determinism",
+    },
+    {
+        "slug": "metaphysical-battles",
+        "source": "keyword_planner",
+        "term": "philosophy of mind",
+    },
+    {
+        "slug": "metaphysical-battles",
+        "source": "keyword_planner",
+        "term": "materialism",
+    },
+    {"slug": "metaphysical-battles", "source": "keyword_planner", "term": "idealism"},
+    {
+        "slug": "logic-linguistics-gnoseology",
+        "source": "keyword_planner",
+        "term": "logic",
+    },
+    {
+        "slug": "logic-linguistics-gnoseology",
+        "source": "keyword_planner",
+        "term": "epistemology",
+    },
+    {
+        "slug": "logic-linguistics-gnoseology",
+        "source": "keyword_planner",
+        "term": "linguistics",
+    },
+    {
+        "slug": "logic-linguistics-gnoseology",
+        "source": "keyword_planner",
+        "term": "semantics",
+    },
+    {
+        "slug": "logic-linguistics-gnoseology",
+        "source": "keyword_planner",
+        "term": "syllogism",
+    },
+    {
+        "slug": "logic-linguistics-gnoseology",
+        "source": "keyword_planner",
+        "term": "philosophy of language",
+    },
+    {
+        "slug": "history-of-ideas",
+        "source": "keyword_planner",
+        "term": "intellectual history",
+    },
+    {
+        "slug": "history-of-ideas",
+        "source": "keyword_planner",
+        "term": "history of philosophy",
+    },
+    {"slug": "history-of-ideas", "source": "keyword_planner", "term": "enlightenment"},
+    {"slug": "history-of-ideas", "source": "keyword_planner", "term": "scholasticism"},
+    {"slug": "history-of-ideas", "source": "keyword_planner", "term": "humanism"},
+    {"slug": "history-of-ideas", "source": "keyword_planner", "term": "postmodernism"},
+    {
+        "slug": "anthropocene-anthropology",
+        "source": "keyword_planner",
+        "term": "anthropology",
+    },
+    {
+        "slug": "anthropocene-anthropology",
+        "source": "keyword_planner",
+        "term": "anthropocene",
+    },
+    {
+        "slug": "anthropocene-anthropology",
+        "source": "keyword_planner",
+        "term": "ethnography",
+    },
+    {
+        "slug": "anthropocene-anthropology",
+        "source": "keyword_planner",
+        "term": "cultural anthropology",
+    },
+    {
+        "slug": "anthropocene-anthropology",
+        "source": "keyword_planner",
+        "term": "archaeology",
+    },
+    {
+        "slug": "anthropocene-anthropology",
+        "source": "keyword_planner",
+        "term": "human impact on the environment",
+    },
+    {"slug": "macro-economy", "source": "keyword_planner", "term": "macroeconomics"},
+    {"slug": "macro-economy", "source": "keyword_planner", "term": "inflation"},
+    {"slug": "macro-economy", "source": "keyword_planner", "term": "monetary policy"},
+    {"slug": "macro-economy", "source": "keyword_planner", "term": "recession"},
+    {"slug": "macro-economy", "source": "keyword_planner", "term": "fiscal policy"},
+    {
+        "slug": "macro-economy",
+        "source": "keyword_planner",
+        "term": "quantitative easing",
+    },
+    {"slug": "trading", "source": "keyword_planner", "term": "day trading"},
+    {"slug": "trading", "source": "keyword_planner", "term": "technical analysis"},
+    {"slug": "trading", "source": "keyword_planner", "term": "algorithmic trading"},
+    {"slug": "trading", "source": "keyword_planner", "term": "futures trading"},
+    {"slug": "trading", "source": "keyword_planner", "term": "options trading"},
+    {"slug": "trading", "source": "keyword_planner", "term": "risk management"},
+    {
+        "slug": "ai-and-software",
+        "source": "keyword_planner",
+        "term": "machine learning",
+    },
+    {
+        "slug": "ai-and-software",
+        "source": "keyword_planner",
+        "term": "large language model",
+    },
+    {"slug": "ai-and-software", "source": "keyword_planner", "term": "deep learning"},
+    {"slug": "ai-and-software", "source": "keyword_planner", "term": "neural network"},
+    {
+        "slug": "ai-and-software",
+        "source": "keyword_planner",
+        "term": "artificial general intelligence",
+    },
+    {
+        "slug": "ai-and-software",
+        "source": "keyword_planner",
+        "term": "software engineering",
+    },
+    {"slug": "biohacking", "source": "keyword_planner", "term": "biohacking"},
+    {"slug": "biohacking", "source": "keyword_planner", "term": "nootropics"},
+    {"slug": "biohacking", "source": "keyword_planner", "term": "longevity"},
+    {
+        "slug": "biohacking",
+        "source": "keyword_planner",
+        "term": "intermittent fasting",
+    },
+    {"slug": "biohacking", "source": "keyword_planner", "term": "ketogenic diet"},
+    {"slug": "biohacking", "source": "keyword_planner", "term": "epigenetics"},
+    {"slug": "geopolitics", "source": "keyword_planner", "term": "geopolitics"},
+    {"slug": "geopolitics", "source": "keyword_planner", "term": "sovereignty"},
+    {"slug": "geopolitics", "source": "keyword_planner", "term": "economic sanctions"},
+    {"slug": "geopolitics", "source": "keyword_planner", "term": "balance of power"},
+    {"slug": "geopolitics", "source": "keyword_planner", "term": "deterrence"},
+    {"slug": "geopolitics", "source": "keyword_planner", "term": "realpolitik"},
 )
 
 

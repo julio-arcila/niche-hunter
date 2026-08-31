@@ -8,6 +8,7 @@ import pytest
 import sqlalchemy as sa
 
 from nh.db.session import session_scope
+from nh.features.inputs import BALLAST_DECIDED, numerator_coverage
 from nh.features.supply import (
     geo_concentration,
     median_views,
@@ -17,19 +18,24 @@ from nh.features.supply import (
 from tests.conftest_features import CLUSTER, DAY, RUN, add_channel, make_cluster, session_for
 
 
-def test_uploads_per_week_divides_the_window_not_the_channel_count(engine):
-    """A cluster total: supply is the volume a newcomer competes against."""
+def test_uploads_per_week_sums_channel_rates_not_a_channel_average(engine):
+    """A cluster total: supply is the volume a newcomer competes against.
+
+    Each channel's oldest known video is 23 days old, so each is a rate over its
+    24-day observed span (data rule 9): 4 / (24/7) = 7/6 per channel. The total is
+    the sum, 7/3 — a per-channel average would halve it.
+    """
     make_cluster(engine)
     add_channel(engine, "a", videos=4, age_days=20)
     add_channel(engine, "b", videos=4, age_days=20)
-    assert uploads_per_week(session_for(engine), CLUSTER, DAY).value == 2.0  # 8 over 4 weeks
+    assert uploads_per_week(session_for(engine), CLUSTER, DAY).value == pytest.approx(7 / 3)
 
 
 def test_uploads_outside_the_window_are_not_counted(engine):
     make_cluster(engine)
-    add_channel(engine, "recent", videos=4, age_days=20)
-    add_channel(engine, "stale", videos=40, age_days=200)
-    assert uploads_per_week(session_for(engine), CLUSTER, DAY).value == 1.0
+    add_channel(engine, "recent", videos=4, age_days=20)  # observed span 24d -> 4/(24/7)
+    add_channel(engine, "stale", videos=40, age_days=200)  # all outside; contributes 0
+    assert uploads_per_week(session_for(engine), CLUSTER, DAY).value == pytest.approx(7 / 6)
 
 
 def test_a_niche_that_published_nothing_is_a_confident_zero_not_null(engine):
@@ -320,3 +326,100 @@ def test_it_is_empty_when_nothing_can_be_differenced(engine):
 
     assert result.value is None
     assert "between two snapshots" in result.detail["reason"]
+
+
+# -- numerator decisiveness: what bounds trust in a VOLUME ---------------------
+# The inversion these protect against shipped untested: on run a6d35aee,
+# Spearman(value, confidence) across the eleven live clusters was -0.346, because
+# `known == members` everywhere made confidence reduce exactly to
+# `relevance_coverage` and a confidently REJECTED video therefore raised
+# confidence in a volume it contributes nothing to.
+# See reports/supply_audit_2026-08-30.md.
+
+
+def test_numerator_coverage_counts_the_three_undecided_states_together(engine):
+    """`judgeable` is everything not decided off-niche, so it must hold the
+    on-niche, the undecided-NULL and the mid-band alike — the three states are not
+    two, exactly as `on_niche_join` insists when it excludes them."""
+    make_cluster(engine)
+    add_channel(engine, "a", videos=2, relevant=True)
+    add_channel(engine, "b", videos=3, relevant=False)
+    add_channel(engine, "c", videos=4, relevant=None)
+    on_niche, judgeable, total = numerator_coverage(session_for(engine), CLUSTER, DAY)
+    assert (on_niche, judgeable, total) == (2, 6, 9)
+
+
+def test_rejecting_a_video_does_not_raise_confidence_in_a_volume(engine):
+    """The whole point. Two clusters with the SAME on-niche numerator, differing
+    only in how many off-niche videos the scorer confidently rejected.
+
+    Both clusters hold two channels, two on-niche videos and two unscorable ones,
+    so adequacy and coverage are identical by construction and only the third leg
+    can move. The second cluster adds eight videos the scorer confidently rejected.
+
+    Under the old `decided/total` leg those eight lifted it from 0.5 to 10/12 = 0.833,
+    because rejection counted as knowledge. A rejected video is not in this volume
+    and cannot make it more certain, so the two must now agree exactly.
+
+    Eight and not forty: at ten decided with no on-niche the channel becomes ballast
+    (ADR-0047) and leaves the cluster entirely, which would confound this test by
+    changing the adequacy leg as well. The two rules interact and the fixture has to
+    stay on one side of it."""
+    make_cluster(engine)
+    add_channel(engine, "a", videos=2, relevant=True)
+    add_channel(engine, "b", videos=2, relevant=None)
+    lean = uploads_per_week(session_for(engine), CLUSTER, DAY).confidence
+
+    make_cluster(engine, "other")
+    add_channel(engine, "c", videos=2, cluster_id="other", relevant=True)
+    rejected = [False] * (BALLAST_DECIDED - 2)  # derived: must stay below the ballast bar
+    add_channel(
+        engine, "d", videos=2 + len(rejected), cluster_id="other", relevant=[None, None, *rejected]
+    )
+    padded = uploads_per_week(session_for(engine), "other", DAY).confidence
+
+    assert padded == pytest.approx(lean)
+
+
+def test_deciding_a_cluster_off_niche_beats_being_unable_to_read_it(engine):
+    """The case the coverage leg's own comment defends, arriving through the new
+    leg. Both clusters have one channel, five videos and a zero volume, so adequacy
+    and coverage are identical and only the third leg can move.
+
+    Every video DECIDED off-niche is full decisiveness — the zero is earned. Every
+    video UNSCORABLE is the opposite: nothing was judged, so the same zero is worth
+    nothing. `is_noise` records only the decided case, and that distinction is the
+    whole reason the three relevance states are not two."""
+    make_cluster(engine)
+    add_channel(engine, "a", videos=5, relevant=False)
+    decided = uploads_per_week(session_for(engine), CLUSTER, DAY)
+
+    make_cluster(engine, "unreadable")
+    add_channel(engine, "b", videos=5, cluster_id="unreadable", relevant=None)
+    unreadable = uploads_per_week(session_for(engine), "unreadable", DAY)
+
+    assert decided.value == unreadable.value == 0.0
+    assert decided.confidence > unreadable.confidence
+    assert unreadable.confidence == 0.0
+
+
+def test_a_cluster_with_no_videos_at_all_is_not_confident(engine):
+    """Distinct from the case above and must not collapse into it: there was
+    nothing to be decisive about, so 0/0 reads 0.0 rather than 1.0."""
+    make_cluster(engine)
+    add_channel(engine, "a", videos=0)
+    assert uploads_per_week(session_for(engine), CLUSTER, DAY).confidence == 0.0
+
+
+def test_censoring_is_reported_over_the_channels_that_reach_the_value(engine):
+    """Data rule 9 names this counter as the attribution marker for the span-rate
+    bump, so it has to range over the population the value is summed from. The
+    older `channels_span_censored` ranges over every known channel and is kept
+    beside it, unchanged, so rows on both sides of 2026-08-30 stay readable."""
+    make_cluster(engine)
+    add_channel(engine, "publisher", videos=3, age_days=5)
+    add_channel(engine, "quiet", videos=2, age_days=200)
+    detail = uploads_per_week(session_for(engine), CLUSTER, DAY).detail
+    assert detail["contributing_span_censored"] == 1
+    assert detail["channels_span_censored"] == 1
+    assert detail["contributing_span_censored"] <= detail["channels_publishing_in_window"]

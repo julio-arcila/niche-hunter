@@ -44,26 +44,7 @@ asset is snapshot history; never break the collectors.
 - `uv run alembic upgrade head` / `alembic revision --autogenerate -m "..."`
 - `docker compose up -d db` — only when NH_DATABASE_URL points at Postgres
 
-## Architecture in one paragraph
-Collectors subclass `nh/collectors/base.py::Collector` and implement two methods:
-`fetch()` owns all network and yields `Raw` payloads verbatim; `normalize()` is
-pure and returns a `Batch` of upserts and snapshots. Everything else —
-provenance, raw-before-normalized, idempotent upserts, append-only snapshots,
-quota, `job_runs`, surviving an outage — lives once in `Collector.run()`. Raw
-payloads land in `raw_records` (JSONB/JSON), normalized rows in typed tables,
-time series in append-only `*_snapshots`. `nh/clustering` assigns every item a
-`cluster_id`. `nh/features/*` compute one row per cluster per day into
-`features_daily`. `nh/scoring` builds `scorecards` and `alerts`. `nh/api` is a
-thin FastAPI read layer; `nh/web` is Streamlit v1.
-
 ## Non-negotiables (details in .claude/rules/data.md)
-- Every write carries `at` (UTC), `source`, `run_id`. Snapshots are append-only —
-  `AppendOnlyViolation` is raised at flush time if you try to update one.
-- Idempotent upserts: re-running a day is safe. Never `INSERT OR REPLACE`.
-- Absent data is NULL, never 0 — use `nh.collectors.parse.*`. Every feature row
-  has `confidence` and `inputs_n`.
-- Respect per-source quotas in .claude/rules/sources.md. Log quota per run.
-- No live API calls in tests. Record fixtures to tests/fixtures/<source>/.
 - Never edit .env or secrets. Never run DROP/TRUNCATE/DELETE-without-WHERE.
 - A new metric starts as an entry in docs/METRICS.md, then code, then a test.
 
@@ -87,25 +68,93 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
-- Phase: **Gate E returned FAIL on 2026-08-28** — rho 0.091, permutation p 0.4988,
-  29 of 36 niches, detectable rho 0.378. A null, not an underpowered run. Branch
-  `slice-6-calibration`. `reports/backtest_2026-08-28.md` carries the verdict and a
-  hand-written failure analysis.
-- The instrument was checked before the null was accepted: `gap` is not flat (sd
-  0.402), the outcome is not flat (within-date sd 0.079, 6.5x range), and nothing
-  hides under niche size (rho -0.019). Demand alone +0.049, supply alone -0.073 —
-  neither input carries signal, so the failure is not in how they are combined.
-- **Do not build the dashboard.** Of the roadmap's two pre-committed branches, the
-  evidence points to narrowing the claim to "surfaces evidence for a human to judge":
-  zero of 4,517 niche-dates show negative growth, so the corpus tested relative growth
-  among channels that had already succeeded and cannot express emergence at all.
-- Known defect from this run: `winner_age_years` and `top10_concentration` were in
-  `replay.BACKTEST_METRICS` but `video_snapshots` is empty in `data/backtest.db` by
-  design, so both were 100% NULL and openness never entered the backtest.
-- Outstanding from the 2026-08-28 audit (`reports/relevance_interrater_2026-08-28.md`,
-  fix plan in the session artifact): the human relevance check — sample from ABOVE the
-  0.55 threshold, 60-100 rows, not the uniform 50; `uploads_per_week`'s 29-day window
-  and its spec-divergent confidence; the court-cases successors, which have seeds and
-  demand terms but **no lexicon**, so they can never gain members and will stay retired.
+- Phase: **Slice 9 shipped; the exposition-axis labelling is the open task.** Branch
+  `slice-11-eleven-domain-pivot` (named for eleven; ten since ADR-0044). Suite green
+  at **766**.
+- **THE ONE THING WAITING ON A HUMAN — and BOTH drawn samples have now been spent by a
+  model.** 2026-08-29 (ADR-0041) and 2026-08-30 (ADR-0042) were each labelled by fable-5
+  at the operator's repeated instruction. Both came to **78/99**, lower bound 0.6974,
+  failing the 0.70 bar by 0.0026 — one row, twice, from opposite sides of a criterion
+  revision. **Neither is evidence**: it is fable-5 grading a lexicon built from fable-5
+  labels, the exact circularity the test exists to prevent.
+  **The third sample is DRAWN and waiting**: `reports/exposition_labelling_2026-08-31.jsonl`,
+  seed 20260831, **100 rows, 10 per domain across the ten remaining domains** (ADR-0044),
+  4 rows overlapping what a model labelled. Bar is ADR-0041's tabulated **79/100**.
+  Run `uv run python scripts/label_exposition.py` — it now defaults to the newest draw.
+  ~20 minutes, and it need not be the operator: ADR-0041 requires a rater independent of
+  the model family, not a specialist. See `reports/exposition_result_2026-08-30.md`.
+- **BUT THIS NO LONGER BLOCKS ANYTHING (ADR-0045).** The requirement now fires when an
+  exposition score is CITED — a scorecard row for an active exposition cluster carrying a
+  non-NULL `value`/`sustainability`/`opportunity` — not while the score merely exists. The
+  deferral is `kind="query"` and self-evaluates (verified both ways: False now, True on a
+  scratch copy with a value set), so it is a work queue rather than a wall. Until
+  something cites these numbers they are computed, unvalidated, and used for nothing
+  outward-facing. The BAR is unchanged when it fires: two passes, 0.70 lower bound,
+  79/100. This is a deliberate weakening of an evidence standard, recorded as one.
+- **What the machine runs did establish, and it is not the number.** ADR-0042's two-pass
+  split decomposed the 21 failures into **subject 13, exposition 8** — the axis under
+  test is not the main problem, the DOMAIN lexicons are. `philosophy-of-science` is the
+  outlier at **4/9**, failing almost entirely on subject: bone biology, electromagnetic
+  induction and a trading book summary all scored above 0.55 as philosophy of science.
+  This converges with `reports/supply_audit_2026-08-30.md`, which independently found
+  that domain worst on on-niche share (4.3%) and ballast (60.9%). Treat it as the
+  hypothesis to test first — **do not tune the lexicon against machine-identified
+  failures**, which compounds the circularity rather than escaping it.
+- **Do not revise the bar or the sampling rule.** ADR-0042 re-specified only HOW a row is
+  judged — two passes plus an explicit `unsure`, and pre-registered worked archetypes —
+  because the intended labeller could not apply the single compound criterion. n, frame,
+  cap, the >=6-domain rule and the 0.70 bound are unchanged, deliberately: the bar has
+  now been missed by one row twice, which is a reason to get a real rater, not to move
+  it. Parity with EVENT's 0.781 was considered and rejected as undecidable at this n.
+- **Title+description is a sufficient basis** — measured, unsure came in at 1 and 2
+  against a 9.9 threshold, so ADR-0041's ">10% is itself a finding" did not trigger. The
+  blinding rule is not starving the labeller, and the archetypes resolved cases that were
+  coin-flips under the compound criterion. Keep both when re-running with a person.
+- **TEN domains are active** — `philosophy-of-science` was retired 2026-08-31 (ADR-0044)
+  as an EDITORIAL choice (the operator will not make that content), applied as code AND
+  an `UPDATE`, verified 1 -> 0. Recorded there and repeated here because it is the thing
+  a later reader will suspect: it was also the worst-scoring domain, and dropping it
+  flips the machine precision run from FAIL to PASS (78/99 lb 0.6974 -> 74/90 lb 0.7306).
+  That is a side effect, not the reason, and **no pass may be claimed from the old
+  sample** — dropping the second-worst domain flips it too, so the bar is on a knife
+  edge. Its lexicon stays in `LEXICONS`: `weights()` is discriminative, so removing one
+  re-weights all the rest. Discovery now costs 6,000 of 9,500.
+- **The remaining ten domains are ACTIVE and collecting** (ADR-0040), applied as both a
+  catalogue change and an `UPDATE` — `apply_seeds` keeps `active` outside its upsert
+  update set, so a code edit alone never reaches an existing row. That mistake already
+  happened once (ADR-0039 addendum) and is the repo's standing example. **`keywords` is
+  the opposite** — it IS in the update set, so a seed-query change needs only `nh seed`
+  and a hand UPDATE would be cargo-cult (ADR-0049). Discovery costs 6,000 of 9,500 units
+  at ten domains. The five disaster niches are retired from discovery at 0 units
+  while RSS keeps compounding their history.
+- Nothing ranked ships, and the exposition test does not change that.
+  `scorecards.value` / `sustainability` / `opportunity` stay NULL behind **Gate E's
+  2026-08-28 null** (rho 0.091, p 0.4988, detectable rho 0.378 — a null, not an
+  underpowered run; demand alone +0.049 and supply alone -0.073, so the failure is not
+  in how they are combined). **Do not build the dashboard.**
+- `QuotaLedger`'s budget is per-**RUN**, not per-day. A manual `nh nightly` plus the
+  09:10 fire land in the same Pacific quota day and each believes it has the full 9,500.
+  `echo "why" > .skip-once` skips one fire and is consumed by it; never disable the
+  scheduled job instead. Quota day resets midnight Pacific = 02:00 local.
+- **The nightly runs from launchd** (`com.niche-hunter.nightly`, 09:10), not cron:
+  cron silently skips a fire the Mac sleeps through and never retries it, which is
+  how 2026-08-30 was lost for good. The backup and disk check stay in cron, because
+  **cron holds Full Disk Access** (granted 2026-08-30) and the launchd agent does not:
+  measured, an agent can CREATE a new file in iCloud but cannot overwrite one or
+  enumerate the directory, so retention would break there. Each job has exactly one
+  scheduler; two means two runs in one quota day. Plists live in `scripts/launchd/`;
+  see docs/RUNBOOK.md "Scheduling".
+- **`observed_date` is UTC**, so the snapshot day boundary is **19:00 local** — not
+  the 02:00 Pacific quota reset. A catch-up nightly started after 19:00 collects for
+  *tomorrow*; that is how 2026-08-30's gap became permanent even after a rerun.
+- Known defects, unfixed: the `court-cases` successors have seeds and demand terms but
+  **no lexicon**, so they can never gain members and stay retired. `winner_age_years`
+  and `top10_concentration` were in `replay.BACKTEST_METRICS` while `video_snapshots` is
+  empty in `data/backtest.db` by design, so openness never entered the backtest.
+  `tests/test_lexicon_families.py` has a pre-existing ruff I001, untouched deliberately
+  on a shared branch.
+- Blocked on other people: Reddit Data API (applied 2026-08-29, pending) and Google Ads
+  Basic access (applied). `nh deferrals` is the register and is expected to be true —
+  three entries were caught lying this session; read it, don't assume it.
 - Never point a backtest command at the live corpus. `load.refuse_live` requires
   "backtest" in the database URL; `NH_DATABASE_URL=sqlite:///data/backtest.db`.

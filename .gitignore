@@ -9,15 +9,18 @@ google-ads.yaml
 *.db-wal
 *.db-shm
 data/
-# Scratch analyses stay local, but the calibration and backtest reports are the
-# EVIDENCE for roadmap criterion 4 ("a published precision figure with its base
-# rate and known failure modes") and for Gate E. A report that is not committed
-# cannot be the evidence for anything, so those are tracked deliberately.
-reports/*.md
-!reports/.gitkeep
-!reports/backtest_*.md
-!reports/relevance_*.md
-!reports/labelling_criterion.md
+# Reports are EVIDENCE and are tracked by default. This rule was a whitelist until
+# 2026-08-28 -- ignore reports/*.md, then negate each filename prefix that counted as
+# evidence -- and it failed silently three times: demand_stratum, gate_e_feasibility and
+# geo_value were all written, cited, and never committed, because nobody remembered to
+# add a negation for a new prefix. A whitelist of prefixes cannot anticipate the next
+# report's name, and its failure mode is the worst available: the file looks saved, the
+# commit looks clean, and the evidence for a decision is missing.
+#
+# Inverted, so it fails safe: everything in reports/ is tracked unless it is explicitly
+# named scratch. A report that is not committed cannot be the evidence for anything.
+reports/scratch_*
+reports/*.tmp
 
 # python
 __pycache__/
@@ -47,3 +50,4 @@ logs/*
 .backup/
 
 # Labelling working files; the labelled result belongs in reports/ deliberately.
+.skip-once

@@ -83,12 +83,109 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="none — implemented and measured, just unregistered",
     ),
     Deferral(
-        metric="supply.format_mix",
-        blocker="is_short is NULL for 92% of videos until the enrichment backfill runs",
+        metric="exposition axis — human validation before anything is TRUSTED from it",
+        blocker=(
+            "domain x exposition (P 0.866 / R 0.736 held-out) rests on 107 MACHINE "
+            "labels from fable-5 under a written criterion. kappa 0.845 across two "
+            "rules and two raters bounds rule stability but cannot detect a bias two "
+            "models share. EVENT's 0.781 rests on 298 human labels, so shipping the "
+            "eleven now would put a weaker-evidenced scorer beside a stronger one "
+            "under the same `relevance` column"
+        ),
         kind="query",
-        trigger="share of videos with a known is_short >= 0.80",
-        consumer="nothing yet; a supply composite input",
-        cost="small — one query plus a scalar reduction of a distribution",
+        trigger=(
+            "an exposition-domain score is CITED — a scorecard row for an active "
+            "exposition cluster carries a non-NULL value, sustainability or "
+            "opportunity, the first moment a number leaves the feature layer toward "
+            "a reader (ADR-0045). Until then the scores exist, unvalidated and "
+            "uncited, and this stays blocked without stopping anything. WHEN IT "
+            "FIRES the requirement is unchanged: "
+            "a human labels 60-100 rows sampled FROM ABOVE the shipping threshold "
+            "(not uniformly — the 2026-08-28 interrater audit's outstanding "
+            "correction), drawn from pivot-domain videos scored by the committed "
+            "EXPOSITION literal, and precision clears the bar pre-registered in "
+            "ADR-0041: the 95% Wilson LOWER BOUND on precision is at least 0.70, "
+            "which is 79/100 or 65/80 correct. Parity with EVENT's 0.781 was "
+            "considered and rejected as undecidable at this n — it would need "
+            "87/100, i.e. the humans reproducing the machine estimate exactly. "
+            "The draw is postponed, never shrunk, until 80 rows clear 0.55 across "
+            "at least 6 domains, capped at 15 per domain. The ACTIVATION half of "
+            "this entry is "
+            "discharged (ADR-0040): the eleven are live for discovery, because the "
+            "sample cannot be drawn until they collect — 19 of 120 pivot videos "
+            "clear 0.55 across 4 of 11 domains, against a 60-100 requirement, and a "
+            "niche gains members only through discovery on its own seeds. Quota is "
+            "no longer an argument either way: the disaster niches went to 0 "
+            "(ADR-0039), so all eleven cost 6,600 of 9,500 with 2,900 spare. "
+            "CORRECTED 2026-08-30 (ADR-0043): this entry used to be titled 'before it "
+            "scores anything' and that was false — `features/run.py` filters on "
+            "`Cluster.active` and nothing else, so the eleven entered `features_daily` "
+            "and `scorecards` on 2026-08-29, the first run after ADR-0040 activated "
+            "them for DISCOVERY. 253 feature rows and 11 scorecards per day since. "
+            "Accepted rather than gated: features are recomputable, and what this "
+            "deferral withholds is TRUST, not computation — value/sustainability/"
+            "opportunity stay NULL behind Gate E and no ranking ships. The stored rows "
+            "carry NO marker that they predate validation; check the day against "
+            "ADR-0043 before trusting a series that spans it"
+        ),
+        consumer=(
+            "the exposition half of `relevance`. CORRECTED 2026-08-30, because this "
+            "field and the title above both said 'nothing they score ships until this "
+            "clears', and that was false as written: `features/run.py` selects every "
+            "`Cluster.active` row and has no axis-validation filter, so the eleven "
+            "entered `features_daily` and `scorecards` on 2026-08-29, the first run "
+            "after ADR-0040 activated them for DISCOVERY. `active` is one flag doing "
+            "two jobs and ADR-0040 only meant to turn on the first — the same shape as "
+            "the ADR-0039 addendum. Measured: 253 feature rows and 11 scorecards per "
+            "day since, philosophy-of-science among them at gap 0.2 / supply 0.0. What "
+            "is actually withheld is TRUST, not computation: `value`, `sustainability` "
+            "and `opportunity` stay NULL behind Gate E, no ranking ships, and no "
+            "evidence page cites these numbers. Accepted rather than gated (ADR-0043): "
+            "features are recomputable by design, so a fail costs a recompute, not "
+            "history. The rows carry no marker saying they predate validation — read "
+            "`detail.definition` and the day against ADR-0043 before trusting a series "
+            "that spans it"
+        ),
+        cost="~45 minutes of reading, plus the pre-registration paragraph",
+    ),
+    Deferral(
+        metric="geo_basis stamped into feature detail, and rendered",
+        blocker=(
+            "ADR-0035 requires every metric to carry the population it measures, but "
+            "nothing stamps it. `nh niche show` prints a demand number and a supply "
+            "number from different populations with nothing saying so"
+        ),
+        kind="manual",
+        trigger="SLICE 9 — it becomes arithmetically live the day a geo=US level ships",
+        consumer="every demand and supply metric; scorecards.gap above all",
+        cost=(
+            "larger than it looks. Not just a constant and a detail key: `cli.py::"
+            "_provenance` renders a FIXED list of named keys, so an unrendered key "
+            "repeats ADR-0031's `currency` bug exactly — fold it into Slice 9's "
+            "existing _provenance task. And `gap` lives in `scorecards`, not "
+            "`features_daily`, so a per-feature detail key never reaches the place "
+            "ADR-0035 decision 2 actually requires it"
+        ),
+    ),
+    Deferral(
+        metric="scorecards.gap — re-specification to compare like with like",
+        blocker=(
+            "no corpus holds both supply geo composition and an outcome. Measured: "
+            "data/backtest.db has country for 0 of 4,527 channels, YouNiverse has no "
+            "country column, and load.py writes NULL by design. The live corpus has "
+            "country but no outcome. So the test that would justify a re-spec has no "
+            "instrument — the same shape as Gate E's emergence claim"
+        ),
+        kind="manual",
+        trigger=(
+            "a corpus exists carrying per-channel geo AND a forward outcome. Note the "
+            "cheap partial: ~91 quota units of channels.list over the 4,527 backtest "
+            "ids would supply present-day country, but that is 2026 attribute on 2019 "
+            "channels — the leakage class ADR-0026 already documents — and at n=29 "
+            "niches the detectable rho is 0.378, so a null from it would be weak"
+        ),
+        consumer="scorecards.gap; nothing else",
+        cost="a pre-registration plus the corpus that does not exist yet",
     ),
     Deferral(
         metric="openness.rss_acceleration",
@@ -99,26 +196,61 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="small — the prototype's function ports nearly unchanged",
     ),
     Deferral(
-        metric="money.* (vw_cpc, priced_share, median_bid_high, competition_index_mean, tier1_cpc_ratio)",
-        blocker="no Google Ads access; NH_GADS_CUSTOMER_ID empty and google-ads.yaml absent",
-        kind="date",
-        trigger="2026-09-24",
-        consumer="scorecards.value, and through it opportunity",
-        cost="medium — ADR-0016 pre-specifies the storage contract; CSV path needs one export per country",
+        metric="money.tier1_cpc_ratio",
+        blocker=(
+            "the ratio needs a tier-1 market to compare against a non-tier-1 one, and "
+            "both ingested exports are tier-1. The legacy formula's TIER1 is "
+            "US/GB/CA/AU, so US (96 rows) and GB (66 rows) give a numerator with no "
+            "denominator. The other four money.* metrics shipped 2026-08-29 and are no "
+            "longer deferred"
+        ),
+        kind="query",
+        trigger="keyword_metrics holds both a tier-1 and a non-tier-1 geo",
+        consumer="the money picture; nothing composite while ADR-0029 stands",
+        cost="small — one more manual CSV export from a non-tier-1 market, then a metric",
     ),
     Deferral(
-        metric="demand.total_monthly_searches, demand.kp_trend_last3_vs_first3",
-        blocker="same Keyword Planner access",
-        kind="date",
-        trigger="2026-09-24",
-        consumer="demand corroboration; nothing structural",
-        cost="small once the collector exists",
+        metric="demand.kp_trend_last3_vs_first3",
+        blocker=(
+            "the twelve monthly columns are empty in every export so far — measured "
+            "0/360 across the 2026-08 US and GB files — and `keyword_metrics` has no "
+            "column to store them in even if they arrive. total_monthly_searches "
+            "shipped 2026-08-29 and is no longer deferred"
+        ),
+        # Manual, not query: nothing in the schema holds monthly columns, so no SQL
+        # can answer this. An earlier plan proposed a query trigger here, which would
+        # have matched no branch in `_query_fires` and returned None forever —
+        # indistinguishable from manual, but pretending to be checkable.
+        kind="manual",
+        trigger="an export whose twelve monthly columns are populated; check the next CSV by eye",
+        consumer="demand momentum from search rather than from pageviews",
+        cost="a schema column and a migration, then the metric",
+    ),
+    Deferral(
+        metric="per-market KP metric variants (total_monthly_searches_gb, vw_cpc_gb, ...)",
+        blocker=(
+            "ADR-0035 rule 3: do not open a second market until the first validates. "
+            "The 66 GB rows ARE ingested and the loader reads them today — "
+            "`keyword_planner_rows(session, cluster, day, 'GB')` returns them — so "
+            "nothing decays while this waits; only the registration is withheld"
+        ),
+        kind="manual",
+        trigger=(
+            "the US instance has been judged useful by its operator, or a second "
+            "market becomes the subject of a decision. reports/geo_value_2026-08-28.md "
+            "measured that the value ranking reorders between US and GB, which is why "
+            "these will matter"
+        ),
+        consumer="a catalogue serving operators in more than one market (ADR-0036)",
+        cost="tiny — `_geo(fn, 'GB', suffix='_gb')` per metric; the loader already takes geo",
     ),
     Deferral(
         metric="voice.* (question_rate, unanswered_rate, recommendation_threads)",
         blocker=(
-            "Reddit API access was never applied for — not pending, unstarted. "
-            "Approval under the Responsible Builder Policy is required first"
+            "Reddit API access is APPLIED FOR and pending, filed 2026-08-29 under "
+            "the Responsible Builder Policy — a state this entry used to deny, "
+            "saying 'never applied for, not pending, unstarted'. Approval gates "
+            "everything: no credential exists to write a fixture against"
         ),
         kind="setting",
         trigger="NH_REDDIT_CLIENT_ID is set",
@@ -128,9 +260,11 @@ DEFERRALS: tuple[Deferral, ...] = (
     Deferral(
         metric="cost_risk.* (primary-source density and cadence, PD asset density, brand-safety, enforcement trend)",
         blocker=(
-            "sources resolve for 2 of 6 niches — CourtListener and EDGAR work "
-            "unauthenticated, NTSB's CAROL API rejects documented payloads, USCG "
-            "403s, NIST has no API. Present-vs-absent is not high-vs-low"
+            "sources resolve for 2 of 6 niches — EDGAR works unauthenticated; "
+            "CourtListener needs a free account since 2026-05-07 (measured "
+            "2026-08-29: 401 unauthenticated, free tier 125 req/day); NTSB's CAROL "
+            "API rejects documented payloads, USCG 403s, NIST has no API. "
+            "Present-vs-absent is not high-vs-low"
         ),
         kind="manual",
         trigger="a source exists for a majority of seeds; see niche_seeds.primary_sources",
@@ -190,6 +324,32 @@ def _query_fires(trigger: str, engine: Engine | None) -> bool | None:
                 )
             ).one()
             return bool(total) and (known or 0) / total >= 0.80
+        if "tier-1 and a non-tier-1 geo" in trigger:
+            # The legacy `cpc_geo_spread` compares tier-1 against the rest, so the
+            # question is whether both CLASSES are present, not how many geos are.
+            tier1 = ("US", "GB", "CA", "AU")
+            geos = {
+                g
+                for (g,) in session.execute(sa.text("SELECT DISTINCT geo FROM keyword_metrics"))
+                if g
+            }
+            return bool(geos & set(tier1)) and bool(geos - set(tier1))
+        if "an exposition-domain score is CITED" in trigger:
+            # ADR-0045. Fires the moment a scorecard row for an ACTIVE exposition
+            # cluster carries a citable number. Deliberately reads the three Gate-E
+            # columns rather than gap/supply/demand: those stay inside the feature
+            # layer, and it is `value`/`sustainability`/`opportunity` that a page
+            # would put in front of a person.
+            cited = session.scalar(
+                sa.text(
+                    "SELECT count(*) FROM scorecards s "
+                    "JOIN niche_seeds n ON n.slug = s.cluster_id "
+                    "WHERE n.active = 1 AND ("
+                    "s.value IS NOT NULL OR s.sustainability IS NOT NULL "
+                    "OR s.opportunity IS NOT NULL)"
+                )
+            )
+            return (cited or 0) > 0
         if "distinct observed_dates" in trigger:
             days = session.scalar(
                 sa.text("SELECT count(DISTINCT observed_date) FROM video_snapshots")

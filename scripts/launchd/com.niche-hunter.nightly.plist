@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.niche-hunter.nightly</string>
+
+  <!-- The script sources scripts/_common.sh, which cds to the repo root, sets a
+       cron-safe PATH and loads .env. So no WorkingDirectory or EnvironmentVariables
+       are needed here, and adding them would create a second source of truth. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/mac/Projects/youtube/niche-hunter/scripts/run_nightly.sh</string>
+  </array>
+
+  <!-- 09:10 local = 07:10 Pacific, inside a fresh YouTube quota day (resets
+       midnight Pacific). Offset from the 09:00 Opencode job so they do not
+       contend.
+
+       THIS IS WHY THE JOB IS HERE AND NOT IN CRON: if the machine is asleep at
+       09:10, launchd runs the job once when it next wakes. cron silently skips
+       it forever. Measured 2026-08-30 — the machine slept 09:05:10 for 722s and
+       woke at 09:17:12, the fire was skipped, and that day's snapshots are
+       unrecoverable because no source serves history. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>9</integer>
+    <key>Minute</key><integer>10</integer>
+  </dict>
+
+  <!-- launchd appends, matching the crontab's `>>`. -->
+  <key>StandardOutPath</key>
+  <string>/Users/mac/Projects/youtube/niche-hunter/logs/nightly.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/mac/Projects/youtube/niche-hunter/logs/nightly.log</string>
+
+  <!-- Never on load or login: bootstrapping this agent must not spend quota. -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

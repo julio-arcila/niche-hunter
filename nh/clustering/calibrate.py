@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from nh.clustering.lexicon import event_weights, weights
+from nh.clustering.lexicon import AXES, second_axis, weights
 from nh.clustering.relevance import RELEVANCE_HIGH, score
 from nh.db.models import RelevanceLabel, Video
 
@@ -62,7 +62,11 @@ def _half(video_id: str) -> int:
 
 def evaluate(session: Session, threshold: float = RELEVANCE_HIGH) -> tuple[Half, Half, int, int]:
     """`(tuning, held_out, unscorable, unscorable_positive)`."""
-    domain, event = weights(), event_weights()
+    domain = weights()
+    # Per family, like the phase (ADR-0034). Every RelevanceLabel row today belongs to
+    # an event-family cluster, so this is output-identical now; it is what keeps
+    # `nh cluster calibrate` honest the day an exposition-family label lands.
+    axes = {slug: second_axis(slug) for slug in domain if slug in AXES}
     rows = session.execute(
         sa.select(
             RelevanceLabel.video_id,
@@ -79,7 +83,10 @@ def evaluate(session: Session, threshold: float = RELEVANCE_HIGH) -> tuple[Half,
     for video_id, cluster_id, label, title, description in rows:
         if cluster_id not in domain:
             continue
-        result = score(title, description, domain[cluster_id], event)
+        if cluster_id not in axes:
+            continue
+        axis_name, axis = axes[cluster_id]
+        result = score(title, description, domain[cluster_id], axis, axis_name)
         if result.value is None:
             unscorable += 1
             unscorable_positive += bool(label)

@@ -38,6 +38,28 @@ def _stratum(fn: Metric, stratum: str) -> Metric:
     return metric
 
 
+def _geo(fn: Metric, geo: str, *, suffix: str = "") -> Metric:
+    """Bind a market, the same way `_stratum` binds a stratum and for the same reason.
+
+    The market is chosen HERE, at the registration site, rather than defaulted inside the
+    loader — ADR-0038's point is that a seed term is geo-independent curation while the
+    market is a property of the observation, so something has to state it out loud and
+    this is the honest place. It also lands in `detail["geo"]` and renders, so a reader
+    of `nh niche show` sees which population the number describes.
+
+    The default market keeps the BARE name (`vw_cpc`, not `vw_cpc_us`), following
+    `demand._named`: a stored series must stay continuous across the day a second market
+    is added, and renaming it would silently start a new one. A second market registers
+    with a suffix.
+    """
+
+    def metric(session: Session, cluster_id: str, day: date) -> FeatureResult:
+        return fn(session, cluster_id, day, geo=geo)
+
+    metric.__name__ = f"{fn.__name__}{suffix}"
+    return metric
+
+
 METRICS: tuple[Metric, ...] = (
     demand.wiki_weekly_views,
     # The event stratum, carried in parallel rather than replacing the topic one.
@@ -49,15 +71,24 @@ METRICS: tuple[Metric, ...] = (
     demand.wiki_volatility_365d,
     demand.wiki_seasonality,
     demand.trends_momentum_13w,
+    # Keyword Planner, bound to US (ADR-0035 rule 3: one stated basis until the first
+    # market validates). The 66 GB rows stay ingested and loader-readable; the deferral
+    # register carries why they are not registered yet.
+    _geo(demand.total_monthly_searches, "US"),
     supply.uploads_per_week,
     supply.median_views,
     supply.on_niche_share,
     supply.geo_concentration,
+    supply.format_mix,
     supply.top10_concentration,
     openness.breakthrough_rate_cohort,
     openness.views_per_sub,
     openness.winner_age_years,
     money.midroll_eligible_share,
+    _geo(money.priced_share, "US"),
+    _geo(money.competition_index_mean, "US"),
+    _geo(money.vw_cpc, "US"),
+    _geo(money.median_bid_high, "US"),
 )
 
 

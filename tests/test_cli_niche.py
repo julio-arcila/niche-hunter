@@ -56,6 +56,23 @@ def niche(engine, monkeypatch):
                 FeatureDaily(
                     cluster_id="aviation",
                     day=DAY,
+                    metric_group="money",
+                    name="vw_cpc",
+                    value=17_057.88,
+                    confidence=0.07,
+                    inputs_n=2,
+                    detail={
+                        "geo": "US",
+                        "currency": "COP",
+                        "window": ["2025-08-01", "2026-07-31"],
+                        "inputs": {"tables": ["keyword_metrics", "seed_terms"]},
+                    },
+                    source="features",
+                    run_id="r",
+                ),
+                FeatureDaily(
+                    cluster_id="aviation",
+                    day=DAY,
                     metric_group="openness",
                     name="views_per_sub",
                     value=None,
@@ -113,3 +130,18 @@ def test_it_defaults_to_the_latest_computed_day(niche):
     """Useful the morning after a failed run, rather than reporting an empty today."""
     out = runner.invoke(app, ["niche", "show", "aviation"]).stdout
     assert str(DAY) in out
+
+
+def test_provenance_names_the_currency_and_market_of_a_price(niche):
+    """`17,058` is a plausible-looking CPC and a wrong one: the account exports in COP,
+    so the number is ~US$4, and a reader who assumes dollars is off by four orders of
+    magnitude (ADR-0031 forbids converting it, which makes saying so the whole defence).
+    `geo` is the same class of fact — the figure describes the US market, not the
+    niche's worldwide demand, and nothing else on the line says which market."""
+    out = runner.invoke(app, ["niche", "show", "aviation"]).output
+
+    assert "bids in COP" in out
+    assert "geo US" in out
+    # On one line, under the value it qualifies — not stranded in another metric's block.
+    line = next(ln for ln in out.splitlines() if "bids in COP" in ln)
+    assert "geo US" in line and "2025-08-01..2026-07-31" in line

@@ -20,13 +20,16 @@ from nh.db.models import (
 )
 from nh.features.inputs import (
     AGE_FLOOR_DAYS,
+    BALLAST_DECIDED,
     FEED_DEPTH,
     RELEVANCE_HIGH,
+    _ballast_channels,
     _day_end,
     _until,
     eligible_niche_videos,
     member_channels,
     member_join,
+    numerator_coverage,
     on_niche_join,
     relevance_coverage,
     window_start,
@@ -42,13 +45,56 @@ CONFIDENCE_N = 30
 
 #: Stamped into `detail` on every metric that moved to the on-niche pool in Slice
 #: 4, so a step change in a stored series is attributable rather than mysterious.
-DEFINITION = "v2-on-niche"
+#: Bumped 2026-08-31 (ADR-0047): every one of these metrics now excludes videos whose
+#: CHANNEL is ballast — a member with ten decided videos and not one on-niche. 503 of
+#: 2,307 member channels and 8,994 video rows leave the denominators (HEAD scorer;
+#: against the un-converged stored scores the same rule finds 543). Values move most
+#: where the audit found confidence inverted: history-of-ideas `on_niche_share`
+#: 0.076 -> 0.226 and its `relevance_coverage` FALLS 0.803 -> 0.629, both measured on
+#: stored scores, because ballast was mostly decided-noise and was inflating the
+#: confidence input. An earlier version of this comment carried a third, unlabelled
+#: pair (0.077/0.230, 0.789/0.605) from yet another run — three measurements under one
+#: label is the defect this whole ADR kept re-learning.
+DEFINITION = "v3-non-ballast-members"
+
+#: `uploads_per_week` only, 2026-08-29: the fixed-window count became a
+#: per-channel rate over the observed span (data rule 9). Values before this tag
+#: are censored by the RSS 15-entry cap and not comparable where
+#: `channels_span_censored` > 0.
+DEFINITION_SPAN_RATE = "v3-span-rate-on-niche"
+
+
+def _ballast_detail(session: Session, cluster_id: str, day: date) -> dict[str, int]:
+    """`{n, channels, rows}` — the size of the cut ADR-0047 makes, per stored row.
+
+    `detail.definition` says a cut happened; this says how big it was. Without it a
+    reader cannot tell that over half a cluster's video rows left the denominator, or
+    at what threshold — which is exactly what an independent review found invisible.
+    """
+    excluded = list(session.scalars(_ballast_channels(cluster_id, day)))
+    rows = (
+        session.scalar(
+            sa.select(sa.func.count())
+            .select_from(ClusterMember)
+            .join(Video, Video.video_id == ClusterMember.item_id)
+            .where(
+                ClusterMember.item_type == "video",
+                ClusterMember.cluster_id == cluster_id,
+                Video.channel_id.in_(excluded),
+            )
+        )
+        or 0
+    )
+    return {"n": BALLAST_DECIDED, "channels": len(excluded), "rows": rows}
 
 
 def _confidence(
-    sample_n: int, contributing: int, universe: int, relevance: tuple[int, int] | None = None
+    sample_n: int,
+    contributing: int,
+    universe: int,
+    decisiveness: tuple[int, int, int] | None = None,
 ) -> float:
-    """Sample adequacy times coverage, times relevance coverage where it applies.
+    """Sample adequacy times coverage, times numerator decisiveness where it applies.
 
     Two different ways a supply metric lies, and it needs both. `min(n/30, 1)`
     alone saturates: 74 contributing channels out of 197 scores 1.00 while the
@@ -56,12 +102,22 @@ def _confidence(
     discovery-biased ones. Coverage alone would under-report a small but fully
     observed cluster. The product says "enough rows, and enough of the niche".
 
-    Relevance coverage is the third leg, new in Slice 4: a metric computed over
-    on-niche videos depends on a judgement about each one, and the share of the
-    cluster we could actually judge is a distinct way the number lies. Held-out
-    precision on that judgement is 0.781, not 1.0 — see
-    reports/relevance_2026-08-27.md — so these metrics are not clean and their
-    confidence must not read as though they were.
+    Numerator decisiveness is the third leg, new in Slice 4 as `relevance_coverage`
+    and re-sized on 2026-08-30: a metric computed over on-niche videos depends on a
+    judgement about each one, and how much of its own numerator it could decide is a
+    distinct way the number lies. Held-out precision on that judgement is 0.781, not
+    1.0 — see reports/relevance_2026-08-27.md — so these metrics are not clean and
+    their confidence must not read as though they were.
+
+    **Why it is not `relevance_coverage` any more.** Both callers here are volume
+    metrics, and `decided/total` counted a video the scorer REJECTED as evidence
+    for a volume that video does not enter. Because `known == members` for every
+    live cluster, the other two legs were both 1.0 and this one *was* the whole
+    confidence — measured on run a6d35aee, Spearman(value, confidence) across the
+    eleven was -0.346, most confident where supply was lowest. A share metric is
+    the opposite case and keeps the old form: `supply.on_niche_share` computes its
+    own, and deliberately does not call this. See
+    reports/supply_audit_2026-08-30.md.
     """
     adequacy = min(sample_n / CONFIDENCE_N, 1.0)
     # Clamped, but the clamp should never bind: `universe` comes from
@@ -72,20 +128,62 @@ def _confidence(
     # silently exceeds its own range.
     coverage = min(contributing / universe, 1.0) if universe else 0.0
     decided = 1.0
-    if relevance is not None:
-        judged, total = relevance
-        decided = min(judged / total, 1.0) if total else 0.0
+    if decisiveness is not None:
+        on_niche, judgeable, total = decisiveness
+        if total == 0:
+            # No videos at all: nothing was decided because there was nothing to
+            # decide. Not the same as the case below, and must not read as 1.0.
+            decided = 0.0
+        elif judgeable == 0:
+            # Videos exist and every one was decided off-niche. The scorer was
+            # fully decisive, and a volume of zero built on that is earned — this
+            # is the "genuinely published nothing on-niche" case the coverage leg's
+            # own comment defends, arriving here instead.
+            decided = 1.0
+        else:
+            decided = min(on_niche / judgeable, 1.0)
     return adequacy * coverage * decided
+
+
+def _observed_weeks(day: date, window_first_day: date, oldest_known: date) -> float:
+    """Weeks of the window we could actually observe for one channel.
+
+    An RSS feed serves a channel's newest 15 entries and nothing else, so a
+    channel's known history begins at its oldest stored video — anything earlier
+    was discarded before we ever saw it. Counting that channel's uploads over the
+    full window and dividing by the full window censors at the cap (data rule 9).
+    The denominator is therefore the span from `max(window start, oldest known
+    video)` through `day`, inclusive in civil days: fully observed channels keep
+    the whole window and censored ones are read as a rate over what was seen.
+    A genuinely new channel gets the same arithmetic and it is equally right —
+    its observed span *is* its publishing lifetime.
+    """
+    start = max(window_first_day, oldest_known)
+    return ((day - start).days + 1) / 7.0
 
 
 def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureResult:
     """Long-form on-niche uploads entering the niche per week.
 
     A cluster total, not a per-channel average: supply is the volume of content a
-    newcomer competes against. Confidence keys on *coverage* — member channels we
-    know anything about — rather than on contributing channels, so that a niche
-    which genuinely published nothing this window reports a confident zero rather
-    than a doubtful one.
+    newcomer competes against. Summed as **per-channel rates over each channel's
+    observed span within the window** (data rule 9), not a pooled count over the
+    fixed window — the RSS 15-entry cap means many channels' known history starts
+    inside the window, and a fixed-window count censors at the cap. Measured at
+    Slice 2: a fixed-window count landed every niche on 1.17/wk (1.1x spread)
+    against 2.2x spread for the span-based rate. For a channel observed across the
+    whole window the two forms are identical, so nothing changes where the data is
+    complete.
+
+    The span marker is the channel's oldest known video of ANY kind: observation
+    coverage is a property of the feed, not of the niche, and marking it with the
+    oldest *on-niche* video would turn a channel with one on-niche upload into a
+    one-day span at 7/wk.
+
+    Confidence keys on *coverage* — member channels we know anything about —
+    rather than on contributing channels, so that a niche which genuinely
+    published nothing this window reports a confident zero rather than a doubtful
+    one.
     """
     channels = member_channels(session, cluster_id, day)
     if not channels:
@@ -93,62 +191,89 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
 
     since = window_start(day, WINDOW_DAYS)
     until = _day_end(day)
-    uploads, covered = session.execute(
-        sa.select(
-            sa.func.count(Video.video_id),
-            sa.func.count(sa.distinct(Video.channel_id)),
-        )
-        .join(Channel, Channel.channel_id == Video.channel_id)
-        .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
-        .where(
-            Video.is_short.is_(False),
-            Video.published_at.is_not(None),
-            Video.published_at >= since,
-            Video.published_at <= until,
-            # EXISTS rather than a second join: `cluster_members` is already joined
-            # once for channel membership, and an alias here would read as though
-            # the two memberships were the same thing. They are not — one says the
-            # channel belongs to the niche, the other says this video is about it.
-            sa.exists(sa.select(1).where(on_niche_join(cluster_id, day)).correlate(Video)),
-        )
-    ).one()
+    counts = dict(
+        session.execute(
+            sa.select(Video.channel_id, sa.func.count(Video.video_id))
+            .join(Channel, Channel.channel_id == Video.channel_id)
+            .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
+            .where(
+                Video.is_short.is_(False),
+                Video.published_at.is_not(None),
+                Video.published_at >= since,
+                Video.published_at <= until,
+                # EXISTS rather than a second join: `cluster_members` is already
+                # joined once for channel membership, and an alias here would read
+                # as though the two memberships were the same thing. They are not —
+                # one says the channel belongs to the niche, the other says this
+                # video is about it.
+                sa.exists(sa.select(1).where(on_niche_join(cluster_id, day)).correlate(Video)),
+            )
+            .group_by(Video.channel_id)
+        ).all()
+    )
 
-    known = (
-        session.scalar(
-            sa.select(sa.func.count(sa.distinct(Video.channel_id)))
+    oldest = dict(
+        session.execute(
+            sa.select(Video.channel_id, sa.func.min(Video.published_at))
             .join(Channel, Channel.channel_id == Video.channel_id)
             .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
             # Bounded: unbounded, this counted every present-day channel and
             # produced a CONFIDENT ZERO at any historical date — measured, 0.0 at
             # confidence 0.871 for 2019 against 197 channels that did not exist.
-            .where(Video.published_at < _until(day))
-        )
-        or 0
+            .where(Video.published_at.is_not(None), Video.published_at < _until(day))
+            .group_by(Video.channel_id)
+        ).all()
     )
-    if not known:
+    if not oldest:
         return FeatureResult.empty(
             GROUP, "uploads_per_week", "no member channel has any known video"
         )
+    known = len(oldest)
+    censored = sum(1 for first in oldest.values() if first.date() > since.date())
+    # The same count over the channels that actually reach `value`. `censored`
+    # ranges over every known channel while the sum below ranges only over
+    # `counts`, so the two populations differ and the wider one cannot say how
+    # much of the value is affected — measured 2026-08-30, history-of-ideas
+    # reported 68 censored against 13 of its 34 contributing channels. Data rule 9
+    # names this counter as the attribution marker for the definition bump, so it
+    # has to range over the population the value is built from.
+    contributing_censored = sum(
+        1 for channel_id in counts if oldest[channel_id].date() > since.date()
+    )
+    value = sum(
+        n / _observed_weeks(day, since.date(), oldest[channel_id].date())
+        for channel_id, n in counts.items()
+    )
     return FeatureResult(
         group=GROUP,
         name="uploads_per_week",
-        value=uploads / (WINDOW_DAYS / 7),
+        value=value,
         # Coverage is channels we can SEE, not channels that published: a niche
         # that genuinely published nothing is a confident zero, and using
         # `covered` here would drive its confidence to 0 and call the finding
         # missing data.
         confidence=_confidence(
-            known, known, len(channels), relevance_coverage(session, cluster_id, day)
+            known, known, len(channels), numerator_coverage(session, cluster_id, day)
         ),
-        inputs_n=uploads,
+        inputs_n=sum(counts.values()),
         detail={
             "window": [since.date().isoformat(), day.isoformat()],
             "member_channels": len(channels),
             "channels_with_any_video": known,
-            "channels_publishing_in_window": covered,
-            "definition": DEFINITION,
+            "channels_publishing_in_window": len(counts),
+            # How many known channels' observable history starts inside the window
+            # — the population the old fixed-window count under-read. Attribution
+            # for any step change in the stored series at this definition bump.
+            "channels_span_censored": censored,
+            # Censored among the CONTRIBUTING channels — the share of this value
+            # that rests on an extrapolated span. Read against
+            # `channels_publishing_in_window`, not against `member_channels`.
+            "contributing_span_censored": contributing_censored,
+            "definition": DEFINITION_SPAN_RATE,
             "note": (
-                "long-form, on-niche only; unknown-format videos excluded until enrichment lands"
+                "long-form, on-niche only; per-channel rate over the observed span "
+                "within the window (data rule 9); unknown-format videos excluded "
+                "until enrichment lands"
             ),
             "inputs": {"tables": ["videos", "cluster_members"]},
         },
@@ -182,11 +307,18 @@ def median_views(session: Session, cluster_id: str, day: date) -> FeatureResult:
             len(by_channel),
             len(by_channel),
             len(member_channels(session, cluster_id, day)),
-            relevance_coverage(session, cluster_id, day),
+            numerator_coverage(session, cluster_id, day),
         ),
         inputs_n=len(pooled),
         detail={
             "definition": DEFINITION,
+            # What the definition actually excluded. The tag says a cut happened; this
+            # says how big. An independent review found the size invisible in the stored
+            # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
+            # on an IDENTICAL numerator of 230 on-niche videos, because ~56% of the
+            # cluster's video rows left the denominator. ADR-0047 promised this field and
+            # the promise was deleted twice rather than implemented.
+            "ballast": _ballast_detail(session, cluster_id, day),
             "contributing_channels": len(by_channel),
             "p90_views": float(pooled[int(0.9 * (len(pooled) - 1))]),
             "as_of": day.isoformat(),
@@ -235,6 +367,13 @@ def on_niche_share(session: Session, cluster_id: str, day: date) -> FeatureResul
         inputs_n=judged,
         detail={
             "definition": DEFINITION,
+            # What the definition actually excluded. The tag says a cut happened; this
+            # says how big. An independent review found the size invisible in the stored
+            # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
+            # on an IDENTICAL numerator of 230 on-niche videos, because ~56% of the
+            # cluster's video rows left the denominator. ADR-0047 promised this field and
+            # the promise was deleted twice rather than implemented.
+            "ballast": _ballast_detail(session, cluster_id, day),
             "on_niche": on_niche,
             "decided": judged,
             "videos": total,
@@ -247,6 +386,73 @@ def on_niche_share(session: Session, cluster_id: str, day: date) -> FeatureResul
                 "reports/relevance_2026-08-27.md"
             ),
             "inputs": {"tables": ["cluster_members"]},
+        },
+    )
+
+
+def format_mix(session: Session, cluster_id: str, day: date) -> FeatureResult:
+    """Share of the niche's recent on-niche videos that are Shorts.
+
+    Registered 2026-08-28 because its deferral trigger fired: `is_short` is now known
+    for 99.6% of videos, against the 92%-NULL blocker the deferral was written under.
+    `test_no_deferral_is_silently_unblocked_today` is what caught it, which is the
+    register working rather than a surprise.
+
+    Unknown `is_short` is excluded from numerator *and* denominator, never counted as
+    long-form. That is the NULL-as-False trap `money.midroll_eligible_share` documents:
+    a cluster the enrichment has not reached would otherwise report a confident 0.0
+    Shorts share, which is a claim about the niche rather than about our coverage.
+
+    On-niche only, like every Slice 4 supply metric. A member channel's off-niche
+    uploads answer a different question, and Shorts skew hard toward exactly the
+    off-niche filler that `on_niche_share` measured at ~20%.
+    """
+    since = window_start(day, WINDOW_DAYS)
+    until = _day_end(day)
+    known, shorts = session.execute(
+        sa.select(
+            sa.func.count(Video.video_id),
+            sa.func.sum(sa.case((Video.is_short.is_(True), 1), else_=0)),
+        )
+        .join(Channel, Channel.channel_id == Video.channel_id)
+        .join(ClusterMember, member_join(Video.channel_id, cluster_id, day=day))
+        .where(
+            Video.is_short.is_not(None),
+            Video.published_at.is_not(None),
+            Video.published_at >= since,
+            Video.published_at <= until,
+            sa.exists(sa.select(1).where(on_niche_join(cluster_id, day)).correlate(Video)),
+        )
+    ).one()
+
+    if not known:
+        return FeatureResult.empty(
+            GROUP,
+            "format_mix",
+            "no on-niche member video in the window has a known is_short",
+            window_days=WINDOW_DAYS,
+        )
+    judged, total = relevance_coverage(session, cluster_id, day)
+    return FeatureResult(
+        group=GROUP,
+        name="format_mix",
+        value=(shorts or 0) / known,
+        confidence=min(known / CONFIDENCE_N, 1.0) * (min(judged / total, 1.0) if total else 0.0),
+        inputs_n=known,
+        detail={
+            "definition": DEFINITION,
+            # What the definition actually excluded. The tag says a cut happened; this
+            # says how big. An independent review found the size invisible in the stored
+            # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
+            # on an IDENTICAL numerator of 230 on-niche videos, because ~56% of the
+            # cluster's video rows left the denominator. ADR-0047 promised this field and
+            # the promise was deleted twice rather than implemented.
+            "ballast": _ballast_detail(session, cluster_id, day),
+            "videos_with_known_format": known,
+            "shorts": shorts or 0,
+            "window": [since.date().isoformat(), day.isoformat()],
+            "note": "unknown is_short excluded from both sides, never counted long-form",
+            "inputs": {"tables": ["videos", "cluster_members"]},
         },
     )
 
@@ -368,6 +574,13 @@ def top10_concentration(session: Session, cluster_id: str, day: date) -> Feature
         inputs_n=len(top),
         detail={
             "definition": DEFINITION,
+            # What the definition actually excluded. The tag says a cut happened; this
+            # says how big. An independent review found the size invisible in the stored
+            # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
+            # on an IDENTICAL numerator of 230 on-niche videos, because ~56% of the
+            # cluster's video rows left the denominator. ADR-0047 promised this field and
+            # the promise was deleted twice rather than implemented.
+            "ballast": _ballast_detail(session, cluster_id, day),
             "top_n": TOP_N,
             "videos_ranked": len(top),
             "top10_views": sum(views[:10]),
@@ -395,10 +608,11 @@ def median_top_video_age(session: Session, cluster_id: str, day: date) -> Featur
     This is data rule 9 in a new place: "a metric that normalises away the dimension
     you are comparing on comes out flat, and flat reads as a finding rather than as
     a bug". An earlier version of this sentence claimed `uploads_per_week` "was
-    redefined as a rate over an observed span for exactly this reason"; it never was.
-    That metric still ships as a fixed 28-day window count, with the RSS censoring
-    documented in its own failure mode rather than fixed — corrected 2026-08-28,
-    along with the same false claim in .claude/rules/data.md rule 9.
+    redefined as a rate over an observed span for exactly this reason"; at the time
+    it never had been, and the false claim was corrected here and in data rule 9 on
+    2026-08-28. On 2026-08-29 the redefinition actually shipped (definition
+    "v3-span-rate-on-niche"), so the claim is true of the code from that date; the
+    history stays recorded because two docs asserted it a day before it existed.
 
     Register it when the corpus has real age spread — the deferral register carries
     the trigger.
@@ -427,6 +641,13 @@ def median_top_video_age(session: Session, cluster_id: str, day: date) -> Featur
         inputs_n=len(top),
         detail={
             "definition": DEFINITION,
+            # What the definition actually excluded. The tag says a cut happened; this
+            # says how big. An independent review found the size invisible in the stored
+            # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
+            # on an IDENTICAL numerator of 230 on-niche videos, because ~56% of the
+            # cluster's video rows left the denominator. ADR-0047 promised this field and
+            # the promise was deleted twice rather than implemented.
+            "ballast": _ballast_detail(session, cluster_id, day),
             "top_n": TOP_N,
             "videos_ranked": len(top),
             "youngest_years": round(min(ages), 2),
@@ -509,6 +730,13 @@ def views_per_new_video(session: Session, cluster_id: str, day: date) -> Feature
         inputs_n=len(ratios),
         detail={
             "definition": DEFINITION,
+            # What the definition actually excluded. The tag says a cut happened; this
+            # says how big. An independent review found the size invisible in the stored
+            # row: `history-of-ideas` on_niche_share reads 3x better than two days ago
+            # on an IDENTICAL numerator of 230 on-niche videos, because ~56% of the
+            # cluster's video rows left the denominator. ADR-0047 promised this field and
+            # the promise was deleted twice rather than implemented.
+            "ballast": _ballast_detail(session, cluster_id, day),
             "member_channels": len(members),
             "contributing_channels": len(ratios),
             "snapshots_differenced": FLOW_SNAPSHOTS,

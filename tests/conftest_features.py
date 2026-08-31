@@ -16,7 +16,9 @@ from nh.db.models import (
     Cluster,
     ClusterMember,
     Discovery,
+    KeywordMetric,
     NicheSeed,
+    SeedTerm,
     Video,
     VideoSnapshot,
 )
@@ -195,3 +197,77 @@ def session_for(engine):
     from nh.db.session import get_sessionmaker
 
     return get_sessionmaker(engine)()
+
+
+#: One realistic Keyword Planner basket: a priced keyword, an unpriced one, a
+#: volume-less one, and the `humanism` GB shape — a SENTINEL low beside a REAL high,
+#: which is the row a per-row exclusion rule would wrongly discard.
+KP_BASKET = (
+    # keyword, avg_monthly_searches, competition_index, bid_low, bid_high
+    ("plane crash investigation", 50_000.0, 41, 1_200.0, 27_968.37),
+    ("air traffic control", 5_000.0, 12, 900.0, 4_043.23),
+    ("aviation safety", 500.0, 8, None, None),
+    ("air crash analysis", None, 3, 300.0, 1_100.0),
+    ("humanism", 50_000.0, 55, 6_408.34, 47_045.50),  # sentinel low, real high
+)
+
+
+def add_keyword_metrics(
+    engine,
+    *,
+    cluster_id: str = CLUSTER,
+    seed_id: int = 1,
+    geo: str = "US",
+    day: date = DAY,
+    basket=KP_BASKET,
+    currency: str = "COP",
+    observed_offset_days: int = 30,
+) -> None:
+    """Seed terms plus day-dated Keyword Planner readings for a cluster.
+
+    Both halves are required. Without the `seed_terms` rows the loader finds no curated
+    keywords; without the `keyword_metrics` rows it finds no observations — and either
+    way all five KP metrics return `empty()`, which passes every leakage assertion
+    VACUOUSLY. That trap has already shipped two day-blind metrics here: it is why
+    `make_cluster` sets a seed geo and why the leakage file carries `_set_country` and
+    `_add_future_videos` as local patches.
+
+    `observed_offset_days` places `observed_date` BEFORE `day` by default so the rows are
+    visible; pass a negative offset to build a future-dated export that must not change a
+    past answer.
+    """
+    observed = day - timedelta(days=observed_offset_days)
+    with session_scope(engine) as s:
+        existing = {
+            t for (t,) in s.query(SeedTerm.term).filter(SeedTerm.source == "keyword_planner")
+        }
+        for keyword, volume, index, low, high in basket:
+            if keyword not in existing:
+                s.add(
+                    SeedTerm(
+                        seed_id=seed_id,
+                        source="keyword_planner",
+                        term=keyword,
+                        lang="en",
+                        geo="",  # curation is geo-independent (ADR-0038)
+                        active=True,
+                    )
+                )
+            s.add(
+                KeywordMetric(
+                    keyword=keyword,
+                    geo=geo,
+                    lang="en",
+                    observed_date=observed,
+                    period_start=observed - timedelta(days=364),
+                    avg_monthly_searches=volume,
+                    competition_index=index,
+                    bid_low=low,
+                    bid_high=high,
+                    currency=currency,
+                    method="ui_csv",
+                    source="keyword_planner",
+                    run_id=RUN,
+                    at=_at(day),
+                )
+            )

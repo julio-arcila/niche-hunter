@@ -19,10 +19,16 @@ from sqlalchemy.engine import Engine
 
 from nh.collectors.registry import REGISTRY
 from nh.config import Settings, get_settings
-from nh.db.models import JobRun, VideoSnapshot
+from nh.db.models import JobRun, KeywordMetric, VideoSnapshot
 from nh.db.session import session_scope
 from nh.db.types import utcnow
 from nh.jobs.phases import PHASES
+
+#: `observed_date` is a PERIOD END, so it already lags the export by up to a month
+#: (ADR-0027). 70 days is that lag, plus a monthly refresh cadence, plus slack — the
+#: point at which a hand-refreshed source has plainly been forgotten rather than merely
+#: not refreshed yet.
+KP_STALE_DAYS = 70
 
 JOB = "nightly"
 
@@ -151,4 +157,26 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
     known = {s.source for s in REGISTRY} | {p for p, _ in PHASES}
     for source in sorted(set(by_source) - known):
         result.warnings.append(f"{source} writes job_runs but no check covers it")
+
+    # A manual source cannot fail a nightly it never joins, so staleness is the only
+    # way it degrades — and it degrades silently, because every KP metric keeps
+    # returning the last export's numbers with full confidence.
+    #
+    # A WARNING, never a problem: the export is refreshed by hand and ADR-0030 already
+    # excludes manual sources from the ported-source gate above. Paging someone at 03:00
+    # because a human has not opened a browser in ten weeks would train them to ignore
+    # the gate.
+    #
+    # No rows at all produces no warning. Absence is already carried by the metrics
+    # (they return NULL with a reason) and by the deferral register; warning here as
+    # well would fire on every fresh database and on every fixture.
+    with session_scope(engine) as session:
+        newest = session.scalar(sa.select(sa.func.max(KeywordMetric.observed_date)))
+    if newest is not None:
+        age = (utcnow().date() - newest).days
+        if age > KP_STALE_DAYS:
+            result.warnings.append(
+                f"keyword_planner is {age} days stale (newest period ends {newest}); "
+                f"`nh kp ingest` a fresh export"
+            )
     return result
