@@ -36,7 +36,20 @@ import textwrap
 import tty
 from pathlib import Path
 
-SAMPLE = Path("reports/exposition_labelling_2026-08-30.jsonl")
+
+def _newest_sample() -> Path | None:
+    """The most recent draw, by the date in its filename.
+
+    Hardcoded to one date until 2026-08-31, which was a trap: two samples had been
+    drawn and spent by then, and a stale default silently resumes a spent file
+    rather than starting the fresh one. Filenames are ISO-dated, so lexical max is
+    chronological max.
+    """
+    found = sorted(Path("reports").glob("exposition_labelling_*.jsonl"))
+    return found[-1] if found else None
+
+
+SAMPLE = _newest_sample()
 VALUES = {"y": 1, "n": 0, "?": "unsure"}
 
 PASSES = {
