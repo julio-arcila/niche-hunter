@@ -107,12 +107,19 @@ Inputs       : videos(published_at, is_short, channel_id); cluster_members
                (item_type='channel'); window (day-28d, day].
 Join key     : cluster_id, via videos.channel_id -> cluster_members.item_id, AND
                videos.video_id -> cluster_members(item_type='video').relevance
-Confidence   : min(known_n / 30, 1) * (known_n / member_n) * relevance_coverage
-               -- sample adequacy TIMES coverage TIMES how much of the niche could
-               be scored at all. Adequacy alone saturates: 74 contributing channels
+Confidence   : min(known_n / 30, 1) * (known_n / member_n) * numerator_decisiveness
+               -- sample adequacy TIMES coverage TIMES how decisively the numerator
+               was filled. Adequacy alone saturates: 74 contributing channels
                of 197 scores 1.00 while the metric sees 38% of the niche, and those
                74 are the enriched, discovery-biased ones. Coverage alone would
                under-report a small but fully observed cluster.
+               numerator_decisiveness = on_niche / (on_niche + undecided +
+               unscorable) -- "of the videos that could have entered my numerator,
+               how many did I decide into it". When nothing is unjudged and nothing
+               is on-niche the ratio is 0/0 and is defined as 1.0: a niche whose
+               members' output was entirely DECIDED, none of it on-niche, has
+               earned a confident low volume. When the cluster holds no videos at
+               all it is 0.0 -- there is nothing to have been decisive about.
                CORRECTED 2026-08-28: this block previously specified
                `publishing_n / member_n` -- channels that published IN THE WINDOW --
                and claimed "the product gives 0.38 for aviation-disasters, which is
@@ -129,13 +136,41 @@ CHANGED 2026-08-27 (Slice 4, definition "v2-on-niche"): the numerator counts onl
                videos judged on-niche, and confidence gained a relevance_coverage
                leg. Values fell 15-30% for every cluster. Not comparable across
                2026-08-27.
+CHANGED 2026-08-30: the third leg moved from relevance_coverage
+               (decided/total) to numerator_decisiveness. VALUES DO NOT MOVE; only
+               confidence does. Measured on run a6d35aee: because known_n ==
+               member_n for all eleven clusters, the two other legs were both 1.0
+               and confidence reduced EXACTLY to relevance_coverage -- verified to
+               three decimals (philosophy-of-science 4.3% on-niche + 77.7% noise =
+               82.0% against a stored 0.820). That made confident REJECTION raise
+               confidence in a volume the rejected videos contribute nothing to:
+               Spearman(value, confidence) across the eleven was -0.346, most
+               confident where supply was lowest. A decided negative is real
+               information about that video and belongs in a SHARE metric's
+               denominator, which is why supply.on_niche_share keeps the old form
+               unchanged; it does not belong in a VOLUME metric's confidence.
+               Expected effect: philosophy-of-science ~0.19 (from 0.820), trading
+               ~0.63 (from 0.743). Series are not comparable across 2026-08-30.
+               Neither form prices the scorer's own held-out precision of 0.781,
+               which pushes share and volume symmetrically.
+               See reports/supply_audit_2026-08-30.md.
 Failure mode : the span form assumes a censored channel's cadence was constant
                across the window -- an extrapolation, honest about rate but not a
                realized count. A channel observed for a single day contributes a
                noisy rate (n*7 per upload); no floor constant is added to damp it,
                by the ADR-0023 zero-tuned-constants argument, so a very young
                corpus is volatile at the channel level and detail records
-               channels_span_censored for exactly that reading. A channel uploading
+               channels_span_censored for exactly that reading.
+               CAVEAT on that counter, and the reason detail gained a second one on
+               2026-08-30: channels_span_censored counts censored channels among ALL
+               KNOWN member channels, while the value sums only CONTRIBUTING ones,
+               so it cannot say how much of a stored value is affected. Measured on
+               run a6d35aee: history-of-ideas stores 68 but only 13 of its 34
+               contributing channels are censored; philosophy-of-science stores 87
+               against 22 of 51. detail.contributing_span_censored (and
+               detail.channels_publishing_in_window as its denominator) is the pair
+               data rule 9's attribution marker actually needs. The old counter is
+               kept, unchanged, so rows on both sides stay readable. A channel uploading
                >15 times BETWEEN polls still loses the overflow permanently -- the
                span form fixes censoring of the window, not feed overflow. Unknown-
                format videos are excluded, biasing low until the enrichment
@@ -168,12 +203,19 @@ Formula      : median of current views over the pooled eligible ON-NICHE videos 
 Inputs       : videos; video_snapshots(observed_date, views, source); cluster_members
                (item_type='channel' for the pool, item_type='video' for relevance)
 Join key     : cluster_id
-Confidence   : min(contributing_channels / 30, 1) * coverage * relevance_coverage.
-               Channels, not videos, for the first leg: views are correlated within
-               a channel, so channels are the effective sample. relevance_coverage
-               is decided_videos / all_videos in the cluster -- a metric computed
-               over videos we judged depends on how much of the cluster we could
-               judge, and that is a distinct way it lies.
+Confidence   : min(contributing_channels / 30, 1) * coverage *
+               numerator_decisiveness. Channels, not videos, for the first leg:
+               views are correlated within a channel, so channels are the effective
+               sample. numerator_decisiveness is on_niche / (on_niche + undecided +
+               unscorable) -- the pooled median is taken over on-niche videos, so
+               what bounds trust in it is how much of the pool it COULD have drawn
+               from was actually decided into it. A video decided off-niche never
+               had a place in this pool and must not raise confidence in it.
+CHANGED 2026-08-30: third leg moved from relevance_coverage
+               (decided/total) for the reason above; shares the change with
+               supply.uploads_per_week, whose entry carries the measurement.
+               VALUES DO NOT MOVE, only confidence. Not comparable across
+               2026-08-30. See reports/supply_audit_2026-08-30.md.
 
 CHANGED 2026-08-27 (Slice 4, definition "v2-on-niche"): the pool moved from every
                eligible video to eligible videos judged on-niche. Values moved
