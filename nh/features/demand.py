@@ -67,7 +67,11 @@ def wiki_weekly_views(
     name = _named("wiki_weekly_views", stratum)
     terms = demand_terms(session, cluster_id, "wikipedia", stratum)
     if not terms:
-        return FeatureResult.empty(GROUP, name, "no wikipedia article mapped to this cluster")
+        # Named because without it the reason misleads for the `_event` variant: topic
+        # articles ARE mapped for every live niche, and only the event pool is absent.
+        return FeatureResult.empty(
+            GROUP, name, f"no wikipedia article mapped to this cluster ({stratum} stratum)"
+        )
     hi = day - timedelta(days=LAG_DAYS)
     lo = hi - timedelta(days=WINDOW_DAYS)
     points, views = _window(session, terms, lo, hi)

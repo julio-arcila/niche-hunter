@@ -459,6 +459,70 @@ Measured     : 590x spread across the five seeds with agent=user. NOTE: an earli
                Aviation 19%), so bots were inflating small niches relative to large.
 ```
 
+### demand.wiki_weekly_views_event
+```
+Formula      : identical to demand.wiki_weekly_views above, computed over the seed's
+               wikipedia terms with stratum='event' instead of stratum='topic'. Same
+               window, same lag, same maturation rule. `_named()` appends the suffix,
+               so the two strata are separate series that never mix.
+Inputs       : demand_snapshots joined to seed_terms WHERE source='wikipedia' AND
+               stratum='event'; the same 28-day window as the topic variant
+Join key     : cluster_id
+Confidence   : as the topic variant -- `_adequacy` = coverage TIMES volume adequacy,
+               i.e. (days observed / days expected) * min(window_views / 10,000, 1).
+               Both factors, not coverage alone: coverage pins at 1.00 for every niche
+               once the backfill completes and proves nothing, so count scarcity has to
+               be in the number too. See the topic entry above, which argues this at
+               length.
+Feeds        : NOTHING today. `scorecards.demand` reads the TOPIC stratum. ADR-0022
+               carries both and says "Gate E decides"; it has not.
+Failure mode : NULL for any niche with no event-stratum articles -- every niche except
+               the six that carry them: the five disaster niches and
+               `landmark-court-cases`, which is not one of them but was curated the
+               same way (ADR-0024 split it out of `court-cases`).
+```
+
+**This entry was missing until 2026-08-31, and the metric has existed since Slice 5.**
+docs/METRICS.md's own non-negotiable is that a metric starts as an entry here, then
+code, then a test. This one had code and tests and no entry, which is how it came to be
+described in a session report as "structurally inapplicable" when the truth is narrower.
+
+**NULL for the ten live domains is a fact about them, not a defect.** Event-stratum
+wikipedia terms exist for exactly **six seeds, 20 each** -- the five disaster niches plus
+`landmark-court-cases` -- selected under ADR-0022 as a fixed-K uniform sample from
+Wikidata class and category pools. That method presupposes a pool of named occurrences
+("Category:Aviation accidents..."), which evergreen domains like `trading` or
+`history-of-ideas` mostly do not have. No event pool was ever curated for them.
+
+**It has produced values, which is why it is not deleted.** Measured over all stored
+history: 14 non-NULL rows across 2026-08-27 to 2026-08-29, all five disaster clusters.
+From 2026-08-29 the eleven activated and the disasters retired on the same run
+(ADR-0040), so only NULL producers have computed since. Steady state is 10 NULL rows a
+night.
+
+**Two live paths make deletion wrong**, and both would be foreclosed silently:
+- The disaster niches are retired from *discovery*, not deleted (ADR-0039), and
+  reactivation is one `UPDATE niche_seeds SET active = 1`. On that day this metric
+  resumes with an intact series; deleting it would put a permanent hole in one.
+- ADR-0022's stratum arbitration is **still open**. The two strata rank niches in
+  reverse (Spearman -0.70) and neither was promoted -- "Gate E decides". Gate E did
+  not: `reports/backtest_2026-08-28.md` ran topic-only, because `nh/backtest/load.py`
+  records that the event stratum was never loaded. Deleting one of the two things
+  being arbitrated would resolve the arbitration by accident.
+
+**Its standing cost is not the compute** -- that is a local query. It is that
+`nh/collectors/wikipedia.py::_terms` filters on `SeedTerm.active` with no join to
+`niche_seeds`, so the 120 event articles of the six retired niches are still fetched
+nightly. The behaviour is real; do not read intent into it that is not there. That
+function's comment explains why it does not join through `clusters` (clustering runs
+after collectors) and says "terms belong to seeds" -- it does not address the seed's
+own `active` flag either way. De-registering the metric would not
+stop that; it is a collector property, and it is what keeps reactivation instant.
+
+**Also promised and never built:** ADR-0022 called `demand.event_topic_ratio` "a metric
+in its own right" feeding `cost_risk`. It has zero implementation -- no code outside the
+ADR and its report. Recorded here rather than left dangling.
+
 ### demand.wiki_momentum_28d
 ```
 Formula      : (views over (day-30d, day-2d]) / (views over (day-58d, day-30d]) - 1,

@@ -256,6 +256,15 @@ Items 1, 2 and 4 are code changes and none has been made. Item 3 is a decision.
   healthy (confidence 0.989–1.0, 51–1,098 inputs). This is an *event*-shaped metric inherited
   from the disaster niches; the eleven are evergreen domains, so it is structurally
   inapplicable to the new grain rather than merely missing data.
+  **Corrected 2026-08-31:** "structurally inapplicable" overstates it. The metric
+  produced 14 non-NULL rows across 2026-08-27 to 08-29 for the five disaster clusters,
+  and event-stratum articles exist for exactly six seeds. The ten live domains have no
+  event curation because none was ever made for them — a fact about those niches, not a
+  property of the metric — and one `UPDATE` reactivating a disaster niche would light it
+  up again. See the `demand.wiki_weekly_views_event` entry in docs/METRICS.md, added the
+  same day because the metric had never had one. Two details in the bullet above are now
+  stale: the quoted reason string gained a stratum suffix on 2026-08-31, and "all eleven"
+  was written before ADR-0044 retired `philosophy-of-science` — ten domains carry it now.
 - **`money.*` rests on 162 keyword rows total** (96 US, 66 GB) across all clusters — 4.5–6
   inputs per niche, and 35 of 96 US rows have a NULL bid. `median_bid_high` is backed by as
   few as **2 keywords** in places. Confidence (0.148–0.200) reports this honestly.
