@@ -68,9 +68,9 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
-- Phase: **Slice 9 shipped; the exposition-axis labelling is the open task.** Branch
-  `slice-11-eleven-domain-pivot` (named for eleven; ten since ADR-0044). Suite green
-  at **766**.
+- Phase: **Slice 9 shipped; TWO drawn samples wait on a human labeller.** Merged to
+  `main` 2026-08-31 (61 commits, ADR-0038..0049); work since is on
+  `adr-0050-recall-sample`. Suite green at **785**.
 - **THE ONE THING WAITING ON A HUMAN — and BOTH drawn samples have now been spent by a
   model.** 2026-08-29 (ADR-0041) and 2026-08-30 (ADR-0042) were each labelled by fable-5
   at the operator's repeated instruction. Both came to **78/99**, lower bound 0.6974,
@@ -83,6 +83,25 @@ reviewer. Summarize exploration briefly.
   Run `uv run python scripts/label_exposition.py` — it now defaults to the newest draw.
   ~20 minutes, and it need not be the operator: ADR-0041 requires a rater independent of
   the model family, not a specialist. See `reports/exposition_result_2026-08-30.md`.
+- **THE SECOND SAMPLE, AND IT IS THE ONE ON A CLOCK (ADR-0050).**
+  `reports/recall_labelling_2026-08-31.jsonl`, seed 20260901, **100 rows over 87 channels,
+  10 per domain**, drawn from decided-noise rows on ballast channels — the stratum
+  ADR-0041 says in its own text it cannot reach. Run
+  `uv run python scripts/label_exposition.py --sample recall`. **Same ADR-0042 criterion,
+  both passes, unchanged**: relevance is the geometric mean of domain x exposition, so a
+  false negative is exactly `label = 1`. One standard covers both samples; label them in
+  one sitting.
+  Bar is the **95% Wilson UPPER bound <= 0.10, at most 4 of 100** — upper, because the
+  claim being defended is that the excluded rows contain almost nothing.
+  **Why it is on a clock:** ADR-0047 moved `history-of-ideas on_niche_share` 0.076 ->
+  0.227 with an **identical numerator of 230**; the whole move is denominator removal,
+  and it is unvalidated. `inputs.BALLAST_SUNSET` is **2026-09-14**: past it, with
+  `BALLAST_VALIDATED` still `None`, `not_ballast` returns true-everywhere and
+  `supply.definition()` reverts to `v2-on-niche` — verified end to end, it puts
+  history-of-ideas back to 0.0758 with the numerator unmoved. Set `BALLAST_VALIDATED`
+  only in the commit that writes the computed interval into ADR-0047; **it is a human's
+  verdict, never a file the code reads**, because completing the labels and passing the
+  bar are different events.
 - **BUT THIS NO LONGER BLOCKS ANYTHING (ADR-0045).** The requirement now fires when an
   exposition score is CITED — a scorecard row for an active exposition cluster carrying a
   non-NULL `value`/`sustainability`/`opportunity` — not while the score merely exists. The
@@ -127,7 +146,29 @@ reviewer. Summarize exploration briefly.
   and a hand UPDATE would be cargo-cult (ADR-0049). Discovery costs 6,000 of 9,500 units
   at ten domains. The five disaster niches are retired from discovery at 0 units
   while RSS keeps compounding their history.
-- Nothing ranked ships, and the exposition test does not change that.
+- **The corpus is a preimage of its own queries, and ADR-0051 only makes that
+  measurable.** 25 of 30 discovery queries carried an "explained" token while relevance
+  is the geometric mean of domain x **exposition** — selected for explainers, then scored
+  on being explainers. Five queries moved register (`... explained` -> `... lecture` /
+  `... debate`), topic held fixed so the two arms differ in one dimension; register-free
+  goes 5/30 -> 10/30, quota unchanged. **The probe arm is expected to yield worse** — do
+  not read that as failure. A test holds the floor, with one exemption
+  (`logic-linguistics-gnoseology`, ADR-0049's control, itself 3/3 "explained" and so
+  explicitly NOT a register control) that expires on that re-measure.
+- **`nh status --check` now gates on provenance and on the ballast cut.** Two feature
+  runs on one day, or a scorecard naming a run its features did not come from, is a
+  **problem** — that happened on 2026-08-31 and nothing looked. `detail.ballast.channels`
+  moving more than 5% of member channels night-over-night is a **warning**, on the delta
+  and never the level (history-of-ideas is 126 of 205 by construction). A missing stamp is
+  tolerated on a day where no row has one, and warned on when only some rows do.
+- **Every change on 2026-08-31 removed negative evidence from a denominator and none
+  added any**, which is the independent review's structural finding and is not repaired
+  by any of ADR-0050/0051. The class that would have LOWERED shares — tightening an
+  over-firing lexicon — was declined as tuning against machine-identified failures, while
+  ADR-0047 rests on the same machine judgements and shipped. The recall sample is what
+  breaks that: it is the repo's first human-labelled **negative** evidence, and a failing
+  row there is what legitimately licenses a lexicon tightening.
+- Nothing ranked ships, and neither validation changes that.
   `scorecards.value` / `sustainability` / `opportunity` stay NULL behind **Gate E's
   2026-08-28 null** (rho 0.091, p 0.4988, detectable rho 0.378 — a null, not an
   underpowered run; demand alone +0.049 and supply alone -0.073, so the failure is not
