@@ -19,6 +19,10 @@ postgres = ["psycopg[binary]>=3.1"]
 trends = ["trendspy>=0.1", "pandas>=2.2", "numpy>=1.26"]
 reddit = ["praw>=7.7"]
 ads = ["google-ads>=25.0", "pandas>=2.2"]
+# The evidence surface (ADR-0052). Optional for the same reason the collectors are:
+# the nightly must never depend on a rendering library, and `nh/api/` is deliberately
+# free of web imports so nothing web-shaped can reach the pipeline.
+web = ["streamlit>=1.37", "pandas>=2.2"]
 
 [project.scripts]
 nh = "nh.cli:app"
@@ -29,6 +33,11 @@ dev = [
     "pytest-cov>=5.0",
     "responses>=0.25",
     "ruff>=0.5",
+    # For `streamlit.testing.v1.AppTest`, which runs a page in-process with no socket —
+    # so the web tests satisfy the suite-wide network block rather than being exempted
+    # from it. The web tests `importorskip` anyway, so the core suite stays green without.
+    "streamlit>=1.37",
+    "pandas>=2.2",
 ]
 
 [build-system]

@@ -399,6 +399,31 @@ def compute(
     raise typer.Exit(0 if all(v == "ok" for v in statuses.values()) else 1)
 
 
+@app.command("web")
+def web(
+    port: int = typer.Option(8501, "--port"),
+) -> None:
+    """Serve the evidence surface (ADR-0052). Requires the `web` extra.
+
+    Execs `streamlit run` rather than importing it: Streamlit owns its own process model,
+    and re-implementing that here would be a second way to start the same app.
+    """
+    import os
+    import shutil
+    from pathlib import Path
+
+    if shutil.which("streamlit") is None:
+        typer.echo(
+            "streamlit is not installed — `uv sync --extra web` (kept optional so the "
+            "nightly never depends on a rendering library)",
+            err=True,
+        )
+        raise typer.Exit(2)
+    page = Path(__file__).parent / "web" / "app.py"
+    # Fixed argv, no shell, no user-supplied path.
+    os.execvp("streamlit", ["streamlit", "run", str(page), "--server.port", str(port)])
+
+
 niche_app = typer.Typer(no_args_is_help=True, help="Inspect one niche.")
 app.add_typer(niche_app, name="niche")
 
@@ -420,12 +445,17 @@ def _fmt(value: float | None) -> str:
 def niche_show(
     slug: str = typer.Argument(..., help="Cluster id, e.g. aviation-disasters."),
     day: datetime | None = typer.Option(None, "--day", formats=["%Y-%m-%d"]),
+    unvalidated: bool = typer.Option(
+        False,
+        "--unvalidated",
+        help="Show metrics whose relevance rule has no human labels yet (ADR-0052).",
+    ),
 ) -> None:
     """Every metric for one niche, with confidence and where it came from."""
     from nh.jobs import niche as niche_job
 
     try:
-        view = niche_job.load(slug, day.date() if day else None)
+        view = niche_job.load(slug, day.date() if day else None, include_unvalidated=unvalidated)
     except niche_job.UnknownCluster:
         typer.echo(f"unknown niche: {slug}", err=True)
         typer.echo(
@@ -446,6 +476,13 @@ def niche_show(
     for m in view.metrics:
         group = m.group if m.group != last_group else ""
         last_group = m.group
+        if not m.shown:
+            # The value, the confidence and `inputs_n` are all withheld together. `n` alone
+            # would not be a citation, but a table with one column blanked reads as a bug
+            # rather than as a decision, and the decision is the point.
+            typer.echo(f"{group:<10}{m.name:<28}{'·':>12}{'·':>7}{'·':>8}")
+            typer.echo(f"          {m.withheld}")
+            continue
         typer.echo(
             f"{group:<10}{m.name:<28}{_fmt(m.value):>12}"
             f"{_fmt(m.confidence):>7}"
@@ -456,10 +493,83 @@ def niche_show(
     if view.scorecard:
         parts = " ".join(f"{k}={_fmt(v)}" for k, v in view.scorecard.items())
         typer.echo(f"\nscorecard {view.day}: {parts}")
+    elif view.scorecard_withheld:
+        typer.echo(f"\nscorecard {view.day}: {view.scorecard_withheld}")
+    if any(not m.shown for m in view.metrics) or view.scorecard_withheld:
+        typer.echo(
+            "\n· means withheld, not missing: computed but unvalidated (ADR-0052). "
+            "`--unvalidated` shows them."
+        )
     typer.echo(
         "\n— means not computable; a printed number is a measurement. "
         "value/opportunity await the Slice 5 composites."
     )
+
+
+@niche_app.command("trace")
+def niche_trace(
+    slug: str = typer.Argument(..., help="Cluster id, e.g. history-of-ideas."),
+    metric: str = typer.Argument(..., help="Metric name, e.g. wiki_yoy."),
+    day: datetime | None = typer.Option(None, "--day", formats=["%Y-%m-%d"]),
+    limit: int = typer.Option(20, "--limit", help="Rows to print."),
+) -> None:
+    """The input rows behind one number — Slice 7's exit criterion, from a terminal.
+
+    "Every displayed number reaches its input rows" is a promise a surface can appear to
+    keep by linking to a plausible query nobody ran, so the registry behind this is tested
+    to return non-empty rows for every registered metric. This command is that registry's
+    first consumer, and it works before any page is drawn.
+    """
+    from nh.api import basis as basis_mod
+    from nh.api import drilldown, gates, queries
+    from nh.db.session import get_engine, session_scope
+
+    with session_scope(get_engine()) as session:
+        on = day.date() if day else queries.latest_day(session, slug)
+        if on is None:
+            typer.echo(f"no features for {slug} — run `nh compute`", err=True)
+            raise typer.Exit(2)
+        headers, rows = drilldown.rows_behind(session, metric, slug, on)
+
+    if not headers:
+        typer.echo(f"no drilldown registered for {metric}", err=True)
+        typer.echo(f"known: {', '.join(sorted(drilldown.REGISTRY))}", err=True)
+        raise typer.Exit(2)
+
+    typer.echo(f"{metric} · {slug} · {on}")
+    typer.echo(f"population: {basis_mod.basis(metric)}")
+    # The rows are NOT gated even when the metric is, and the asymmetry is deliberate:
+    # `gates` withholds the scorer's aggregate CLAIM, while these are the observations a
+    # person needs in order to judge whether that claim is any good. Withholding the audit
+    # trail would make the thing unvalidatable, which is the opposite of the intent.
+    #
+    # There is a real cost and it is named rather than assumed away: a video-grain row
+    # carries `relevance`, so anyone about to label ADR-0041's or ADR-0050's sample should
+    # not browse it first. That is the same contamination rule ADR-0042 wrote for the
+    # 2026-08-30 transcript.
+    if not gates.citable(metric, slug):
+        typer.echo(
+            "note: this metric's VALUE is withheld (ADR-0052); its input rows are shown "
+            "so the scorer can be checked. Do not read them before labelling a sample."
+        )
+    # The count is the honest part: `LIMIT` caps what the query returned, and the metric's
+    # own `inputs_n` states the true n. Saying "showing X of the first Y" rather than
+    # "of N" avoids implying this is the whole population when it is not.
+    typer.echo(f"showing {min(limit, len(rows))} of {len(rows)} fetched\n")
+    typer.echo(" · ".join(str(h) for h in headers))
+    for row in rows[:limit]:
+        typer.echo(" · ".join("—" if v is None else str(v) for v in row))
+
+    # The last click. A sha in the rows is a pointer to stored bytes, and a pointer nobody
+    # can follow is decoration — resolving it here is the difference between claiming a
+    # three-click chain and having one.
+    if "sha" in headers:
+        column = headers.index("sha")
+        shas = {row[column] for row in rows[:limit] if row[column]}
+        with session_scope(get_engine()) as session:
+            sources = {s for sha in shas if (s := drilldown.raw_source(session, sha))}
+        for key, source in sorted(sources):
+            typer.echo(f"\nsource payload · {source} · raw_records key `{key}`")
 
 
 def _provenance(m) -> str:

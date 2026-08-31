@@ -39,6 +39,9 @@ asset is snapshot history; never break the collectors.
 - `uv run nh sources` — ported / configured / quota per source
 - `uv run nh seed` — write the niche seeds; prints the nightly quota cost
 - `uv run nh status [--check]` — what got collected; --check gates the cron ping
+- `uv run nh niche show <slug> [--unvalidated]` — every metric, with confidence and basis
+- `uv run nh niche trace <slug> <metric>` — the input rows behind one number (ADR-0052)
+- `uv run nh web` — the evidence surface; needs `uv sync --extra web`
 - `uv run nh prune [--dry-run]` — storage report + bounded retention on raw payloads
 - `uv run nh doctor` — database reachable, schema present
 - `uv run alembic upgrade head` / `alembic revision --autogenerate -m "..."`
@@ -68,9 +71,17 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
-- Phase: **Slice 9 shipped; TWO drawn samples wait on a human labeller.** Merged to
-  `main` 2026-08-31 (61 commits, ADR-0038..0049); work since is on
-  `adr-0050-recall-sample`. Suite green at **785**.
+- Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
+  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **959**. **`PHASES` is
+  now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
+  so a new phase silently extends the nightly gate (it reads FAIL until the next nightly
+  runs the new one; `run_nightly.sh` runs the phases before the check, so no page).
+  **Next: Slice 10** (Trends seed expansion) or Slice 8 (hardening) — but note CLAUDE.md's
+  banner calls `related_queries` "measured blocked" while SOURCES.md and ADR-0032 say both
+  related endpoints work via the referer header. Settle that before planning Slice 10. TWO drawn samples still wait on a human labeller, and one has a
+  2026-09-14 deadline. The ROADMAP headers for slices 9 and 11 said "PLANNED, not started"
+  until 2026-08-31, three days after both shipped — read `nh/seeds.py` and
+  `features/run.py::METRICS`, not the roadmap, for what exists.
 - **THE ONE THING WAITING ON A HUMAN — and BOTH drawn samples have now been spent by a
   model.** 2026-08-29 (ADR-0041) and 2026-08-30 (ADR-0042) were each labelled by fable-5
   at the operator's repeated instruction. Both came to **78/99**, lower bound 0.6974,
@@ -182,7 +193,39 @@ reviewer. Summarize exploration briefly.
   `scorecards.value` / `sustainability` / `opportunity` stay NULL behind **Gate E's
   2026-08-28 null** (rho 0.091, p 0.4988, detectable rho 0.378 — a null, not an
   underpowered run; demand alone +0.049 and supply alone -0.073, so the failure is not
-  in how they are combined). **Do not build the dashboard.**
+  in how they are combined).
+- **"Do not build the dashboard" is AMENDED, not lifted (ADR-0052).** What stays forbidden
+  is the ranked surface: no radar scatter, no niche list ordered by a score, no rendering
+  of `scorecards`. What Slice 7 builds is the **evidence** surface — the demand series, the
+  corpus, the source feed, and `value / confidence / inputs_n / detail` traced back to the
+  rows each number came from. The roadmap's own Slice 7 text still shipped a radar scatter
+  three days after Gate E retired that framing; it is rewritten.
+- **A UI is a citation surface, and ADR-0045's trigger cannot see it.** That trigger queries
+  non-NULL `value`/`sustainability`/`opportunity` — which Gate E holds NULL *permanently*,
+  because Gate E failed — while `gap`, `supply`, `demand`, `stage` and `openness` are
+  non-NULL for all ten unvalidated exposition clusters. So the register stays green while
+  the numbers sit there. `nh/api/gates.py` is the answer: the read layer refuses to serve
+  what the deferral covers, holding `EXPOSITION_VALIDATED: bool | None` on the
+  `BALLAST_VALIDATED` pattern — a human's verdict, and explicitly **no env-var escape
+  hatch**, which would be a file the code reads standing in for one.
+- **`nh/api/` is the read layer every surface goes through**, and the gate lives in it,
+  not in a presenter: `jobs/niche.py::load` withholds by DEFAULT, so forgetting the
+  argument fails safe. `nh niche show` was ALREADY citing — it printed `gap=0.50` and all
+  eight scorer-dependent metrics for unvalidated clusters — which is why the gate shipped
+  before any web page. `--unvalidated` shows them: a human asking once, recording nothing.
+  `drilldown.REGISTRY` maps every metric to its input rows and is tested to return
+  **non-empty** — an empty result satisfies "did not raise" forever. `nh niche trace` is
+  its first consumer. Gated metrics still show their ROWS, deliberately: the aggregate
+  claim is withheld, the evidence to check it is not — but do not browse them before
+  labelling a sample.
+- **Which metrics the scorer decided is DERIVED, never tabulated.** Run all 22 twice, once
+  at `RELEVANCE_HIGH` and once at an impossible threshold, and diff. Measured: **14 are
+  independent** (all `demand.*`, `breakthrough_rate_cohort`, `views_per_sub`, the four KP
+  `money.*`) and **8 read relevance** (all six `supply.*`, `midroll_eligible_share`, and
+  **`openness.winner_age_years`**, which joins `on_niche_join` at `openness.py:167`). That
+  last one is why: a plan that reasoned from the query text put all of `openness.*` in the
+  safe tier, conflating "unaffected by ballast" — true — with "does not read relevance",
+  which was never measured.
 - `QuotaLedger`'s budget is per-**RUN**, not per-day. A manual `nh nightly` plus the
   09:10 fire land in the same Pacific quota day and each believes it has the full 9,500.
   `echo "why" > .skip-once` skips one fire and is consumed by it; never disable the
