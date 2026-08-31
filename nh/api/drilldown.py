@@ -31,6 +31,7 @@ from nh.db.models import (
     DemandSnapshot,
     FeatureDaily,
     KeywordMetric,
+    RawRecord,
     Video,
     VideoSnapshot,
 )
@@ -105,8 +106,12 @@ def _keyword_planner(session: Session, cluster_id: str, day: date) -> Rows:
     (ADR-0038); a reader checking the metric benefits from seeing that a second market
     exists and differs — `reports/geo_value_2026-08-28.md` measured the value ranking
     reordering between US and GB, which is invisible from a single-market view.
-    `file_sha256` is included because it is the link on to `raw_records`, i.e. to the bytes
-    Google returned.
+    `file_sha256` is the link on to `raw_records`, i.e. to the bytes Google returned — but
+    **it is a 12-character PREFIX join, not an equality one**: the collector keys the raw
+    row `f"{digest[:12]}:{self.path.name}"` (`keyword_planner.py:236`). An earlier version
+    of this docstring said "the link on to `raw_records`" flatly, and the first person to
+    try it — the person writing this — matched the full sha and got zero rows. Use
+    `raw_source()` below rather than reconstructing the join.
     """
     # Two steps rather than one join: "this cluster's curated terms" resolves through
     # `clusters.seed_id`, which `demand_terms` already owns. A third join path here could
@@ -216,6 +221,25 @@ def _ranked_metrics(session: Session, cluster_id: str, day: date) -> Rows:
         .limit(LIMIT)
     ).all()
     return ["cluster", "component", "value", "confidence"], [tuple(r) for r in rows]
+
+
+def raw_source(session: Session, sha: str) -> tuple[str, str] | None:
+    """The stored payload a Keyword Planner reading came from: `(key, source)`.
+
+    The last click of the three. `keyword_metrics.file_sha256` is the full digest while
+    `raw_records.key` carries only its first twelve characters plus the filename, so this
+    exists to stop every caller re-deriving a prefix join and getting it subtly wrong.
+
+    Twelve characters of hex is 48 bits. Collision is not a practical concern at five
+    stored exports, and this returns the first match rather than pretending to resolve one
+    — a caller that needs certainty has the full digest on the metric row.
+    """
+    row = session.execute(
+        sa.select(RawRecord.key, RawRecord.source)
+        .where(RawRecord.kind == "keyword_csv", RawRecord.key.startswith(sha[:12]))
+        .limit(1)
+    ).first()
+    return (row[0], row[1]) if row else None
 
 
 Drilldown = Callable[[Session, str, date], Rows]

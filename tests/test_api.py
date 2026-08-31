@@ -184,3 +184,40 @@ def test_a_series_with_one_definition_reports_no_step(corpus):
     """The rule must not report a step on every series, or a real one stops standing out."""
     points = q.metric_history(corpus, CLUSTER, "on_niche_share")
     assert q.definition_steps(points) == []
+
+
+def test_a_keyword_sha_resolves_to_the_stored_payload(engine):
+    """The last click of the three, and the one that was nearly a claim rather than a fact.
+
+    `keyword_metrics.file_sha256` is the full digest; `raw_records.key` is
+    `f"{digest[:12]}:{filename}"` (`keyword_planner.py:236`). The drilldown's docstring
+    originally said the sha "is the link on to `raw_records`" flatly, and the first person
+    to follow it matched the full digest and got nothing.
+    """
+    from nh.db.models import RawRecord
+    from nh.db.session import session_scope
+    from tests.conftest_features import session_for
+
+    sha = "8765f1f879ed4fe53dda1bcc14ef5dd37c61e177ac974b855cb06440f8842083"
+    with session_scope(engine) as s:
+        s.add(
+            RawRecord(
+                kind="keyword_csv",
+                key=f"{sha[:12]}:Keyword Stats.csv",
+                payload=None,
+                source="keyword_planner",
+                run_id="r",
+            )
+        )
+    session = session_for(engine)
+
+    assert drilldown.raw_source(session, sha) == (
+        f"{sha[:12]}:Keyword Stats.csv",
+        "keyword_planner",
+    )
+
+
+def test_an_unknown_sha_resolves_to_nothing(engine):
+    from tests.conftest_features import session_for
+
+    assert drilldown.raw_source(session_for(engine), "deadbeef" * 8) is None

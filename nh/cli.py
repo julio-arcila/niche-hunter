@@ -560,6 +560,17 @@ def niche_trace(
     for row in rows[:limit]:
         typer.echo(" · ".join("—" if v is None else str(v) for v in row))
 
+    # The last click. A sha in the rows is a pointer to stored bytes, and a pointer nobody
+    # can follow is decoration — resolving it here is the difference between claiming a
+    # three-click chain and having one.
+    if "sha" in headers:
+        column = headers.index("sha")
+        shas = {row[column] for row in rows[:limit] if row[column]}
+        with session_scope(get_engine()) as session:
+            sources = {s for sha in shas if (s := drilldown.raw_source(session, sha))}
+        for key, source in sorted(sources):
+            typer.echo(f"\nsource payload · {source} · raw_records key `{key}`")
+
 
 def _provenance(m) -> str:
     """The one-line trail under each metric: why this number, from what."""

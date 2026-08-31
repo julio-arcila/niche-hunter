@@ -382,7 +382,7 @@ that.
 
 ---
 
-### Slice 7 — Evidence surface · size L · **RESCOPED by ADR-0052, ready to build**
+### Slice 7 — Evidence surface · size L · **SHIPPED 2026-08-31** (ADR-0052)
 
 **Goal:** every number this pipeline computes reaches the rows it came from, in three
 clicks — and no number the scorer decided reaches a reader before the scorer is validated.
@@ -425,11 +425,22 @@ FastAPI (a module boundary already gives replaceability; a second process for on
 operator does not) · the question bank and topic queue (`voice.*` has no source) · the
 cost model (defined nowhere) · Rule 7 (refused on three independent grounds).
 
-**Exit:** niche list → niche page → metric drill-down → input rows or source document in
-≤ 3 clicks · every registered metric has a drilldown returning a **non-empty** row set on a
-synthetic corpus · every registered metric is classified gated-or-not by a test that fails
-on an unclassified one · each shipped rule has a synthetic test that fires it and one that
-does not.
+**Exit, met 2026-08-31:** niche list → niche page → metric drill-down → input rows or
+source document in ≤ 3 clicks · every registered metric has a drilldown returning a
+**non-empty** row set on a synthetic corpus · every registered metric is classified
+gated-or-not by a test that fails on an unclassified one · each shipped rule has a
+synthetic test that fires it and one that does not.
+
+**Checked, not asserted:** 22 of 22 metrics have a drilldown, a basis and a gate verdict;
+9 are gated and 14 are not, *derived by execution* rather than tabulated; `PHASES` is four;
+three rules ship with a fire and a not-fire test each; and the Keyword Planner chain
+terminates in `raw_records` — via a **12-character prefix** join, which the first attempt
+to follow it got wrong, so `drilldown.raw_source()` owns that join now.
+
+**What it does not do, by design:** display a `scorecards` field or any of the eight
+scorer-dependent metrics for an unvalidated axis, which is every active cluster today. The
+labelling in ADR-0041 and ADR-0050 is what opens those, and the surface names the command
+in place of each withheld number.
 
 ---
 

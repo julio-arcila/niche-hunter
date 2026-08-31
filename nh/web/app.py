@@ -28,6 +28,7 @@ from nh.web.shared import session
 from nh.web.views import alerts as alerts_view
 from nh.web.views import niche as niche_view
 from nh.web.views import niches as niches_view
+from nh.web.views import reports as reports_view
 
 
 def main() -> None:
@@ -41,12 +42,14 @@ def main() -> None:
         st.caption("Evidence surface. Nothing here is ranked (ADR-0029, ADR-0052).")
         choice = st.selectbox(
             "View",
-            ["All niches", "Alerts", *clusters],
+            ["All niches", "Alerts", "Reports", *clusters],
             help="Alphabetical. The order is not a claim.",
         )
 
     if choice == "Alerts":
         alerts_view.render()
+    elif choice == "Reports":
+        reports_view.render()
     elif choice == "All niches" or choice not in clusters:
         niches_view.render()
     else:

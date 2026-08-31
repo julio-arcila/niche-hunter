@@ -209,3 +209,14 @@ def test_an_empty_alerts_feed_explains_itself(surface):
     reads as a broken one."""
     app = _run("Alerts")
     assert "No alerts" in _text(app)
+
+
+def test_the_reports_page_renders_and_hides_the_draws(surface):
+    """The page reads the real `reports/` directory, so this is the end-to-end check that
+    no answer key reaches a screen."""
+    app = _run("Reports")
+    assert not app.exception
+    text = _text(app)
+    assert "Reports" in text
+    assert "deliberately" in text and "relevance a labeller must not see" in text
+    assert "draw_key" not in str(app.selectbox[1].options if len(app.selectbox) > 1 else [])

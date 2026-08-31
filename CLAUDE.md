@@ -71,12 +71,14 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
-- Phase: **Slice 7 (evidence surface): read layer, web layer and insight rules done;
-  only the reports viewer is left, and it can slip.** All of ADR-0038..0051 is on `main`;
-  ADR-0052, `nh/api/`, `nh/web/` and `nh/scoring/rules.py` are on
-  `adr-0052-evidence-surface`. Suite green at **946**. **`PHASES` is now FOUR** —
-  clustering, features, scoring, rules — and `nh status --check` iterates it, so a new
-  phase silently extends the nightly gate. TWO drawn samples still wait on a human labeller, and one has a
+- Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
+  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **959**. **`PHASES` is
+  now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
+  so a new phase silently extends the nightly gate (it reads FAIL until the next nightly
+  runs the new one; `run_nightly.sh` runs the phases before the check, so no page).
+  **Next: Slice 10** (Trends seed expansion) or Slice 8 (hardening) — but note CLAUDE.md's
+  banner calls `related_queries` "measured blocked" while SOURCES.md and ADR-0032 say both
+  related endpoints work via the referer header. Settle that before planning Slice 10. TWO drawn samples still wait on a human labeller, and one has a
   2026-09-14 deadline. The ROADMAP headers for slices 9 and 11 said "PLANNED, not started"
   until 2026-08-31, three days after both shipped — read `nh/seeds.py` and
   `features/run.py::METRICS`, not the roadmap, for what exists.
