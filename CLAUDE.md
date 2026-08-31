@@ -192,8 +192,8 @@ reviewer. Summarize exploration briefly.
   **no lexicon**, so they can never gain members and stay retired. `winner_age_years`
   and `top10_concentration` were in `replay.BACKTEST_METRICS` while `video_snapshots` is
   empty in `data/backtest.db` by design, so openness never entered the backtest.
-  `tests/test_lexicon_families.py` has a pre-existing ruff I001, untouched deliberately
-  on a shared branch.
+  (`tests/test_lexicon_families.py`'s ruff I001 is fixed — it was held only because the
+  branch was shared, and that branch is merged. `uv run ruff check .` is clean.)
 - Blocked on other people: Reddit Data API (applied 2026-08-29, pending) and Google Ads
   Basic access (applied). `nh deferrals` is the register and is expected to be true —
   three entries were caught lying this session; read it, don't assume it.
