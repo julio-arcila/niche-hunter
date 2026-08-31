@@ -199,6 +199,48 @@ def relevance_coverage(
     return decided or 0, total or 0
 
 
+def numerator_coverage(
+    session: Session, cluster_id: str, day: date | None = None
+) -> tuple[int, int, int]:
+    """`(on_niche, judgeable, total)` videos in the cluster.
+
+    The counterpart to `relevance_coverage`, for metrics whose claim is sized by
+    their **numerator** rather than by the whole cluster. `relevance_coverage` asks
+    "how much of the cluster could we decide about" and counts a decided negative
+    as knowledge, which is right for a share metric like `supply.on_niche_share`
+    where that negative sits in the denominator. It is wrong for a volume metric:
+    a video decided off-niche contributes nothing to the volume, so deciding it
+    must not raise confidence in the volume.
+
+    `judgeable` is every video that could still have entered the numerator —
+    on-niche, undecided, or unscorable — i.e. everything not decided off-niche.
+    The three states are not two (`on_niche_join`), so all three are counted here
+    for the same reason they are excluded there.
+
+    Callers read the ratio `on_niche / judgeable`. Two degenerate cases, and they
+    are different: `judgeable == 0` with videos present means the scorer decided
+    every one of them off-niche, which is full decisiveness and reads 1.0;
+    `total == 0` means the cluster holds no videos and there was nothing to be
+    decisive about, which reads 0.0. Returning all three counts keeps that
+    distinction at the call site rather than hiding it in a ratio.
+    """
+    on_niche, judgeable, total = session.execute(
+        sa.select(
+            sa.func.count(sa.case((ClusterMember.relevance >= RELEVANCE_HIGH, 1))),
+            sa.func.count(sa.case((ClusterMember.is_noise.is_(False), 1))),
+            sa.func.count(),
+        )
+        .select_from(ClusterMember)
+        .join(Video, Video.video_id == ClusterMember.item_id)
+        .where(
+            ClusterMember.item_type == "video",
+            ClusterMember.cluster_id == cluster_id,
+            sa.true() if day is None else Video.published_at < _until(day),
+        )
+    ).one()
+    return on_niche or 0, judgeable or 0, total or 0
+
+
 def eligible_niche_videos(
     session: Session, cluster_id: str, day: date
 ) -> dict[str, list[tuple[str, int]]]:

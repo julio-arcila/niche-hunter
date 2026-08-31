@@ -27,6 +27,7 @@ from nh.features.inputs import (
     eligible_niche_videos,
     member_channels,
     member_join,
+    numerator_coverage,
     on_niche_join,
     relevance_coverage,
     window_start,
@@ -52,9 +53,12 @@ DEFINITION_SPAN_RATE = "v3-span-rate-on-niche"
 
 
 def _confidence(
-    sample_n: int, contributing: int, universe: int, relevance: tuple[int, int] | None = None
+    sample_n: int,
+    contributing: int,
+    universe: int,
+    decisiveness: tuple[int, int, int] | None = None,
 ) -> float:
-    """Sample adequacy times coverage, times relevance coverage where it applies.
+    """Sample adequacy times coverage, times numerator decisiveness where it applies.
 
     Two different ways a supply metric lies, and it needs both. `min(n/30, 1)`
     alone saturates: 74 contributing channels out of 197 scores 1.00 while the
@@ -62,12 +66,22 @@ def _confidence(
     discovery-biased ones. Coverage alone would under-report a small but fully
     observed cluster. The product says "enough rows, and enough of the niche".
 
-    Relevance coverage is the third leg, new in Slice 4: a metric computed over
-    on-niche videos depends on a judgement about each one, and the share of the
-    cluster we could actually judge is a distinct way the number lies. Held-out
-    precision on that judgement is 0.781, not 1.0 — see
-    reports/relevance_2026-08-27.md — so these metrics are not clean and their
-    confidence must not read as though they were.
+    Numerator decisiveness is the third leg, new in Slice 4 as `relevance_coverage`
+    and re-sized on 2026-08-30: a metric computed over on-niche videos depends on a
+    judgement about each one, and how much of its own numerator it could decide is a
+    distinct way the number lies. Held-out precision on that judgement is 0.781, not
+    1.0 — see reports/relevance_2026-08-27.md — so these metrics are not clean and
+    their confidence must not read as though they were.
+
+    **Why it is not `relevance_coverage` any more.** Both callers here are volume
+    metrics, and `decided/total` counted a video the scorer REJECTED as evidence
+    for a volume that video does not enter. Because `known == members` for every
+    live cluster, the other two legs were both 1.0 and this one *was* the whole
+    confidence — measured on run a6d35aee, Spearman(value, confidence) across the
+    eleven was -0.346, most confident where supply was lowest. A share metric is
+    the opposite case and keeps the old form: `supply.on_niche_share` computes its
+    own, and deliberately does not call this. See
+    reports/supply_audit_2026-08-30.md.
     """
     adequacy = min(sample_n / CONFIDENCE_N, 1.0)
     # Clamped, but the clamp should never bind: `universe` comes from
@@ -78,9 +92,20 @@ def _confidence(
     # silently exceeds its own range.
     coverage = min(contributing / universe, 1.0) if universe else 0.0
     decided = 1.0
-    if relevance is not None:
-        judged, total = relevance
-        decided = min(judged / total, 1.0) if total else 0.0
+    if decisiveness is not None:
+        on_niche, judgeable, total = decisiveness
+        if total == 0:
+            # No videos at all: nothing was decided because there was nothing to
+            # decide. Not the same as the case below, and must not read as 1.0.
+            decided = 0.0
+        elif judgeable == 0:
+            # Videos exist and every one was decided off-niche. The scorer was
+            # fully decisive, and a volume of zero built on that is earned — this
+            # is the "genuinely published nothing on-niche" case the coverage leg's
+            # own comment defends, arriving here instead.
+            decided = 1.0
+        else:
+            decided = min(on_niche / judgeable, 1.0)
     return adequacy * coverage * decided
 
 
@@ -169,6 +194,16 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
         )
     known = len(oldest)
     censored = sum(1 for first in oldest.values() if first.date() > since.date())
+    # The same count over the channels that actually reach `value`. `censored`
+    # ranges over every known channel while the sum below ranges only over
+    # `counts`, so the two populations differ and the wider one cannot say how
+    # much of the value is affected — measured 2026-08-30, history-of-ideas
+    # reported 68 censored against 13 of its 34 contributing channels. Data rule 9
+    # names this counter as the attribution marker for the definition bump, so it
+    # has to range over the population the value is built from.
+    contributing_censored = sum(
+        1 for channel_id in counts if oldest[channel_id].date() > since.date()
+    )
     value = sum(
         n / _observed_weeks(day, since.date(), oldest[channel_id].date())
         for channel_id, n in counts.items()
@@ -182,7 +217,7 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
         # `covered` here would drive its confidence to 0 and call the finding
         # missing data.
         confidence=_confidence(
-            known, known, len(channels), relevance_coverage(session, cluster_id, day)
+            known, known, len(channels), numerator_coverage(session, cluster_id, day)
         ),
         inputs_n=sum(counts.values()),
         detail={
@@ -194,6 +229,10 @@ def uploads_per_week(session: Session, cluster_id: str, day: date) -> FeatureRes
             # — the population the old fixed-window count under-read. Attribution
             # for any step change in the stored series at this definition bump.
             "channels_span_censored": censored,
+            # Censored among the CONTRIBUTING channels — the share of this value
+            # that rests on an extrapolated span. Read against
+            # `channels_publishing_in_window`, not against `member_channels`.
+            "contributing_span_censored": contributing_censored,
             "definition": DEFINITION_SPAN_RATE,
             "note": (
                 "long-form, on-niche only; per-channel rate over the observed span "
@@ -232,7 +271,7 @@ def median_views(session: Session, cluster_id: str, day: date) -> FeatureResult:
             len(by_channel),
             len(by_channel),
             len(member_channels(session, cluster_id, day)),
-            relevance_coverage(session, cluster_id, day),
+            numerator_coverage(session, cluster_id, day),
         ),
         inputs_n=len(pooled),
         detail={
