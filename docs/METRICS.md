@@ -787,6 +787,35 @@ Measured     : Slice 5, on-niche videos only -- 4.9x spread, maritime 1.58y (mos
 Not a metric, but `supply.*` and `money.*` are all computed over the videos it
 selects, so it is defined here rather than only in code.
 
+**Three states, not two, and 2026-08-31 widened one of them (ADR-0046).** A video is
+on-niche (>= 0.55), decided off-niche (`is_noise`, score exactly 0.0), or *unscorable*
+-- excluded from numerator and denominator alike rather than guessed into either. Until
+2026-08-31 the only unscorable case was non-Latin SCRIPT, which was read as covering
+non-English languages. It did not: a Spanish or German title is ~100% Latin letters, so
+it passed the gate, matched nothing in an English lexicon, scored 0.0 and was filed as a
+DECISION nobody made. Measured over ENRICHED rows with an exact-variant `audio_lang`:
+854 es/fr/pt/de/it rows, none caught, 1.1% on-niche against English's 22.1% under the
+same filter. (A looser prefix match over all rows gives 1,075 / 2.5%; both are real, and
+the filter has to be stated or the two figures disagree for no reason.) A function-word
+gate now withdraws them: **979 rows** become unscorable, of which **923 were decided
+off-niche** and the rest sat in the undecided band and move no coverage number.
+
+**This cannot move a number, only withdraw a row** -- it is an early return before any
+axis is computed, so a title that passes scores exactly what it scored before. Held-out
+precision **0.781 is therefore unaffected**: it is measured over above-threshold rows,
+and 0 of 11,495 currently on-niche rows are caught. Of the 298 labels, 5 fire, all
+genuinely Spanish or French; the highest stored relevance among them is 0.408, so none is
+above threshold and precision is arithmetically unchanged. `calibrate.py` splits on
+`sha256(video_id) % 2`, a per-row hash, so dropping rows cannot reshuffle the halves
+either. A future **recall** recomputation would shift by those 5.
+
+Those 298 labels are **machine labels** — `relevance_labels.labeller` is
+`claude-opus-5` for all 298, and reports/relevance_2026-08-27.md says so twice: "the
+same system that wrote the lexicon" and "the labeller is not independent". An earlier
+version of this paragraph called 3 of them "human-confirmed", which was false, and is
+exactly the conflation ADR-0041 and ADR-0045 exist to prevent. Independent human
+validation remains outstanding and now fires when a score is cited (ADR-0045).
+
 A video is scored against its cluster on two axes, and relevance is their geometric
 mean, so either at zero means zero:
 

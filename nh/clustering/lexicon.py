@@ -33,7 +33,7 @@ a row's decision stays attributable to the vocabulary that produced it.
 
 from __future__ import annotations
 
-LEXICON_VERSION = "2026-08-28.3"
+LEXICON_VERSION = "2026-08-31.4"  # ADR-0046: latin-script non-english gate
 
 #: Failure and case markers, shared by all five niches by construction.
 #:

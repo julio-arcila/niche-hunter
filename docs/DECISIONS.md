@@ -1770,3 +1770,179 @@ matters. Outcome-based validation instead of labels needs a forward outcome per 
 grain. Crowdsourced labels remain the cheap honest answer if this ever fires — 100 rows
 across three raters is roughly $20-40 and yields inter-rater agreement as well, which is
 better evidence than one operator.
+
+## ADR-0046 — A Latin-script non-English title is unscorable, not decided off-niche
+2026-08-31. Accepted. Fixes a scoring defect that has been live since the second gate in
+`score()` was written. Bumps `LEXICON_VERSION` to `2026-08-31.4`. No migration.
+
+**The defect.** `_latin_share` marks a title unscorable below 50% Latin **letters**, and
+its comment states the intent exactly: *"An English lexicon cannot read this. Scoring it 0
+would call it off-niche."* But it catches scripts, not languages. A Spanish, French,
+German, Portuguese or Italian title is ~100% Latin letters, so it passed the gate, matched
+nothing in an English lexicon, scored exactly 0.0, and `is_noise = value <= RELEVANCE_LOW`
+filed it as **decided** off-niche — the precise outcome the comment forbids.
+
+Measured on **enriched** rows with an **exact-variant** `audio_lang` — the filter has
+to be stated, because a looser prefix match over all rows gives 1,075 euro rows at 2.5%
+on-niche, and an unstated filter is why two true numbers looked like a contradiction:
+
+| group | n | unscorable | decided noise | on-niche |
+|---|---|---|---|---|
+| es/fr/pt/de/it and variants | 854 | **0** | 776 | 9 (**1.1%**) |
+| en (`en%`, same filter) | 26,775 | 103 | 15,746 | 22.1% |
+| ko (non-Latin) | 208 | 203 | — | 0% |
+| hi (usually romanised) | 6,583 | 709 | — | 21.8% |
+
+The pattern is diagnostic: non-Latin scripts are caught correctly; romanised Hindi, Urdu
+and Tamil score like English because their titles carry English domain vocabulary; the
+damage is confined to Latin-script European languages, where roughly 163 videos are
+excluded from every supply numerator and 776 are counted as decisions in
+`relevance_coverage` — inflating confidence in exactly the clusters
+`reports/supply_audit_2026-08-30.md` found inverted.
+
+**The fix.** Frozen per-language function-word sets (es, fr, de, pt, it) plus an English
+set, matched over diacritic-**folded** tokens. A title is withdrawn when one language
+contributes >= 2 distinct function words **and** foreign words outnumber English ones; a
+description is consulted only when the title is not already clearly English. The reason
+string names no language, because the sets incidentally catch Romanian, Albanian and
+Swahili through shared words — the right outcome, since the lexicon cannot read those
+either, but a named-language claim would sometimes be false.
+
+**Why not `audio_lang`, which is the obvious answer.** Three reasons, and the first is
+decisive:
+
+1. **It breaks a load-bearing invariant.** `nh/features/inputs.py:160` states that
+   relevance is *"a pure function of (title, description, lexicon_version), so a video's
+   score never changes"* — which is why as-of-day membership needs no history table
+   (ADR-0018). `audio_lang` is NULL until enrichment and can arrive later, so a score
+   keyed on it would flip after the fact and break replay.
+2. **It is blind where it matters.** 565 of the 1,347 rows the gate catches (42%) have a
+   NULL `audio_lang` — unenriched or unreported, which is the normal state of a freshly
+   discovered video.
+3. **It is uploader-declared and measurably wrong in both directions.** All 34
+   `en`-labelled rows the gate fires on are visibly foreign — German lecture series,
+   Spanish geopolitics, Portuguese, Tagalog — so `audio_lang` would have *protected* them.
+   Meanwhile roughly half the residual is English-titled videos on foreign-`audio_lang`
+   channels, which the text gate correctly leaves scored and a language-keyed gate would
+   have wrongly withdrawn.
+
+Also rejected: a **language-detection dependency**, because a versioned statistical model
+inside a scorer whose lexicon is deliberately *"data, not code… the thing a reviewer should
+argue with"* is unreviewable and drifts between releases, breaking frozen replay. And
+**"zero matches implies unscorable"**, which looks elegant and is destructive:
+`RELEVANCE_LOW`'s own comment records that exactly-zero separates hard — 6.4% on-niche
+against a 28.6% base rate — so it is the decided-noise mechanism for ~15,700 English rows,
+and reclassifying it to rescue 854 would demolish `relevance_coverage` corpus-wide.
+
+**The thresholds are one step off a cliff, on the safe side.** Swept on the live corpus:
+
+| title thr | catch | English fires | Indic fires | **on-niche caught** |
+|---|---|---|---|---|
+| 1 | 1,873 | 137 | 32 | **30** |
+| **2 (chosen)** | **1,347** | **34** | **0** | **0** |
+| 3 | 1,199 | 31 | 0 | 0 |
+
+**Re-measured on the final sets, and it undercuts the table above** — recorded because a
+constant justified by a stale sweep is the thing a future reader trusts:
+
+| title thr | catch | English fires | Indic fires | on-niche caught |
+|---|---|---|---|---|
+| 1 | 1,233 | 47 | 3 | 1 |
+| **2 (chosen)** | **979** | **28** | **0** | **0** |
+| 3 | 875 | 25 | 0 | 0 |
+
+Dropping the short tokens flattened the cliff: threshold 1 now costs one on-niche row and
+three Indic rows, not thirty and thirty-two. **The word list is doing the safety work, not
+the threshold.** Two remains correct — strictly safer than one, and it buys 104 rows over
+three — but the margin is thin and should be re-measured rather than trusted if the sets
+change again.
+
+At 1 the gate starts eating niches. At 3 it pays 148 rows of catch for ~3 fewer English
+fires that were mislabeled-foreign anyway. The description threshold (6) sits mid-plateau;
+that axis moves nothing sharply.
+
+**The canaries were a training-set number, and review caught it.** The word sets were
+edited until three corpus canaries read zero — no on-niche row caught, no romanised-Indic
+row, no row of the drawn sample. All three reproduced exactly, independently, twice. They
+were also nearly meaningless as a safety margin: with those sets, **9 of 11 constructed
+English titles fired** — `Las Vegas`, `al-Assad`, `Su-24`, `die cast`, `Mac OS da Vinci`,
+`Per Kastrup` — because digits and punctuation are separators, so proper nouns shed
+function words. A number obtained by editing until it reads zero cannot then be quoted as
+evidence that it is zero.
+
+**The fix took two rounds, and the second round is the instructive one.** Twenty-two
+tokens that are English words, proper-noun fragments or romanised-Hindi particles went
+first — `las al su es son sin come per die hat est il sa os da na ed com comment el los
+et` — taking that attack set from 9/11 to 0/11. Review then drew a **second, independent**
+set of English titles and **10 of 11 fired**: `Du Pont, La Porte` (a real 2014
+engineering-failures case, four dead), `Le Mans, La Sarthe`, `Del Rio, La Joya`, `Der
+Spiegel im focus`, `Di Maio and La Russa`. The first set had been used to *choose* the 22
+removals, so it was in-sample and structurally could not have caught them.
+
+Every remaining two-character token was therefore dropped as well. Total cost **368 rows
+of catch (1,347 → 979, 27%)**; benefit, both attack sets go to zero and all five target
+languages are still caught on the corpus (es 267, pt 121, fr 112, de 52, it 18). An
+earlier draft rejected the length rule for "losing a language": that was measured on one
+hand-written fixture rather than the corpus, and was wrong. Both attack sets are pinned as
+tests, because a margin established by editing until a corpus count reads zero is a
+training-set number.
+
+**The surface is narrowed, not empty, and this ADR must not be read as claiming
+otherwise.** A third independent draw built only from the surviving three-character
+tokens fired on **7 of 16** — `Von Neumann and MIT` (`mit`/`von`), `Che Guevara: Con Man
+or Icon?` (`che`/`con`), `Hay Festival: Con Artists panel`. Removals stopped there
+deliberately: every three-letter foreign function word is somebody's acronym or surname,
+so the class cannot be closed by enumeration, and a fourth round would take `ser`, `ist`,
+`tem`, `sao` and still not finish.
+
+The reason it is safe to stop is a margin, not a canary. On-niche rows sitting **one token
+away from withdrawal fell from 75 to 4**, and those needing one further same-language word
+**from 30 to 1** — the survivor being `MIT Just Revealed the AI Bubble's Fatal Flaw`, one
+German token from being withdrawn. Two of the third-draw titles are pinned as a test that
+asserts they *do* fire, so the residual cannot change silently in either direction.
+
+One entry in the removed list, `son`, was **already claimed as removed by a comment while
+still present in the set** — colliding with 10 on-niche English titles. A comment that
+miscounts its own exceptions has lost its force, which is the same lesson `python.md`
+records about its broad-`except` count.
+
+**Verified independently of the planner**, reproducing its pre-fix numbers exactly (1,347
+fires, 1,286 formerly decided-noise, 565 NULL-lang) and re-run after the token removal:
+**979 fires (923 formerly decided-noise), 0 of 11,495 on-niche rows caught, 0 of 9,243 romanised Indic, 0 of the 100
+rows in the drawn validation sample.** That last one matters: the sample stays a valid
+draw against the post-change scorer, so ADR-0044's draw survives.
+
+**No migration.** `assign_videos` re-scores every member video each run and upserts on
+`(item_type, item_id)`, so one nightly converges the corpus; `cluster_members` is an entity
+table (`Base, Provenance` — **not** `AppendOnly`), so no data rule is engaged. Snapshots
+untouched.
+
+Two consequences of "converges per database", found in review and recorded because they
+are the kind of thing discovered a month later:
+
+- **`data/backtest.db` does not converge.** It keeps relevance computed under
+  `2026-08-28.3`, so `reports/backtest_2026-08-28.md` is no longer reproducible from HEAD
+  without a re-scan. That is acceptable — the backtest is a frozen artifact and Gate E's
+  null does not depend on this gate — but the report is now tied to a lexicon version the
+  code no longer produces, and anyone re-running it must re-scan first.
+- **`nh/backtest/scan.py:192` folds `None` into the zero branch.** `if not value: continue`
+  survives the new `None` without crashing, but treats a withdrawal as a zero, so
+  `counts.scorable` under-counts. Pre-existing for non-Latin script and harmless at that
+  volume; this gate makes it roughly 1,350x more common in the live grain. Not fixed here
+  because it is a different module with its own tests, and fixing it inside a scoring ADR
+  would hide it. **It is the first item of item-9 follow-up work.**
+
+**The accepted limit, as a number rather than a hedge.** Roughly 250 known Euro-language
+rows remain decided-noise (222 by a prefix-match count, 251 by the exact-variant one — the
+same filter ambiguity as above, stated rather than papered over), and the token removal
+adds ~200 more. That is a ceiling, not the defect: inspection shows roughly half are
+English-titled videos on foreign-`audio_lang` channels, correctly scored. The genuinely
+foreign residual — short titles carrying no function words, "Hipotesis y capacidades de la
+conciencia" — is on the order of 120–150 rows and is the accepted limit of a function-word
+gate. It concentrates in metaphysical-battles (70) and esoterism-spirituality (41).
+
+**Expected side effect, so `data-qa` does not misread it.** Corpus-wide decided share falls
+~2 points, and `relevance_coverage` — hence `uploads_per_week` confidence — dips most for
+esoterism-spirituality (−306 decided rows), metaphysical-battles (−241) and geopolitics
+(−151). That is confidence becoming honest, per the audit's inversion finding, not a
+regression.
