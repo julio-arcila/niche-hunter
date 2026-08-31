@@ -782,6 +782,37 @@ Measured     : Slice 5, on-niche videos only -- 4.9x spread, maritime 1.58y (mos
 
 ---
 
+## Ballast -- members that publish nothing the niche can read
+
+**ADR-0047, 2026-08-31.** A channel joins a cluster on one discovered video and is then
+polled forever, so its whole catalogue lands in that cluster. A member with **>= 10
+decided videos and zero on-niche** is ballast, and the `supply.*` and `money.*` read paths
+exclude its videos. **`openness.*` deliberately does not** — measured, none of its values
+or confidences move — because openness measures a channel against its own baseline over
+its whole output, which is the supply/openness pool separation this file already documents
+under `supply.median_views`. Measured at introduction under
+`LEXICON_VERSION 2026-08-31.4`: 503 of 2,307 member channels, 8,994 video rows.
+
+**Computed per read and bounded by the decision date**, not stored. A stored flag would be
+an aggregate as of the run date and would leak post-`day` evidence into day-bounded
+features — measured, 114 pre-2026 rows vanished from a replay at a 2025 date. `decided`
+counts on-niche plus decided-noise only; unscorable rows are not judgements and do not
+count against a channel, which is what keeps this safe beside ADR-0046's language gate.
+`BALLAST_DECIDED = 10` is a judgement call bounded above by `FEED_DEPTH`, not a
+derivation: history-of-ideas `on_niche_share` reads 0.241/0.226/0.155 at N = 5/10/15.
+
+Exclusion can only shrink a denominator, never a numerator -- the rule requires zero
+on-niche videos, so a ballast channel contributes nothing above the threshold (verified, 0
+on-niche rows across all 503), and that holds at every date because zero on-niche over a
+catalogue implies zero over every earlier prefix of it. There is nothing to reverse: the
+set is recomputed on every read, so a channel leaves it the moment one of its videos
+crosses 0.55.
+
+Effect on stored series (`detail.definition` = `v3-non-ballast-members` marks the step):
+history-of-ideas `on_niche_share` 0.076 -> 0.226 and `relevance_coverage` 0.803 -> 0.629.
+Coverage FALLS because ballast was mostly decided-noise and had been inflating the
+confidence input.
+
 ## Relevance -- the rule every supply number now depends on
 
 Not a metric, but `supply.*` and `money.*` are all computed over the videos it

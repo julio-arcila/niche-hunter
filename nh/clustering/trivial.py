@@ -114,5 +114,18 @@ def assign_channels(session: Session, day: date, mark: Stamp) -> int:
         if seed_id in slug_of
     ]
     if members:
-        written += upsert(session, ClusterMember, members, conflict_on=("item_type", "item_id"))
+        # `is_noise` is in the INSERT payload (a new member starts non-noise) but
+        # deliberately OUT of the update set, because `upsert`'s `update` defaults to
+        # every supplied column. Nothing derives channel `is_noise` today — ADR-0047
+        # computes ballast at read time rather than storing it — but the column is a
+        # hand switch `member_join` honours, and a nightly that silently reset it
+        # would be indistinguishable from one that worked. Same shape as `apply_seeds`
+        # keeping `active` outside its update set.
+        written += upsert(
+            session,
+            ClusterMember,
+            members,
+            conflict_on=("item_type", "item_id"),
+            update=["cluster_id", "confidence", "source", "run_id", "at"],
+        )
     return written

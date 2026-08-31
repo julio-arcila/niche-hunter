@@ -8,7 +8,7 @@ import pytest
 import sqlalchemy as sa
 
 from nh.db.session import session_scope
-from nh.features.inputs import numerator_coverage
+from nh.features.inputs import BALLAST_DECIDED, numerator_coverage
 from nh.features.supply import (
     geo_concentration,
     median_views,
@@ -355,11 +355,16 @@ def test_rejecting_a_video_does_not_raise_confidence_in_a_volume(engine):
 
     Both clusters hold two channels, two on-niche videos and two unscorable ones,
     so adequacy and coverage are identical by construction and only the third leg
-    can move. The second cluster adds 40 videos the scorer confidently rejected.
+    can move. The second cluster adds eight videos the scorer confidently rejected.
 
-    Under the old `decided/total` leg those 40 lifted it from 0.5 to 42/44 = 0.955,
+    Under the old `decided/total` leg those eight lifted it from 0.5 to 10/12 = 0.833,
     because rejection counted as knowledge. A rejected video is not in this volume
-    and cannot make it more certain, so the two must now agree exactly."""
+    and cannot make it more certain, so the two must now agree exactly.
+
+    Eight and not forty: at ten decided with no on-niche the channel becomes ballast
+    (ADR-0047) and leaves the cluster entirely, which would confound this test by
+    changing the adequacy leg as well. The two rules interact and the fixture has to
+    stay on one side of it."""
     make_cluster(engine)
     add_channel(engine, "a", videos=2, relevant=True)
     add_channel(engine, "b", videos=2, relevant=None)
@@ -367,7 +372,10 @@ def test_rejecting_a_video_does_not_raise_confidence_in_a_volume(engine):
 
     make_cluster(engine, "other")
     add_channel(engine, "c", videos=2, cluster_id="other", relevant=True)
-    add_channel(engine, "d", videos=42, cluster_id="other", relevant=[None, None] + [False] * 40)
+    rejected = [False] * (BALLAST_DECIDED - 2)  # derived: must stay below the ballast bar
+    add_channel(
+        engine, "d", videos=2 + len(rejected), cluster_id="other", relevant=[None, None, *rejected]
+    )
     padded = uploads_per_week(session_for(engine), "other", DAY).confidence
 
     assert padded == pytest.approx(lean)

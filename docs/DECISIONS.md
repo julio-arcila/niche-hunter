@@ -1948,3 +1948,174 @@ gate. It concentrates in metaphysical-battles (70) and esoterism-spirituality (4
 esoterism-spirituality (−306 decided rows), metaphysical-battles (−241) and geopolitics
 (−151). That is confidence becoming honest, per the audit's inversion finding, not a
 regression.
+
+## ADR-0047 — Ballast is computed per read, not stored: a member that publishes nothing the niche can read stops counting
+2026-08-31. Accepted. Adds a day-bounded ballast predicate to the feature layer's read
+paths. **No stored state, no migration, no clustering-phase change, no scorer touched.**
+Bumps `supply.DEFINITION` to `v3-non-ballast-members`.
+
+**The problem.** `trivial.assign_channels` admits a channel to a cluster on **one**
+discovered video with no threshold, and `youtube_rss` then polls it forever, so its
+entire catalogue lands in that cluster where the lexicon rejects nearly all of it. Only
+~7% of cluster video members arrive from discovery; 90%+ arrive this way.
+
+Measured 2026-08-31 under `LEXICON_VERSION 2026-08-31.4` (post-ADR-0046), over the ten
+active-seed clusters — 2,307 non-noise channel members, 37,479 video member rows:
+**503 channels (21.8%) have >= 10 decided videos and not one on-niche**, carrying
+**8,994 video rows** that sat in every coverage denominator.
+
+| cluster | members | ballast | | cluster | members | ballast |
+|---|---|---|---|---|---|---|
+| history-of-ideas | 205 | **109** | | ai-and-software | 347 | 50 |
+| metaphysical-battles | 253 | 80 | | macro-economy | 285 | 44 |
+| logic-linguistics-gnoseology | 183 | 58 | | geopolitics | 318 | 38 |
+| esoterism-spirituality | 181 | 56 | | anthropocene-anthropology | 104 | 29 |
+| | | | | biohacking | 143 | 26 |
+| | | | | trading | 288 | 13 |
+
+**State the scorer or the numbers contradict each other.** All figures above are the HEAD
+scorer run in memory. The live database has **not converged** — every stored row is still
+`2026-08-28.3` — and against stored scores the same rule finds **543**, with the sweep
+shifting from 605/556/503/465/301 to 630/590/543/509/354 at N = 5/8/10/12/15. Neither is
+wrong; they are different scorers. A draft of this ADR quoted three separate runs under
+one label, and a per-cluster column from a *different* predicate (>= 5 long-form videos,
+the supply audit's frame) merged into the same table.
+
+### The design: a query, not a flag — and why that is the whole decision
+
+The first implementation marked `cluster_members.is_noise` on the channel row in the
+clustering phase. **It was rejected for leaking future information.** A stored flag is an
+aggregate as of the RUN date, so a day-bounded read at a past date saw evidence that did
+not exist then: measured, 19 marked channels have fewer than ten decided rows among their
+pre-2026 videos and **114 pre-2026 video rows vanished from a replay at a 2025 decision
+date**. Five of the nine `BACKTEST_METRICS` route through these predicates, and
+`nh/features/inputs.py` promises the opposite outright — "a feature must never see a row
+that did not exist at the decision date". `on_niche_join`'s no-history-table argument does
+not extend to a channel-level aggregate.
+
+`inputs._ballast_channels(cluster_id, day)` computes the set per read, bounded by
+`Video.published_at`. That is day-pure by construction and **deletes** everything the
+stored design needed: the `mark_ballast` phase function, the write, the
+`assign_channels` update-set clobber hazard, the `_video_rows` one-way-door filter, the
+`retire_empty` ordering interaction (which flipped 162 of 705 rows twice per night), and
+the entire ADR-0039-class "verify the rows actually moved" step. There is no state to
+move. Automatic return stops being a mechanism and becomes a triviality — the predicate
+re-evaluates on every read.
+
+Cost, measured honestly at both grains, because the first figure here was per-execution
+and read as per-pass: **19–23ms per execution** live (87ms on `backtest.db`), but the
+predicate is materialised once per *statement*, and after removing the inert
+`on_niche_join` clause it sits in three read paths rather than four. A clean A/B with the
+predicate neutralised measured **+4.37s per full feature pass** with the tautological
+clause still in; removing it takes out the bulk of that. The subquery is uncorrelated with
+respect to the outer row, so it never runs per video.
+
+**On the backtest**, where this would be expensive (161 dates x ~10 statements), it is a
+structural no-op: backtest membership comes from `load.py::_members`, which is *selected
+on* on-niche tallies, so the minimum on-niche count across all 4,527 channels is **5** and
+a running-prefix check finds **zero** channels ever reaching ten decided with zero
+on-niche at any intermediate date. Filtered and unfiltered replay are identical on today's
+corpus. If a new-grain backtest is ever built from the discovery-admitted corpus, where
+ballast is 21.8%, the set must be memoized per `(cluster, day)` — measured at +37 min per
+full replay memoized against 6.1 hours naive. That is **not** implemented here.
+
+### The rule
+
+`decided >= 10 AND on_niche == 0`, where `decided = on-niche + decided-noise`.
+
+- **Decided, not scored.** Undecided mid-band and unscorable rows are not judgements and
+  must not count as evidence against a channel — data rule 7 at channel grain. This is
+  what makes it safe beside ADR-0046: **43 channels whose catalogue the language gate
+  reveals as unreadable have `decided = 0`**, are not ballast, stay members, and correctly
+  drag `relevance_coverage` down as unscorable instead.
+- **N = 10 is a judgement call, not a derivation**, and saying otherwise would be the
+  failure METRICS.md warns about three times. Marked counts fall smoothly — 605 / 556 /
+  503 / 465 / 301 / 57 at N = 5/8/10/12/15/20 — with **no break at ten**. The one real
+  cliff is 12 -> 15, and it is `FEED_DEPTH` biting, which bounds N from above rather than
+  choosing it. The headline is sensitive and that is stated rather than buried:
+  history-of-ideas `on_niche_share` reads **0.241 / 0.226 / 0.155** at N = 5/10/15, a
+  1.55x swing. Two things make the dial tolerable: numerator invariance holds at every N
+  and every day, so N moves denominators only; and it is a read-time constant like
+  `RELEVANCE_HIGH`, so retuning it is a query, never a rewrite of stored rows.
+- **Zero on-niche, not a small share.** 342 channels sit at exactly one on-niche video, so
+  any tolerance takes them and removes real on-niche rows from numerators.
+
+**Numerator invariance is the safety argument, and it holds per day.** Zero on-niche
+across a catalogue implies zero across every published-before-`day` prefix, so an excluded
+channel has contributed nothing above the threshold at any date. Verified: 0
+counterexamples across all 503. An earlier draft carried a caveat here about 55 orphan rows (2 on-niche) whose channels
+were never members of their cluster. **That described the stored-flag design and is now
+obsolete**: `not_ballast` tests a ballast tally, not membership, so it excludes none of
+them — verified, `numerator_coverage("court-cases")` returns all 259 on-niche rows
+including the 2 orphans. Structurally it must, since a channel with an on-niche video in a
+cluster cannot be ballast there.
+
+### Where it applies, and the one place it must also apply
+
+`relevance_coverage`, `numerator_coverage` and **`member_channels`** — and deliberately
+**not** `on_niche_join`, and **not** `member_join`.
+
+Not `on_niche_join`, because it would be a tautology: that predicate already requires
+`relevance >= RELEVANCE_HIGH` and a ballast channel has no video above it, so the clause
+could never remove a row. Measured — 0 of 297 cluster-day-metric cells changed with it
+present, the whole suite passed with it removed, and it cost ~4s per feature pass while
+being the only route by which the predicate reached three call sites that wrap it in
+`sa.exists(...).correlate(Video)`, where an earlier version compiled wrong.
+
+Not `member_join`, which means **`openness.*` is unaffected** — measured, 0 of 11 values
+and 0 of 11 confidences move for `breakthrough_rate_cohort`, `views_per_sub` and
+`winner_age_years`. That is a decision, not an oversight, and it follows the separation
+this module already documents: *"Supply asks what a newcomer competes against in this
+niche; openness asks whether a video beat its own channel's baseline, and that baseline
+must be the channel's whole output. Two different questions, so two different pools — do
+not merge them back together."* A ballast channel is still a real channel with real reach
+dynamics; whether its uploads are on-niche says nothing about whether a newcomer can get
+traction on it. The cost is that "member of this cluster" now has two populations —
+history-of-ideas is 76 via `member_channels` and 162 via `member_join`, 86 of them ballast
+— and that has to be read as the deliberate supply/openness split rather than drift. Both sides matter: `supply._confidence` takes
+`universe` from `member_channels` and `contributing` from a `member_join` query, and its
+clamp comment says coverage above 1.0 "means those two populations have drifted apart
+again — a bug in the query, not a value". Two predicates would be exactly that drift.
+
+Measured effect, live corpus:
+
+| | members | relevance_coverage | on_niche_share |
+|---|---|---|---|
+| history-of-ideas | 205 -> 94 | 0.803 -> 0.629 | 0.076 -> **0.226** |
+| trading | 288 -> 273 | 0.743 -> 0.735 | 0.592 -> 0.635 |
+
+**These are STORED-score numbers** (111 ballast for history-of-ideas), sitting beneath a
+HEAD-scorer table that says 109 — a two-channel difference, and it is labelled rather than
+reconciled away because the two scorers genuinely disagree until the first nightly
+converges ADR-0046. Flagging it here because a subsection titled "state the scorer" that
+then does not is exactly the failure it warns about.
+
+**Coverage falls** — ballast was mostly decided-noise, so it had been inflating the
+confidence input, and the supply audit's "confidence is inverted" finding partially
+self-corrects. **But confidence RISES on the volume metrics with values byte-identical**,
+because `member_join` already excluded noise so the `universe` leg shrinks:
+`median_views` for history-of-ideas moves 0.064 -> 0.161 on an unchanged 238.0. Nothing
+about the evidence improved; the denominator got smaller. There is a defensible reading —
+a niche whose real membership is 94 channels is better covered by the same contributing
+set — but it is the direction this ADR's own failure mode warns about, arriving on merge,
+and it is recorded rather than left to be found in a series.
+
+**Attribution is incomplete and that is a known gap.** `supply.DEFINITION` bumps and
+`money.py` now imports it rather than hardcoding `"v2-on-niche"` (it had been asserting
+nothing changed while its confidence moved). But `supply.geo_concentration` writes no
+`definition` key while its value moves in all eleven clusters. Adding a tag to a metric
+that never had one is a separate change; until then a `geo_concentration` series spanning
+2026-08-31 must be dated against this ADR by hand. (An earlier draft named
+`openness.breakthrough_rate_cohort` here too. It does not move — 0 of 11 values and 0 of
+11 confidences — because openness is deliberately unfiltered, as stated above. That
+sentence was the pre-fix claim left standing, contradicting this ADR two sections apart.)
+
+**Snapshots are untouched** — this changes what is counted, not what is collected — and it
+saves **no quota**, since enrichment targets `Video.enriched IS FALSE` with no membership
+join. It is a measurement fix and claims nothing more.
+
+**The failure mode to watch.** A lexicon regression that stops matching a sub-vocabulary
+would flip many channels to observed-zero, shrink the member universe, and *raise*
+confidence — the inversion the supply audit found, rebuilt one level up. A `data-qa` check
+warning when a cluster's ballast fraction moves sharply night-over-night is the natural
+guard and is **not** implemented here.

@@ -43,7 +43,17 @@ CONFIDENCE_N = 30
 
 #: Stamped into `detail` on every metric that moved to the on-niche pool in Slice
 #: 4, so a step change in a stored series is attributable rather than mysterious.
-DEFINITION = "v2-on-niche"
+#: Bumped 2026-08-31 (ADR-0047): every one of these metrics now excludes videos whose
+#: CHANNEL is ballast — a member with ten decided videos and not one on-niche. 503 of
+#: 2,307 member channels and 8,994 video rows leave the denominators (HEAD scorer;
+#: against the un-converged stored scores the same rule finds 543). Values move most
+#: where the audit found confidence inverted: history-of-ideas `on_niche_share`
+#: 0.076 -> 0.226 and its `relevance_coverage` FALLS 0.803 -> 0.629, both measured on
+#: stored scores, because ballast was mostly decided-noise and was inflating the
+#: confidence input. An earlier version of this comment carried a third, unlabelled
+#: pair (0.077/0.230, 0.789/0.605) from yet another run — three measurements under one
+#: label is the defect this whole ADR kept re-learning.
+DEFINITION = "v3-non-ballast-members"
 
 #: `uploads_per_week` only, 2026-08-29: the fixed-window count became a
 #: per-channel rate over the observed span (data rule 9). Values before this tag
