@@ -45,7 +45,30 @@ if [ "$bak_t" -lt 1 ] || [ "$src_t" != "$bak_t" ] || [ "$src_s" != "$bak_s" ]; t
 fi
 
 OUT="$DEST/niche_hunter_$(date +%Y-%m-%d).db.gz"
-gzip -c "$TMP" > "$OUT"
+# Checked explicitly, and the check is not paranoia — it is a regression this
+# script actually shipped on 2026-08-30. A redirection failure does NOT reliably
+# trip `set -e`, so when TCC denied this write (see the retention comment below)
+# the script sailed past it and reported "backup ok -> ... (208M)" — the size
+# came from `du` reading YESTERDAY'S file, still sitting at that path. A stale
+# backup reported as a fresh one is the worst failure this script has, and it is
+# the same class of lie the header warns about for `PRAGMA integrity_check`.
+#
+# Overwriting an EXISTING file in the TCC-protected destination is the operation
+# that gets denied; creating a new one is allowed. Normal daily runs use a new
+# date-stamped filename and are unaffected — this bites a same-day re-run.
+if ! gzip -c "$TMP" > "$OUT"; then
+  log "FAILED: could not write $OUT — the file at that path, if any, is STALE"
+  alert "niche-hunter backup: could not write $OUT (stale file may remain)"
+  exit 1
+fi
+# Belt and braces: prove the file we are about to call a backup was written by
+# THIS run, not left behind by a previous one.
+if [ ! -s "$OUT" ] || [ -n "$(find "$OUT" -mmin +10 2>/dev/null)" ]; then
+  log "FAILED: $OUT is empty or was not written by this run"
+  alert "niche-hunter backup: $OUT is empty or stale"
+  exit 1
+fi
+
 # Rolling 30-day window, matching the retention pattern already in your crontab.
 #
 # Non-fatal, and the `|| log` is load-bearing rather than defensive: under cron
