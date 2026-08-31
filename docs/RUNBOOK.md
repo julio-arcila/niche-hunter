@@ -180,6 +180,33 @@ uv run nh doctor              # database reachable, schema present
 Then run the `data-qa` agent against the newest `run_id` on nights 1, 2 and 7 at
 minimum — it checks NULL rates, snapshot monotonicity, duplicates and orphans.
 
+## The evidence surface
+
+```bash
+uv sync --extra web          # once; kept optional so the nightly never needs it
+uv run nh web                # http://127.0.0.1:8501
+uv run nh niche show <slug>  # the same numbers, in a terminal
+uv run nh niche trace <slug> <metric>   # the rows behind one number
+```
+
+Loopback-only and telemetry-off by default (`.streamlit/config.toml`). There is no
+authentication and the page shows an unvalidated scorer's inputs, so do not bind it
+to a LAN.
+
+**What it will not show you, and why that is the point.** A metric the relevance
+scorer decided is withheld for a cluster whose axis has no human labels — that is
+every active cluster today — and so is the whole `scorecards` row. What appears
+instead is the reason and the command that lifts it. Demand, Keyword Planner and
+two of the three openness metrics are unaffected: the scorer never touches them.
+
+`--unvalidated` on `nh niche show` reveals them for one invocation. It records
+nothing, which is what makes it different from a setting: a stored flag standing
+in for a human's verdict is what ADR-0050 forbids.
+
+The input rows behind a gated metric **are** shown, deliberately — the aggregate
+claim is withheld, the evidence needed to check it is not. But they carry
+per-video `relevance`, so do not browse them before labelling a sample.
+
 ## Labelling the two validation samples
 
 Both are drawn, unlabelled, and waiting on a person. **A model must not label
