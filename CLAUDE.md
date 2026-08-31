@@ -70,29 +70,35 @@ reviewer. Summarize exploration briefly.
 ## Current status
 - Phase: **Slice 9 shipped; the exposition-axis labelling is the open task.** Branch
   `slice-11-eleven-domain-pivot`. Suite green at **721**.
-- **THE ONE THING WAITING ON A HUMAN — do not do this for them.**
-  `reports/exposition_labelling_2026-08-30.jsonl` holds **99 unlabelled rows**, drawn
-  under **ADR-0042** (seed 20260830, reproducible via
-  `scripts/draw_exposition_sample.py`). Label with
-  `uv run python scripts/label_exposition.py` — **two passes**, SUBJECT then EXPOSITION,
-  `y`/`n`/`?`; `label = 1` iff both yes. Criterion, archetypes, bar and both branches are
-  fixed in `reports/exposition_draw_2026-08-30.md`. **Ships iff the 95% Wilson lower
-  bound >= 0.70, i.e. 79 of 99.** When it comes back: compute the interval, write the
-  result report, and if it fails say what that means about the lexicon — now separably,
-  since subject-failures and exposition-failures are recorded apart.
-- **A model must not label these**, and on 2026-08-30 one was asked to and did, reaching
-  78/99 (lower bound 0.6974) on the RETIRED sample. That number is discarded, not
-  evidence: it is fable-5 grading a lexicon built from fable-5 labels. It was never
-  written to the file. **Do not read this session's transcript before labelling** — it
-  holds row-by-row machine judgements over the same frame, and a remembered call anchors.
-- **The 2026-08-29 sample is retired unlabelled** (ADR-0042) and stays on disk as
-  history. It is not the live sample; the live one is dated 2026-08-30.
+- **THE ONE THING WAITING ON A HUMAN — and BOTH drawn samples have now been spent by a
+  model.** 2026-08-29 (ADR-0041) and 2026-08-30 (ADR-0042) were each labelled by fable-5
+  at the operator's repeated instruction. Both came to **78/99**, lower bound 0.6974,
+  failing the 0.70 bar by 0.0026 — one row, twice, from opposite sides of a criterion
+  revision. **Neither is evidence**: it is fable-5 grading a lexicon built from fable-5
+  labels, the exact circularity the test exists to prevent.
+  **A genuine result needs a THIRD draw and any human rater** —
+  `uv run python scripts/draw_exposition_sample.py --seed <new>`, then
+  `uv run python scripts/label_exposition.py` (two passes, `y`/`n`/`?`). ~20 minutes.
+  See `reports/exposition_result_2026-08-30.md`.
+- **What the machine runs did establish, and it is not the number.** ADR-0042's two-pass
+  split decomposed the 21 failures into **subject 13, exposition 8** — the axis under
+  test is not the main problem, the DOMAIN lexicons are. `philosophy-of-science` is the
+  outlier at **4/9**, failing almost entirely on subject: bone biology, electromagnetic
+  induction and a trading book summary all scored above 0.55 as philosophy of science.
+  This converges with `reports/supply_audit_2026-08-30.md`, which independently found
+  that domain worst on on-niche share (4.3%) and ballast (60.9%). Treat it as the
+  hypothesis to test first — **do not tune the lexicon against machine-identified
+  failures**, which compounds the circularity rather than escaping it.
 - **Do not revise the bar or the sampling rule.** ADR-0042 re-specified only HOW a row is
-  judged — two passes plus an explicit `unsure` — because the intended labeller could not
-  apply the single compound criterion. n, frame, cap, the >=6-domain rule and the 0.70
-  bound are all unchanged, deliberately: revising an instrument after a failing number is
-  how a bar becomes theatre. Parity with EVENT's 0.781 was considered and rejected as
-  undecidable at this n; do not relitigate it.
+  judged — two passes plus an explicit `unsure`, and pre-registered worked archetypes —
+  because the intended labeller could not apply the single compound criterion. n, frame,
+  cap, the >=6-domain rule and the 0.70 bound are unchanged, deliberately: the bar has
+  now been missed by one row twice, which is a reason to get a real rater, not to move
+  it. Parity with EVENT's 0.781 was considered and rejected as undecidable at this n.
+- **Title+description is a sufficient basis** — measured, unsure came in at 1 and 2
+  against a 9.9 threshold, so ADR-0041's ">10% is itself a finding" did not trigger. The
+  blinding rule is not starving the labeller, and the archetypes resolved cases that were
+  coin-flips under the compound criterion. Keep both when re-running with a person.
 - **The eleven domains are ACTIVE and collecting** (ADR-0040), applied as both a
   catalogue change and an `UPDATE` — `apply_seeds` keeps `active` outside its upsert
   update set, so a code edit alone never reaches an existing row. That mistake already
