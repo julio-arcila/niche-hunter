@@ -71,6 +71,45 @@ the system next wakes**. Note the one caveat — a wake after 19:00 local puts t
 catch-up run past the UTC `observed_date` boundary, so it collects for *tomorrow*.
 Still better than nothing, but do not read a late run as having filled the gap.
 
+### Two backup destinations, and why the second one exists
+
+The iCloud copy and the database it protects are **one Apple ID apart**. A locked or
+compromised account takes both, and the snapshot history is the one artifact that cannot be
+re-collected. So there is a second, weekly copy to Backblaze B2 — different provider,
+different credential, different failure domain.
+
+```bash
+# configure once, in .env (see .env.example for the full block)
+NH_B2_BUCKET="niche-hunter"
+NH_B2_ENDPOINT="s3.us-east-005.backblazeb2.com"
+NH_B2_KEY_ID="..."      # an application key scoped to that bucket, not the master key
+NH_B2_APP_KEY="..."
+
+NH_B2_FORCE=1 scripts/backup_db.sh     # test it now instead of waiting for Sunday
+```
+
+**Set the bucket's File Lifecycle to "Keep only the last version."** The B2 default is "Keep
+all versions", which retains every deleted object as a hidden version that still counts
+against the 10 GB free tier — the prune would appear to work while storage climbed.
+
+Deliberate choices, so they are not re-litigated:
+
+- **Weekly, four deep.** This is disaster recovery, not point-in-time recovery; the daily
+  series stays in iCloud. Four Sundays is ~1.2 GB against a 10 GB free tier.
+- **`aws`, not rclone or the b2 CLI.** It is already on the machine and B2 is
+  S3-compatible. Credentials are scoped to each command rather than exported, so they
+  cannot collide with a real AWS profile.
+- **Non-fatal.** An offsite failure logs and pushes but does not redden the night — the
+  primary backup is already written and verified by then. Same judgement as the retention
+  sweep and `nh prune`.
+- **Silent when unconfigured**, like `alert()` and `ping_hc()`.
+
+The local window dropped **30 days → 14** at the same time. Thirty was set when a backup was
+26 MB; at 2026-09-01 it is 266 MB growing ~58 MB/day, which trends to ~32 GB of iCloud.
+Fourteen matches `nh prune`'s raw-payload retention, so the two windows move together — and
+most of that growth is `raw_records` backfill that flattens once prune starts rotating feed
+payloads out at day 15.
+
 ### The backup, and why it is NOT on launchd
 
 The plist is written and correct (`scripts/launchd/com.niche-hunter.backup.plist`)
