@@ -200,25 +200,13 @@ def c5_traceable() -> Result:
 def c6_bounded(engine: Engine | None = None) -> Result:
     """Quota headroom for the current Pacific quota day, and the monthly cost.
 
-    Per PACIFIC day across run_ids, because that is the window YouTube resets on and the
-    one `YouTubeApiCollector._spent_today` already enforces against.
+    Through `status.quota_day`, not a second copy of the sum: three independent
+    implementations of a timezone-sensitive query is three chances to reproduce
+    ADR-0049's UTC-versus-Pacific trap, which this repo has now walked into twice.
     """
-    from zoneinfo import ZoneInfo
+    from nh.jobs.status import quota_day
 
-    from nh.config import get_settings
-
-    pacific = ZoneInfo("America/Los_Angeles")
-    start = datetime.now(pacific).replace(hour=0, minute=0, second=0, microsecond=0)
-    with session_scope(engine) as session:
-        spent = (
-            session.scalar(
-                sa.select(sa.func.coalesce(sa.func.sum(JobRun.quota_used), 0)).where(
-                    JobRun.source == "youtube_api", JobRun.started_at >= start.astimezone(UTC)
-                )
-            )
-            or 0
-        )
-    budget = get_settings().yt_quota_budget
+    spent, budget = quota_day(engine)
     share = spent / budget if budget else 0.0
     return Result(
         6,

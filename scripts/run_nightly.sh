@@ -15,18 +15,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 # nothing in the system ever reminds anyone to put it back (ADR-0039 is this
 # repo's standing example of a change that silently did not take effect).
 #
-# Why it is ever needed: QuotaLedger's budget is per-RUN, not per-day. A manual
-# `nh nightly` and the cron fire in the same Pacific quota day each believe they
-# have the full 9,500, so the second one spends into Google's real daily cap and
-# takes 403s partway through discovery.
-SKIP_ONCE="$(dirname "${BASH_SOURCE[0]}")/../.skip-once"
-if [ -f "$SKIP_ONCE" ]; then
-  skip_reason="$(cat "$SKIP_ONCE" 2>/dev/null)"   # read BEFORE consuming it
-  rm -f "$SKIP_ONCE"
-  log "nightly SKIPPED once by request: ${skip_reason:-no reason recorded}; the next fire runs normally"
-  ping_hc   # a deliberate skip is not a failure — do not page anyone
-  exit 0
-fi
+# Why it is ever needed: to skip a fire deliberately, with the reason recorded, rather
+# than by unloading the agent and forgetting. It is NOT needed to avoid a quota
+# collision — this comment used to say "QuotaLedger's budget is per-RUN, not per-day",
+# which was false since Slice 1: `YouTubeApiCollector.__init__` seeds its ledger with
+# `budget - _spent_today()`, summed across run_ids since midnight Pacific. Corrected
+# 2026-09-01 (ADR-0053's class; the sweep that fixed CLAUDE.md missed this echo).
 
 ping_hc /start
 log "nightly starting"

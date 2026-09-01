@@ -184,11 +184,23 @@ like a pipeline that is running. ADR-0039 is this repo's standing example: a
 retirement written in code that never reached the database, and spent 3,000
 units a night for a day while everyone believed otherwise.
 
-**When you actually need this**: `QuotaLedger`'s budget is per-**run**, not
-per-day. A manual `nh nightly` and the 09:10 cron fire land in the same Pacific
-quota day, and each believes it has the full 9,500 — so the second spends into
-Google's real 10,000/day cap and takes 403s partway through discovery. The
-quota day resets at midnight Pacific, which is 02:00 local.
+**When you actually need this**: to skip a fire deliberately, with the reason
+recorded in the file, rather than by unloading the agent and forgetting to put it
+back. **Not** to avoid a quota collision — this paragraph said
+"`QuotaLedger`'s budget is per-**run**, not per-day" until 2026-09-01, and that was
+false since Slice 1: `YouTubeApiCollector.__init__` seeds its ledger with
+`budget - _spent_today()`, summed across every run_id since midnight Pacific, and
+`test_todays_earlier_spend_is_deducted_from_this_runs_budget` has covered it from
+the start. A manual `nh nightly` and the 09:10 fire do not each believe they have
+9,500; the second is told what is left.
+
+What is real: the ledger stops per *query*, so a day can exceed the 9,500 self-budget
+by up to one call — measured 9,624 across seven development runs on 2026-08-27, which
+is 124 over, well inside Google's actual 10,000. And spend reaches `job_runs` only when
+a run finishes, so two runs genuinely overlapping in time would each seed from a stale
+sum. `nh status` now prints the day's headroom, and `nh status --check` warns above 85%.
+
+The quota day resets at midnight Pacific, which is 02:00 local.
 
 ## Alerting: two layers
 

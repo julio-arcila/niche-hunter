@@ -116,6 +116,16 @@ def status(
     for day, source, count in st.snapshots_by_day(days=days + 1):
         typer.echo(f"{day!s:<12}{source:<18}{count:,}")
 
+    # Unconditional, not threshold-gated: this is the operator's "can I re-run today?"
+    # answer, and a line that only appears when the news is bad is a line nobody learns
+    # to look for. The QUOTA column above is per RUN — it shows each run's slice of the
+    # day — so without this there is nowhere the day's total is visible at all.
+    spent, budget = st.quota_day()
+    typer.echo(
+        f"\nquota day (Pacific): {spent:,}/{budget:,} used "
+        f"({spent / budget:.0%}) — {max(budget - spent, 0):,} headroom"
+    )
+
 
 @app.command()
 def seed(

@@ -479,9 +479,14 @@ Ships:
   of dated passes rather than a memory of two.
 - **An alert push.** The rules phase writes `alerts` rows and nothing has ever read them;
   `run_nightly.sh` pushes the day's new rows through the `alert()` that already exists.
-- **Quota headroom per PACIFIC quota day**, aggregated across `run_id`s, warning above 85%.
-  The per-run ledger is a measured hole: 2026-08-27 spent 9,624 units against a 9,500
-  budget across seven runs with no warning.
+- **Quota headroom per PACIFIC quota day**, aggregated across `run_id`s, warning above
+  85%, and printed unconditionally by `nh status`. **Visibility, not enforcement** —
+  enforcement has worked since Slice 1 and an earlier draft of this line called the
+  per-run ledger "a measured hole", which was the stale claim rather than the measurement.
+  The number is real (2026-08-27 spent 9,624 against a 9,500 budget across seven runs);
+  the cause is the per-query stop granularity, 124 units, one `search.list`. What was
+  missing is that an operator could not see the day's remaining headroom before deciding
+  to re-run.
 - **`uv run nh criteria`** — all eight production criteria evaluated mechanically, each with
   an evidence pointer, `--report` writing `reports/production_criteria_<date>.md`. Built on
   the `nh/jobs/deferrals.py` pattern, for the same reason that module exists.
