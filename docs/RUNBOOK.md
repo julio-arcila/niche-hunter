@@ -192,6 +192,28 @@ An untested dead-man switch is not a dead-man switch.
 ## Drill: restore from backup (do this in week 1)
 
 ```bash
+scripts/restore_check.sh              # newest local (iCloud) copy
+scripts/restore_check.sh --offsite    # newest B2 object, downloaded first
+```
+
+**Performed 2026-09-01 from B2**: downloaded `weekly/niche_hunter_2026-09-01.db.gz`,
+decompressed, `integrity_check` ok, 20 tables and 208,444 snapshots — matching source. That
+is the third dated drill and the first from the offsite copy.
+
+**The `--offsite` arm is the one that proves something new.** A local restore tests gzip and
+SQLite. It does not test that the remote object exists, is complete, is readable with the key
+we actually hold, or that the endpoint and bucket in `.env` are where data is really going —
+and those are precisely the failure modes a second destination exists to cover. A bucket can
+accept 266 MB every Sunday for a year and still be unopenable on the day it matters.
+
+Both arms now assert **contents**, not just openability: ≥20 tables and a non-zero
+`video_snapshots` count. `PRAGMA integrity_check` returns `ok` for a perfectly valid *empty*
+database — the same trap `backup_db.sh` documents — so a drill that proves only "it opens"
+proves the one thing that was never in doubt.
+
+
+
+```bash
 ./scripts/restore_check.sh
 ```
 
