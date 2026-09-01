@@ -221,3 +221,86 @@ def test_an_unknown_sha_resolves_to_nothing(engine):
     from tests.conftest_features import session_for
 
     assert drilldown.raw_source(session_for(engine), "deadbeef" * 8) is None
+
+
+# --- the alert digest: the path from a rule firing to a person ----------------------
+
+
+def _alert(engine, cluster_id, rule, *, severity="watch", day=None, evidence=None):
+    from datetime import date as _date
+
+    from nh.db.models import Alert
+    from nh.db.session import session_scope
+    from nh.db.types import utcnow
+
+    with session_scope(engine) as s:
+        s.add(
+            Alert(
+                cluster_id=cluster_id,
+                rule=rule,
+                severity=severity,
+                fired_on=day or _date(2026, 8, 31),
+                evidence=evidence or {"note": "x"},
+                source="rules",
+                run_id="r",
+                at=utcnow(),
+            )
+        )
+
+
+def test_a_quiet_day_produces_no_digest(engine):
+    """Empty string, not "no alerts today". A nightly digest that arrives every night is
+    one nobody reads, so the caller tests with `-n` and stays silent."""
+    from datetime import date as _date
+
+    from tests.conftest_features import session_for
+
+    assert q.alert_digest(session_for(engine), _date(2026, 8, 31)) == ""
+
+
+def test_the_digest_collapses_many_alerts_into_one_line(engine):
+    from datetime import date as _date
+
+    from tests.conftest_features import session_for
+
+    for cluster in ("aaa", "bbb", "ccc", "ddd", "eee"):
+        _alert(engine, cluster, "definition_step")
+    digest = q.alert_digest(session_for(engine), _date(2026, 8, 31))
+
+    assert digest.startswith("watch/definition_step x5")
+    assert "aaa, bbb, ccc +2" in digest, "first three named, the rest counted"
+    assert "\n" not in digest, "it lands on a lock screen"
+
+
+def test_the_digest_never_carries_evidence(engine):
+    """An alert is a citation surface (ADR-0045). A push quoting a scorer-decided number
+    would be the leak `gates.DISCLOSURES` exists to enumerate — and the detail is one
+    command away in `nh alerts` for anyone who wants it."""
+    from datetime import date as _date
+
+    from tests.conftest_features import session_for
+
+    _alert(
+        engine,
+        "history-of-ideas",
+        "evidence_collapse",
+        evidence={"lost_inputs": [{"metric": "on_niche_share", "from": 1971, "to": 1012}]},
+    )
+    digest = q.alert_digest(session_for(engine), _date(2026, 8, 31))
+
+    assert "history-of-ideas" in digest and "evidence_collapse" in digest
+    for leaked in ("1971", "1012", "on_niche_share", "lost_inputs"):
+        assert leaked not in digest
+
+
+def test_the_digest_is_scoped_to_its_day(engine):
+    """Yesterday's alerts are not tonight's news."""
+    from datetime import date as _date
+
+    from tests.conftest_features import session_for
+
+    _alert(engine, "old", "definition_step", day=_date(2026, 8, 29))
+    _alert(engine, "new", "definition_step", day=_date(2026, 8, 31))
+    digest = q.alert_digest(session_for(engine), _date(2026, 8, 31))
+
+    assert "new" in digest and "old" not in digest

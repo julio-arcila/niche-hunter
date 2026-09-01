@@ -310,18 +310,47 @@ class AlertLine:
     evidence: dict
 
 
-def alerts_feed(session: Session, limit: int = 200) -> list[AlertLine]:
-    """Recent alerts, newest first, then by severity.
+def alerts_feed(session: Session, limit: int = 200, day: date | None = None) -> list[AlertLine]:
+    """Recent alerts, newest first, then by cluster and rule.
 
     Ordered by WHEN, not by how alarming — the same reason `niche_list` is alphabetical.
     A feed sorted by severity is a ranking of niches by badness, arrived at sideways.
+
+    `day` narrows to one `fired_on`, which is what the nightly digest pushes.
     """
+    q = sa.select(Alert.cluster_id, Alert.rule, Alert.severity, Alert.fired_on, Alert.evidence)
+    if day is not None:
+        q = q.where(Alert.fired_on == day)
     rows = session.execute(
-        sa.select(Alert.cluster_id, Alert.rule, Alert.severity, Alert.fired_on, Alert.evidence)
-        .order_by(Alert.fired_on.desc(), Alert.cluster_id, Alert.rule)
-        .limit(limit)
+        q.order_by(Alert.fired_on.desc(), Alert.cluster_id, Alert.rule).limit(limit)
     ).all()
     return [AlertLine(*row) for row in rows]
+
+
+def alert_digest(session: Session, day: date) -> str:
+    """One short line summarising a day's alerts, or `""` when there are none.
+
+    **Rule names and counts, never evidence.** Three reasons, in the order they would
+    bite: an alert is a citation surface (ADR-0045), so a push quoting a scorer-decided
+    number would be the leak `gates.DISCLOSURES` exists to enumerate; a push is read on a
+    lock screen, where a JSON blob is noise; and the evidence is one command away
+    (`nh alerts`) for anyone who wants it.
+
+    Empty string rather than "no alerts today", so the caller can test with `-n` and stay
+    silent on a quiet night. A nightly digest that fires every night is one nobody reads.
+    """
+    lines = alerts_feed(session, day=day)
+    if not lines:
+        return ""
+    by_rule: dict[str, list[str]] = {}
+    for line in lines:
+        by_rule.setdefault(f"{line.severity}/{line.rule}", []).append(line.cluster_id)
+    parts = []
+    for rule in sorted(by_rule):
+        clusters = sorted(by_rule[rule])
+        shown = ", ".join(clusters[:3]) + (f" +{len(clusters) - 3}" if len(clusters) > 3 else "")
+        parts.append(f"{rule} x{len(clusters)} ({shown})")
+    return " | ".join(parts)
 
 
 def latest_day(session: Session, cluster_id: str | None = None) -> date | None:

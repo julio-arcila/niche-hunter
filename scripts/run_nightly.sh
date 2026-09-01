@@ -41,6 +41,22 @@ check_rc=$?
 # reclaim disk is not a reason to report the night as lost.
 uv run nh prune >> logs/prune.log 2>&1 || log "prune failed (non-fatal)"
 
+# The insight rules have written `alerts` rows since Slice 7 and nothing has ever
+# read them: the table's only consumer was a web page nobody has open. This is the
+# path from a rule firing to a person.
+#
+# Rule names and counts, never evidence — an alert is a citation surface (ADR-0045)
+# and this one lands on a lock screen. `nh alerts` has the detail.
+#
+# Silent on a quiet night, by design: `--digest` prints nothing when nothing fired,
+# so `-n` stays false and no push goes out. A digest that arrives every night is a
+# digest nobody reads.
+digest="$(uv run nh alerts --digest 2>/dev/null || true)"
+if [ -n "$digest" ]; then
+  log "alerts: $digest"
+  alert "niche-hunter $(date +%F): $digest"
+fi
+
 if [ $collect_rc -eq 0 ] && [ $check_rc -eq 0 ]; then
   log "nightly ok"
   ping_hc

@@ -399,6 +399,41 @@ def compute(
     raise typer.Exit(0 if all(v == "ok" for v in statuses.values()) else 1)
 
 
+@app.command("alerts")
+def alerts(
+    day: datetime | None = typer.Option(None, "--day", formats=["%Y-%m-%d"]),
+    digest: bool = typer.Option(
+        False, "--digest", help="One line, or nothing at all. What the nightly pushes."
+    ),
+) -> None:
+    """What the insight rules fired, and on what evidence.
+
+    The rules have written `alerts` rows since Slice 7 and nothing has ever read them —
+    `run_nightly.sh` pushes `--digest` now, so a rule firing reaches a person rather than
+    a table.
+    """
+    from nh.api import queries
+    from nh.db.session import get_engine, session_scope
+
+    with session_scope(get_engine()) as session:
+        on = day.date() if day else (queries.latest_day(session) or date.today())
+        if digest:
+            line = queries.alert_digest(session, on)
+            if line:
+                typer.echo(line)
+            return  # silence on a quiet day; the caller tests for empty
+        rows = queries.alerts_feed(session, day=on)
+
+    if not rows:
+        typer.echo(f"no alerts on {on}")
+        return
+    typer.echo(f"{len(rows)} alert(s) on {on}\n")
+    for line in rows:
+        typer.echo(f"{line.severity:<6} {line.cluster_id:<30} {line.rule}")
+        for key, value in sorted(line.evidence.items()):
+            typer.echo(f"          {key}: {value}")
+
+
 @app.command("web")
 def web(
     port: int = typer.Option(8501, "--port"),
