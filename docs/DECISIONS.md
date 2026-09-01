@@ -3045,11 +3045,23 @@ Three live defects inside its own subject matter, then the evidence machinery:
    `NH_HEALTHCHECK_URL` for one day instead: the ping goes missing while the data is still
    collected.
 
-Plus **quota headroom aggregated per PACIFIC quota day across `run_id`s**. The per-run ledger
-is a measured hole: 2026-08-27 spent **9,624 units against a 9,500 budget across seven runs**
-and nothing warned, because no single run exceeded its own budget. (A draft of this ADR cited
-13,637 units on 08-31; that was UTC-day grouping — the very trap ADR-0049 documents — and by
-Pacific day it is 6,447 across one run. The finding stands on 08-27, not on that figure.)
+Plus **quota headroom made visible per Pacific quota day**.
+
+**Not enforcement — that already exists, and two drafts of this ADR said otherwise.**
+`YouTubeApiCollector.__init__` seeds its ledger with `budget - _spent_today()`, summing
+`job_runs.quota_used` since midnight America/Los_Angeles across every run_id, and it has been
+tested since Slice 1. A planning agent reported "the per-run ledger means the real per-day cap
+can be exceeded with no warning", citing 13,637 units on 2026-08-31; that figure was
+UTC-day grouping — the exact trap ADR-0049 documents — and by Pacific day it is 6,447 across
+one run. This ADR then repeated the conclusion, and CLAUDE.md's own stale bullet
+("`QuotaLedger`'s budget is per-**RUN**, not per-day") made it look corroborated. Nobody
+opened the collector. **Three artifacts agreeing is not evidence when two of them are echoes
+of the third.**
+
+What is actually missing is *visibility*: `check()` warns only when a single run spends its
+whole budget, so an operator cannot see the day's remaining headroom before deciding to
+re-run. That is what Slice 8 adds. The one real overshoot — 9,624 against 9,500 on
+2026-08-27 — is the documented per-query stop granularity, 124 units, one `search.list`.
 
 And **`nh criteria`**, which is the centrepiece. The exit is "all eight met **and
 evidenced**", two of the eight are satisfied by elapsed time rather than by code, and this

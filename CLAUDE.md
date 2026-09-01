@@ -208,10 +208,25 @@ reviewer. Summarize exploration briefly.
   last one is why: a plan that reasoned from the query text put all of `openness.*` in the
   safe tier, conflating "unaffected by ballast" — true — with "does not read relevance",
   which was never measured.
-- `QuotaLedger`'s budget is per-**RUN**, not per-day. A manual `nh nightly` plus the
-  09:10 fire land in the same Pacific quota day and each believes it has the full 9,500.
-  `echo "why" > .skip-once` skips one fire and is consumed by it; never disable the
-  scheduled job instead. Quota day resets midnight Pacific = 02:00 local.
+- **The quota budget IS effectively per-day, and this bullet said the opposite until
+  2026-09-01.** `QuotaLedger` is per-run, but `YouTubeApiCollector.__init__` seeds it with
+  `budget - _spent_today()`, where `_spent_today` sums `job_runs.quota_used` since midnight
+  **America/Los_Angeles** across every run_id. Tested since Slice 1
+  (`test_todays_earlier_spend_is_deducted_from_this_runs_budget`, whose docstring records
+  the suite going red at 00:50 Pacific because an earlier version of the test used "an hour
+  ago" instead of anchoring to Pacific midnight). So a manual `nh nightly` plus the 09:10
+  fire do **not** each believe they have 9,500 — the second one is told what is left.
+  The stale bullet was believed twice on 2026-09-01: a planning agent proposed building
+  per-day aggregation that already exists, and it reached an ADR before anyone checked the
+  collector. A third instance of ADR-0053's class, and the costliest, because it is
+  operational guidance.
+- What is real: the ledger stops **per query**, so a day can overshoot by up to one call's
+  cost. Measured 2026-08-27, 9,624 units against a 9,500 budget across 7 development runs —
+  124 over, which is one `search.list` plus change. Working as designed, not a leak.
+- `echo "why" > .skip-once` skips one fire and is consumed by it; never disable the
+  scheduled job instead. Still good practice — a skipped fire is a deliberate, logged act —
+  but it is no longer load-bearing against a quota collision. Quota day resets midnight
+  Pacific = 02:00 local.
 - **The nightly runs from launchd** (`com.niche-hunter.nightly`, 09:10), not cron:
   cron silently skips a fire the Mac sleeps through and never retries it, which is
   how 2026-08-30 was lost for good. The backup and disk check stay in cron, because
