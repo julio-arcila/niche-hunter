@@ -491,8 +491,10 @@ Ships:
   an evidence pointer, `--report` writing `reports/production_criteria_<date>.md`. Built on
   the `nh/jobs/deferrals.py` pattern, for the same reason that module exists.
 - **RUNBOOK**: the monthly half-hour, a secrets inventory and rotation procedure, the cost
-  of being away, and an amended dead-man drill — the current one boots out the scheduler
-  before 09:10 and so **sacrifices a night of unrecoverable snapshots to test the alarm**.
+  of being away, and an amended dead-man drill — the old one booted out the scheduler
+  before 09:10 and so **sacrificed a night of unrecoverable snapshots to test the alarm**,
+  which is why its timing half was never run. Replaced by blanking `NH_HEALTHCHECK_URL`
+  for one day: the ping goes missing while the data still lands.
 
 **Explicitly not in this slice** (ADR-0055): cloud deploy, managed Postgres, IaC, a secret
 manager, monthly backtest re-runs — the pre-registration voids re-running the primary.

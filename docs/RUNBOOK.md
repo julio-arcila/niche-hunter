@@ -245,19 +245,52 @@ the same ntfy topic. Put the ping URL in `.env` as `NH_HEALTHCHECK_URL`.
 ported source is skipped for missing credentials, so gating on it alone would
 report green while collecting nothing.
 
-## Drill: kill the scheduler (do this in week 1)
+## Drill: is a MISSING ping noticed? (the dead-man switch)
 
-An untested dead-man switch is not a dead-man switch.
+An untested dead-man switch is not a dead-man switch — and the obvious way to test it is
+wrong.
 
-1. `launchctl bootout gui/$UID/com.niche-hunter.nightly` before 09:10. (This
-   drill is the one sanctioned exception to the rule just above — put it back in
-   step 3.)
-2. Confirm the healthchecks "down" alert arrives by ~15:00 (period 1d + grace 6h).
-3. Bootstrap it again; confirm the next run turns the check green again, and
-   that `launchctl list | grep niche-hunter` shows it loaded.
-4. Record the date performed: **alert routing verified 2026-08-27** (`/fail` ping → healthchecks → ntfy, all HTTP 200). The *timing* half —
-   confirming a missed ping is detected after the grace window — has not
-   been run; it needs a real skipped day. Do it in week 1.
+**Do NOT boot out the scheduler.** The version of this drill that stood here until
+2026-09-01 said `launchctl bootout` before 09:10, which stops the nightly and so
+**destroys a day of snapshots that cannot be re-collected** in order to prove the alarm
+works. It sacrifices the asset to test the guard on the asset. That is why its second half
+was never run: doing it correctly was expensive.
+
+Instead, silence the *ping* and let the collection proceed:
+
+```bash
+# the evening before
+cp .env .env.drill-backup
+# blank NH_HEALTHCHECK_URL in .env  (leave NH_NTFY_TOPIC alone)
+
+# ...the 09:10 nightly runs and collects normally, pinging nothing...
+
+# after the alert arrives, restore
+mv .env.drill-backup .env
+```
+
+`ping_hc()` guards every ping with `[ -n "${NH_HEALTHCHECK_URL:-}" ]` and `.env` is
+re-sourced at each fire, so `/start`, success and `/fail` all become no-ops while the
+night's data lands as usual. With period 1d + grace 6h the "down" alert should reach you
+around **15:1x** on the drill day.
+
+Three things to know while it runs:
+
+- The drill day's genuine failures degrade too — `/fail` is silenced with the rest. That is
+  acceptable because `alert()` reads `NH_NTFY_TOPIC` independently and still pushes.
+- This tests healthchecks' *detection*, not that the agent is loaded. `launchctl list |
+  grep niche-hunter` is a monthly-checklist line, not part of this drill.
+- **Record it with this exact wording**, because `nh criteria` matches on it:
+  `missed-ping detection verified YYYY-MM-DD`. Keep the routing line below too — C2 wants
+  both halves.
+
+Recorded: **alert routing verified 2026-08-27** (`/fail` ping → healthchecks → ntfy, all
+HTTP 200). The *timing* half is still unrun, so `nh criteria` reads C2 red — honestly.
+
+**A free alternative:** 2026-08-30 was an accidental live run of exactly this. The Mac
+slept through the fire, no ping was sent, and healthchecks should have alerted that
+afternoon. If your phone has that notification, the drill is already done — record the
+date and C2 goes green with no night spent.
 
 ## Drill: restore from backup (do this in week 1)
 
@@ -288,14 +321,84 @@ proves the one thing that was never in doubt.
 ```
 
 Restores the newest backup to a scratch path, runs `PRAGMA integrity_check`, then
-`nh doctor` and `nh status` against the restored copy. Expect `14/14 tables
-present`. Record the date performed: **passed 2026-08-27** — restored a real
-25 MB iCloud backup, 14/14 tables, 14,270 snapshots intact.
+`nh doctor` and `nh status` against the restored copy, and asserts contents: **≥20 tables
+and a non-zero `video_snapshots` count.**
+
+History, since the numbers moved: **passed 2026-08-27** on a 25 MB iCloud backup with
+14/14 tables and 14,270 snapshots. This paragraph went on saying "expect 14/14 tables"
+after the schema reached 20 — a reader following it would have seen 20/20 and wondered
+which of the two was broken.
 
 Note on verification: `integrity_check` alone is **not** sufficient — it returns
 `ok` for a valid but empty database. `backup_db.sh` therefore also compares table
 and snapshot counts against the source, because an unset `NH_DATABASE_URL` once
 produced a "successful" 113-byte backup of nothing.
+
+## The monthly half-hour
+
+Once a month, in this order. It is the only recurring obligation this system has.
+
+```bash
+uv run nh criteria --report     # the eight, graded; writes reports/production_criteria_<date>.md
+uv run nh deferrals             # has anything come unblocked?
+uv run nh status                # note the quota-day headroom line before the next step
+uv run nh prune --dry-run       # storage; glance at logs/disk.log too
+crontab -l && launchctl list | grep niche-hunter    # both schedulers still hold what they should
+```
+
+Then, by hand:
+
+1. **Re-record fixtures** if `nh criteria` says C8 is going stale (~102 quota units — check
+   the headroom line first, and do it on a day the nightly has already run).
+2. **Review any source whose ToS has moved**, and date it in `docs/SOURCES.md` as
+   `reviewed YYYY-MM-DD` *inside that source's `##` section* — C7 splits on those headings,
+   so a date under `trends` does not vouch for `reddit`.
+3. **Send one test push**: `curl -d "monthly check" ntfy.sh/$NH_NTFY_TOPIC`. See the secrets
+   table for why this one is manual and not optional.
+4. **Confirm the newest `restore drill passed` line is under 45 days old** — `nh criteria`
+   checks this, but read it yourself the first few months while the monthly agent is new.
+
+Explicitly **not** on this list: re-running the backtest. The pre-registration voids
+re-running the primary, so a monthly re-run is either a no-op or p-hacking. What replaces it
+is `nh deferrals` — asking whether a trigger has fired that would justify a *new*
+pre-registered test.
+
+## Secrets: what exists, how to rotate it, and how you learn it broke
+
+Six credentials, all in `.env` except one. **`.env` is operator-edited only** — it is
+gitignored and Claude is blocked from writing it.
+
+| secret | where | scope | rotate by | how its loss surfaces |
+|---|---|---|---|---|
+| `NH_YT_API_KEY` | `.env` | YouTube Data API v3 | Google Cloud console → new key → paste | `nh status --check` **problem** the next morning |
+| `NH_B2_KEY_ID` / `NH_B2_APP_KEY` | `.env` | one B2 bucket | B2 → Application Keys → new, bucket-scoped | ntfy push from `backup_db.sh`, and the monthly drill fails |
+| `google-ads.yaml` | repo root, gitignored | Ads OAuth refresh token | `scripts/gads_oauth.py` | KP staleness warning after 70 days |
+| `NH_HEALTHCHECK_URL` | `.env` | one healthchecks check | healthchecks → new check URL | **silence** — indistinguishable from the drill above |
+| `NH_NTFY_TOPIC` | `.env` | one ntfy topic | pick a new high-entropy topic, resubscribe | **nothing detects it** — see below |
+
+**The ntfy topic is the hole, and it is worth knowing about.** `alert()` is deliberately
+fail-soft — `curl -fs … || true` — so alerting can never be what breaks a job. The cost is
+that a wrong, expired or renamed topic produces no error anywhere: every push silently goes
+nowhere, and the first you learn of it is a failure you never heard about. Nothing in the
+system can detect this, which is why the monthly checklist has a manual test send. It is
+also worth treating the topic as a **bearer token**: anyone who guesses it can push
+notifications to your phone, so pick something long and random rather than `niche-hunter`.
+
+## Being away: what it costs
+
+The scheduled wake covers a sleeping Mac and launchd replays a fire slept through. What is
+not covered is the machine being **off or absent** for days.
+
+Each missed day costs **one day-column of `video_snapshots` and `channel_snapshots`** —
+unrecoverable, because no source serves history for them. Everything else self-heals:
+Wikipedia backfills from `_resume_from` (history to 2015), Trends is shape-only and
+re-fetched whole, RSS survives short gaps inside its 15-entry window, and quota resets
+daily.
+
+While the Mac is off, healthchecks will page you every day. Two honest options: leave it
+plugged in and let `wakeorpoweron` handle it, or pause the check deliberately before you go.
+Do not disable the scheduler — `echo "away" > .skip-once` is for one night; a longer absence
+is a pause on the healthchecks side.
 
 ## Reading the state
 
