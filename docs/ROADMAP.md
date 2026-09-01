@@ -467,10 +467,11 @@ ships-list predates Gate E's null and ADR-0054, and is cut down accordingly — 
 for the accounting, especially of what a missed night actually costs.
 
 Ships:
-- **Backup integrity.** Move the backup to its launchd agent with Full Disk Access, which
-  fixes a retention sweep that has been failing since 2026-08-30 (`find: Operation not
-  permitted`; iCloud growing 256 MB/day unbounded), and add a weekly copy to a second,
-  non-iCloud destination — today the database and its backup are one Apple ID apart.
+- **Backup sizing and a second destination.** ~711 MB today, growing 52 MB/day against a
+  30-day window set when a backup was 26 MB — a ~24 GB trajectory in iCloud. Shorten the
+  window, and add a weekly copy somewhere that is not iCloud: today the database and its
+  backup are one Apple ID apart. (The retention sweep itself is *not* broken — it failed
+  under cron until Full Disk Access landed 2026-08-30 and has worked since; see ADR-0055.)
 - **A scheduled wake**, `pmset repeat wakeorpoweron` at 09:05. launchd replays a
   slept-through fire on wake; this closes the all-day-asleep case that lost 2026-08-30.
   **This is what replaces the cloud deploy**, and it costs one command.

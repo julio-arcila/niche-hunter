@@ -3017,11 +3017,24 @@ same instinct pointed somewhere it can pay.
 
 Three live defects inside its own subject matter, then the evidence machinery:
 
-1. **The backup retention sweep has been failing since 2026-08-30**, because the Full Disk
-   Access grant reached cron's copy path and not the sweep — `logs/backup.log` carries
-   `find: …niche-hunter-backups: Operation not permitted` and one outright write failure.
-   iCloud backups accumulate at 256 MB/day, unbounded. Moving the backup to its launchd agent
-   with FDA fixes the sweep in the same act.
+1. **The backups are on a 24 GB trajectory in iCloud Drive.** ~711 MB today across five
+   files, growing **52 MB/day**, against a 30-day retention window — if growth holds linear
+   that is ~24 GB of someone's iCloud quota. The window was set when a backup was 26 MB.
+
+   **A correction, because the first draft of this ADR got it backwards and this is the exact
+   defect ADR-0053 named two days ago.** That draft said "the retention sweep has been
+   failing since 2026-08-30". It was failing *until* then: `logs/backup.log`'s two
+   `find: … Operation not permitted` lines predate the timestamped entries and match the
+   measurement already written into `scripts/backup_db.sh:75` ("under cron this `find` cannot
+   traverse iCloud Drive… Measured 2026-08-29"); Full Disk Access reached cron on 2026-08-30;
+   and the 2026-08-31 run logs `backup ok` with no find error. A dated experiment's log lines
+   were read as an ongoing defect — a prose echo of a superseded measurement, committed by
+   the person who had just written the ADR against doing that. Left visible rather than
+   quietly amended, since the pattern is the point.
+
+   So the sweep works and the *window* is the issue. Slice 8 shortens retention and adds a
+   second, non-iCloud destination — today the database and its backup are one Apple ID
+   apart.
 2. **Nothing pushes an `alerts` row anywhere.** The rules phase writes rows, `alert()` exists
    in `scripts/_common.sh`, and nothing connects them: the table is empty and its only
    consumer is a web page nobody has open. The 2026-09-14 ballast revert fires Rule 2 that
