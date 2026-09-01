@@ -55,4 +55,10 @@ tabs="$(/usr/bin/sqlite3 "$SCRATCH/restored.db" "SELECT count(*) FROM sqlite_mas
 [ "$snaps" -gt 0 ] && [ "$tabs" -ge 20 ] || {
   log "RESTORE FAILED: restored db has $tabs tables and $snaps snapshots"; exit 1; }
 
-log "restore drill passed for $(basename "$LATEST") ($tabs tables, $snaps snapshots)"
+# Logged, not just printed. "A drill, performed, twice" is a criterion, and a drill
+# whose only trace is a terminal someone has since closed cannot evidence it —
+# `nh criteria` reads this file. Appended so the series accumulates.
+result="restore drill passed for $(basename "$LATEST") ($tabs tables, $snaps snapshots)"
+[ "${1:-}" = "--offsite" ] && result="$result [offsite b2://]"
+log "$result"
+log "$result" >> "$NH_ROOT/logs/restore.log"

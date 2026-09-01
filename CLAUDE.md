@@ -46,6 +46,8 @@ asset is snapshot history; never break the collectors.
 - `uv run nh sources` — ported / configured / quota per source
 - `uv run nh seed` — write the niche seeds; prints the nightly quota cost
 - `uv run nh status [--check]` — what got collected; --check gates the cron ping
+- `uv run nh criteria [--report]` — the eight production criteria, graded from artefacts
+- `uv run nh alerts [--digest]` — what the rules fired; --digest is what the nightly pushes
 - `uv run nh niche show <slug> [--unvalidated]` — every metric, with confidence and basis
 - `uv run nh niche trace <slug> <metric>` — the input rows behind one number (ADR-0052)
 - `uv run nh web` — the evidence surface; needs `uv sync --extra web`
