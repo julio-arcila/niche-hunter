@@ -18,14 +18,19 @@ future. It is production grade when all eight hold:
 | 1 | **Unattended** — 30 consecutive nights, no manual intervention | `job_runs` query |
 | 2 | **Alarmed** — a dead cron or failed source reaches a human within 24h | killing the cron on purpose |
 | 3 | **Recoverable** — restore from backup, replay features from `raw_records` | a drill, performed, twice |
-| 4 | **Calibrated** — a published rank correlation with its null distribution, its universe, and known failure modes | `reports/backtest_*.md` |
+| 4 | **Calibrated** — a published rank correlation with its null distribution, its universe, and known failure modes | **MET** by `reports/backtest_2026-08-28.md` (ADR-0055): it asks for a *characterised* correlation, not a positive one, and the documented null is the calibration the narrowed claim rests on |
 | 5 | **Traceable** — every displayed number reaches its input rows in ≤3 clicks | the UI itself |
 | 6 | **Bounded** — quota headroom and monthly cost are known and monitored | quota dashboard |
 | 7 | **Lawful** — every source's ToS reviewed, rate limits respected, review dated | `docs/SOURCES.md` |
 | 8 | **Maintainable** — fixtures re-recorded monthly, one command runs everything | `uv run nh nightly` |
 
 Criterion 4 is the one that decides whether this is a product or a toy, which is
-why Slice 6 is a gate and not a task.
+why Slice 6 is a gate and not a task. **It decided: Gate E returned a null**
+(rho 0.091, p 0.4988), the claim narrowed from forecast to evidence, and the
+criterion is met by the characterisation rather than by a positive result —
+ADR-0055 records why reading it otherwise makes this table unreachable forever.
+Criteria **1 and 8 are satisfied by elapsed time and a monthly habit, not by
+code**; `uv run nh criteria` is what says where each of the eight stands.
 
 ---
 
@@ -450,19 +455,54 @@ repair. Labelling opens the metrics; nothing currently opens the scorecard.
 
 ---
 
-### Slice 8 — Hardening and handover · size M
+### Slice 8 — Hardening · size M · **RESCOPED 2026-08-31 by ADR-0055**
 
-**Goal:** it runs without you.
+**Goal:** the machine survives a week you are not watching, and "done" is a command
+rather than a claim.
+
+**Rescoped, and "handover" is dropped from the title** — there is no recipient. This is a
+single operator; ADR-0036's many-operator future is not this slice; and the word was
+smuggling in team-shaped work (SLOs, paging, IaC) for a team of one. The previous
+ships-list predates Gate E's null and ADR-0054, and is cut down accordingly — see ADR-0055
+for the accounting, especially of what a missed night actually costs.
 
 Ships:
-- deploy off the laptop; managed Postgres; IaC
-- secret manager with rotation
-- automated monthly restore drill
-- SLOs + paging; quota alarms with headroom projection
-- daily digest of alerts
-- monthly maintenance runbook: re-record fixtures, re-check ToS, re-run backtest
+- **Backup sizing and a second destination.** ~711 MB today, growing 52 MB/day against a
+  30-day window set when a backup was 26 MB — a ~24 GB trajectory in iCloud. Shorten the
+  window, and add a weekly copy somewhere that is not iCloud: today the database and its
+  backup are one Apple ID apart. (The retention sweep itself is *not* broken — it failed
+  under cron until Full Disk Access landed 2026-08-30 and has worked since; see ADR-0055.)
+- **A scheduled wake**, `pmset repeat wakeorpoweron` at 09:05. launchd replays a
+  slept-through fire on wake; this closes the all-day-asleep case that lost 2026-08-30.
+  **This is what replaces the cloud deploy**, and it costs one command.
+- **A scheduled restore drill**, logged, alerting on failure — so C3's evidence is a series
+  of dated passes rather than a memory of two.
+- **An alert push.** The rules phase writes `alerts` rows and nothing has ever read them;
+  `run_nightly.sh` pushes the day's new rows through the `alert()` that already exists.
+- **Quota headroom per PACIFIC quota day**, aggregated across `run_id`s, warning above
+  85%, and printed unconditionally by `nh status`. **Visibility, not enforcement** —
+  enforcement has worked since Slice 1 and an earlier draft of this line called the
+  per-run ledger "a measured hole", which was the stale claim rather than the measurement.
+  The number is real (2026-08-27 spent 9,624 against a 9,500 budget across seven runs);
+  the cause is the per-query stop granularity, 124 units, one `search.list`. What was
+  missing is that an operator could not see the day's remaining headroom before deciding
+  to re-run.
+- **`uv run nh criteria`** — all eight production criteria evaluated mechanically, each with
+  an evidence pointer, `--report` writing `reports/production_criteria_<date>.md`. Built on
+  the `nh/jobs/deferrals.py` pattern, for the same reason that module exists.
+- **RUNBOOK**: the monthly half-hour, a secrets inventory and rotation procedure, the cost
+  of being away, and an amended dead-man drill — the old one booted out the scheduler
+  before 09:10 and so **sacrificed a night of unrecoverable snapshots to test the alarm**,
+  which is why its timing half was never run. Replaced by blanking `NH_HEALTHCHECK_URL`
+  for one day: the ping goes missing while the data still lands.
 
-**Exit:** all eight production criteria met and evidenced.
+**Explicitly not in this slice** (ADR-0055): cloud deploy, managed Postgres, IaC, a secret
+manager, monthly backtest re-runs — the pre-registration voids re-running the primary.
+
+**Exit:** `nh criteria --report` writes eight greens. Earliest **~2026-09-29**: C1 needs 30
+consecutive unattended nights and the clock restarts at 2026-08-31, because 2026-08-30 is a
+permanent hole. Everything buildable lands well before then; the remainder is waiting, which
+is exactly why it needs a command that says so rather than a slice header that reads open.
 
 ---
 

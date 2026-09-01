@@ -13,7 +13,7 @@ a vanished API key turns into days of silent non-collection behind a green ping.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Engine
@@ -48,7 +48,44 @@ KP_STALE_DAYS = 70
 #: scanned, so adding the stamp somewhere new is a deliberate act.
 BALLAST_STAMPED = ("on_niche_share", "median_views")
 
+#: Share of the day's budget above which `check()` speaks up. The ROADMAP's number
+#: (Slice 8's ships-list). A normal single nightly spends 68-76% — measured 6,447 to
+#: 7,190 units across 2026-08-28..08-31 — so this is silent on an ordinary night and
+#: fires when a same-day re-run has happened.
+QUOTA_WARN_SHARE = 0.85
+
 JOB = "nightly"
+
+
+def quota_day(engine: Engine | None = None, settings: Settings | None = None) -> tuple[int, int]:
+    """`(spent, budget)` for the CURRENT Pacific quota day, across every run.
+
+    One helper, three consumers — `check()`, `nh status`, and `criteria.c6_bounded` —
+    because three copies of a timezone-sensitive sum is three chances to reproduce
+    ADR-0049's UTC-versus-Pacific trap independently. This repo has walked into it twice.
+
+    **Deliberately not shared with `YouTubeApiCollector._spent_today`.** That one anchors
+    on the run's own `observed_at` rather than on now, which is correct for enforcement
+    and is the path with tests since Slice 1. Two functions that look alike but answer
+    "what may this run still spend" and "what has today spent" are not duplication.
+    """
+    from zoneinfo import ZoneInfo
+
+    settings = settings or get_settings()
+    start = datetime.now(ZoneInfo("America/Los_Angeles")).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    with session_scope(engine) as session:
+        spent = (
+            session.scalar(
+                sa.select(sa.func.coalesce(sa.func.sum(JobRun.quota_used), 0)).where(
+                    JobRun.source == "youtube_api",
+                    JobRun.started_at >= start.astimezone(UTC),
+                )
+            )
+            or 0
+        )
+    return int(spent), settings.yt_quota_budget
 
 
 @dataclass(slots=True)
@@ -154,6 +191,10 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
         elif row[1] != "ok":
             result.problems.append(f"{spec.source} finished {row[1]}")
         elif row[3] and row[2] and row[2] >= row[3]:
+            # `job_runs.quota_budget` records the run's REMAINING slice of the day, not
+            # the day's budget — the collector seeds its ledger with `budget - spent
+            # today`. So this now means "this run was cut short by the day cap", a
+            # different signal from the day-headroom warning below.
             result.warnings.append(f"{spec.source} spent its whole quota ({row[2]}/{row[3]})")
 
     if sum(row[4] or 0 for row in rows) == 0:
@@ -197,6 +238,13 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
                 f"keyword_planner is {age} days stale (newest period ends {newest}); "
                 f"`nh kp ingest` a fresh export"
             )
+
+    spent, budget = quota_day(engine, settings)
+    if budget and spent >= budget * QUOTA_WARN_SHARE:
+        result.warnings.append(
+            f"quota day is {spent / budget:.0%} spent ({spent:,}/{budget:,}); "
+            f"a re-run today has {max(budget - spent, 0):,} units of headroom"
+        )
 
     _check_one_run_per_day(engine, result)
     _check_ballast_drift(engine, result)

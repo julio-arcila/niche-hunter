@@ -23,6 +23,34 @@ esac
                   alert "niche-hunter backup: database missing at $DB"; exit 1; }
 
 DEST="${NH_BACKUP_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/niche-hunter-backups}"
+
+# Local window. Was 30, set when a backup was 26MB; at 2026-09-01 a backup is
+# 266MB and growing ~58MB/day, which trends to ~32GB of iCloud. 14 matches
+# `nh prune`'s raw-payload retention, so the two windows move together, and it
+# is the point past which the daily series stops earning its storage — the
+# weekly offsite copy below is what covers anything older.
+KEEP_DAYS="${NH_BACKUP_KEEP_DAYS:-14}"
+# Weekly offsite copies retained. Four is a month of Sundays.
+B2_KEEP="${NH_B2_KEEP:-4}"
+
+_b2_prune() {  # keep the newest $B2_KEEP weekly objects, drop the rest
+  local keys
+  keys=$(AWS_ACCESS_KEY_ID="$NH_B2_KEY_ID" AWS_SECRET_ACCESS_KEY="$NH_B2_APP_KEY" \
+         AWS_DEFAULT_REGION="${NH_B2_REGION:-us-east-005}" \
+         /usr/local/bin/aws s3 ls "s3://$NH_B2_BUCKET/weekly/" \
+           --endpoint-url "https://${NH_B2_ENDPOINT}" 2>/dev/null \
+         | awk '{print $4}' | sort) || return 0
+  local n; n=$(printf '%s\n' "$keys" | grep -c . || true)
+  [ "$n" -gt "$B2_KEEP" ] || return 0
+  printf '%s\n' "$keys" | head -n "$((n - B2_KEEP))" | while read -r old_key; do
+    [ -n "$old_key" ] || continue
+    AWS_ACCESS_KEY_ID="$NH_B2_KEY_ID" AWS_SECRET_ACCESS_KEY="$NH_B2_APP_KEY" \
+    AWS_DEFAULT_REGION="${NH_B2_REGION:-us-east-005}" \
+    /usr/local/bin/aws s3 rm "s3://$NH_B2_BUCKET/weekly/$old_key" \
+      --endpoint-url "https://${NH_B2_ENDPOINT}" --only-show-errors \
+      && log "offsite pruned $old_key" || true
+  done
+}
 TMP="$(mktemp -t nh_backup)"
 trap 'rm -f "$TMP"' EXIT
 mkdir -p "$DEST"
@@ -80,6 +108,42 @@ fi
 # at all, so the log could not distinguish a good night from a total failure.
 # Failing to reclaim disk is not a reason to report the night as lost — the same
 # judgement `run_nightly.sh` already applies to `nh prune`.
-find "$DEST" -name 'niche_hunter_*.db.gz' -mtime +30 -delete \
+find "$DEST" -name 'niche_hunter_*.db.gz' -mtime +$KEEP_DAYS -delete \
   || log "retention sweep failed (non-fatal) — backups are kept, not pruned"
 log "backup ok -> $OUT ($(du -h "$OUT" | cut -f1), $bak_t tables, $bak_s snapshots)"
+
+# ---- offsite copy #2: somewhere that is not iCloud -------------------------
+#
+# The local backup and the database it protects are one Apple ID apart. This is
+# the copy that survives a locked account, and it is deliberately WEEKLY and
+# shallow: it is disaster recovery, not point-in-time recovery. iCloud stays the
+# daily series.
+#
+# Silent no-op when unconfigured, so the script behaves identically on a machine
+# with no B2 keys — the same posture as `alert()` and `ping_hc()`.
+#
+# `aws` rather than rclone or the b2 CLI: it is already on this machine, B2 is
+# S3-compatible, and this repo does not add a dependency it can avoid. The
+# credentials are scoped to the one command rather than exported, so they cannot
+# leak into anything else this script runs and cannot collide with a real AWS
+# profile the operator may have.
+if [ -n "${NH_B2_BUCKET:-}" ] && [ -n "${NH_B2_KEY_ID:-}" ]; then
+  if [ "$(date +%u)" = "7" ] || [ -n "${NH_B2_FORCE:-}" ]; then
+    KEY="weekly/niche_hunter_$(date +%Y-%m-%d).db.gz"
+    if AWS_ACCESS_KEY_ID="$NH_B2_KEY_ID" \
+       AWS_SECRET_ACCESS_KEY="$NH_B2_APP_KEY" \
+       AWS_DEFAULT_REGION="${NH_B2_REGION:-us-east-005}" \
+       /usr/local/bin/aws s3 cp "$OUT" "s3://$NH_B2_BUCKET/$KEY" \
+         --endpoint-url "https://${NH_B2_ENDPOINT}" --only-show-errors
+    then
+      log "offsite ok -> b2://$NH_B2_BUCKET/$KEY"
+    else
+      # Non-fatal for the same reason the retention sweep is: the night's
+      # primary backup is already written and verified. A second-destination
+      # failure is worth a push, not a red run.
+      log "offsite copy FAILED (non-fatal) — local backup is intact"
+      alert "niche-hunter: offsite backup to B2 failed"
+    fi
+    _b2_prune
+  fi
+fi

@@ -35,8 +35,66 @@ day, which is the collision `.skip-once` exists to prevent.
 | job | scheduler | when | why there |
 |---|---|---|---|
 | `run_nightly.sh` | launchd | 09:10 | cron cannot survive a sleeping Mac |
-| `backup_db.sh` | cron | 09:40 | launchd agent has no Full Disk Access |
+| `backup_db.sh` | cron | 09:40 | launchd agent has no Full Disk Access to iCloud |
+| `restore_check.sh --offsite` | launchd | 09:55, 1st of the month | downloads from B2 into a temp dir — **never touches iCloud**, so the FDA constraint on the row above does not apply here |
 | disk check | cron | every 6h | a monitor, not a data job; skips cost nothing |
+
+**Why the drill is launchd when the backup is cron**, since the two rows look
+contradictory. Full Disk Access is granted per *responsible process*: cron holds it on
+this machine and a launchd agent does not, which is why the backup — writing to
+TCC-protected iCloud Drive — stays on cron. The drill's `--offsite` arm downloads from
+B2 into a `mktemp` scratch and never opens `~/Library/Mobile Documents`, so that
+constraint is simply absent. And for a *monthly* job cron is the worse choice:
+`pmset -g custom` shows `sleep 1` on battery, so the 09:05 wake, the nightly and the
+backup finish around 09:45, the Mac re-sleeps, and a cron fire after that is silently
+skipped and never retried — the mechanism that lost 2026-08-30. launchd replays a
+`StartCalendarInterval` it slept through.
+
+```bash
+cp scripts/launchd/com.niche-hunter.restore-drill.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.niche-hunter.restore-drill.plist
+launchctl kickstart -p gui/$UID/com.niche-hunter.restore-drill    # this IS the verification
+```
+
+That kickstart appends a dated pass to `logs/restore.log`, which `nh criteria` counts —
+so installing it correctly and evidencing criterion 3 are the same act.
+
+**The drill is watched, which is the point.** `c3_recoverable` requires two dated passes
+**and** a newest one inside `DRILL_STALE_DAYS` (45). Without that clause two drills in
+2026 would have kept C3 green in 2027, and a scheduled drill would have had a success and
+a failure equally invisible to the grader — a job whose death nobody notices, which is the
+pattern the four dead auto-helpdesk jobs on this machine already demonstrated. A failing
+drill also pushes through `alert()`.
+
+### The scheduled wake — the thing that replaced a cloud deploy
+
+```bash
+sudo pmset repeat wakeorpoweron MTWRFSU 09:05:00     # silent on success
+pmset -g sched                                       # confirm: "wakepoweron at 9:05AM every day"
+```
+
+Installed **2026-09-01**, five minutes before the 09:10 nightly.
+
+launchd already replays a fire the Mac slept *through* on wake, which is why the nightly
+moved off cron. The case it does not cover is a Mac asleep **all day** — nobody opens the
+lid, nothing wakes it, and the day is simply gone. That is exactly how 2026-08-30 was lost,
+and it is the only realised failure mode this system has had.
+
+**This is what Slice 8 shipped instead of deploying to a cloud** (ADR-0055). One command
+against a migration whose principal risk was to the one artifact that cannot be re-collected.
+
+Two caveats, because they decide whether it actually fires:
+
+- **A closed laptop wakes only on AC power.** On battery with the lid shut, macOS will not
+  honour the scheduled wake. If the machine lives closed, it needs to live plugged in.
+- `wakeorpoweron` also powers the machine on if it is fully shut down, which `wake` alone
+  does not. That is the intent — "off overnight" is the same lost day as "asleep overnight".
+
+What is still uncovered, and is now written down rather than assumed: the Mac being *away*
+— travelling, or off for days. That costs one day-column of `video_snapshots` and
+`channel_snapshots` per missed day. Wikipedia backfills itself on the next run
+(`_resume_from`, history to 2015), Trends is shape-only, and RSS survives short gaps inside
+its 15-entry window. So an absence costs the supply series and nothing else.
 
 ### The nightly, and why launchd
 
@@ -70,6 +128,45 @@ launchd fixes exactly this: a missed `StartCalendarInterval` job runs **once whe
 the system next wakes**. Note the one caveat — a wake after 19:00 local puts the
 catch-up run past the UTC `observed_date` boundary, so it collects for *tomorrow*.
 Still better than nothing, but do not read a late run as having filled the gap.
+
+### Two backup destinations, and why the second one exists
+
+The iCloud copy and the database it protects are **one Apple ID apart**. A locked or
+compromised account takes both, and the snapshot history is the one artifact that cannot be
+re-collected. So there is a second, weekly copy to Backblaze B2 — different provider,
+different credential, different failure domain.
+
+```bash
+# configure once, in .env (see .env.example for the full block)
+NH_B2_BUCKET="niche-hunter"
+NH_B2_ENDPOINT="s3.us-east-005.backblazeb2.com"
+NH_B2_KEY_ID="..."      # an application key scoped to that bucket, not the master key
+NH_B2_APP_KEY="..."
+
+NH_B2_FORCE=1 scripts/backup_db.sh     # test it now instead of waiting for Sunday
+```
+
+**Set the bucket's File Lifecycle to "Keep only the last version."** The B2 default is "Keep
+all versions", which retains every deleted object as a hidden version that still counts
+against the 10 GB free tier — the prune would appear to work while storage climbed.
+
+Deliberate choices, so they are not re-litigated:
+
+- **Weekly, four deep.** This is disaster recovery, not point-in-time recovery; the daily
+  series stays in iCloud. Four Sundays is ~1.2 GB against a 10 GB free tier.
+- **`aws`, not rclone or the b2 CLI.** It is already on the machine and B2 is
+  S3-compatible. Credentials are scoped to each command rather than exported, so they
+  cannot collide with a real AWS profile.
+- **Non-fatal.** An offsite failure logs and pushes but does not redden the night — the
+  primary backup is already written and verified by then. Same judgement as the retention
+  sweep and `nh prune`.
+- **Silent when unconfigured**, like `alert()` and `ping_hc()`.
+
+The local window dropped **30 days → 14** at the same time. Thirty was set when a backup was
+26 MB; at 2026-09-01 it is 266 MB growing ~58 MB/day, which trends to ~32 GB of iCloud.
+Fourteen matches `nh prune`'s raw-payload retention, so the two windows move together — and
+most of that growth is `raw_records` backfill that flattens once prune starts rotating feed
+payloads out at day 15.
 
 ### The backup, and why it is NOT on launchd
 
@@ -115,11 +212,23 @@ like a pipeline that is running. ADR-0039 is this repo's standing example: a
 retirement written in code that never reached the database, and spent 3,000
 units a night for a day while everyone believed otherwise.
 
-**When you actually need this**: `QuotaLedger`'s budget is per-**run**, not
-per-day. A manual `nh nightly` and the 09:10 cron fire land in the same Pacific
-quota day, and each believes it has the full 9,500 — so the second spends into
-Google's real 10,000/day cap and takes 403s partway through discovery. The
-quota day resets at midnight Pacific, which is 02:00 local.
+**When you actually need this**: to skip a fire deliberately, with the reason
+recorded in the file, rather than by unloading the agent and forgetting to put it
+back. **Not** to avoid a quota collision — this paragraph said
+"`QuotaLedger`'s budget is per-**run**, not per-day" until 2026-09-01, and that was
+false since Slice 1: `YouTubeApiCollector.__init__` seeds its ledger with
+`budget - _spent_today()`, summed across every run_id since midnight Pacific, and
+`test_todays_earlier_spend_is_deducted_from_this_runs_budget` has covered it from
+the start. A manual `nh nightly` and the 09:10 fire do not each believe they have
+9,500; the second is told what is left.
+
+What is real: the ledger stops per *query*, so a day can exceed the 9,500 self-budget
+by up to one call — measured 9,624 across seven development runs on 2026-08-27, which
+is 124 over, well inside Google's actual 10,000. And spend reaches `job_runs` only when
+a run finishes, so two runs genuinely overlapping in time would each seed from a stale
+sum. `nh status` now prints the day's headroom, and `nh status --check` warns above 85%.
+
+The quota day resets at midnight Pacific, which is 02:00 local.
 
 ## Alerting: two layers
 
@@ -136,35 +245,160 @@ the same ntfy topic. Put the ping URL in `.env` as `NH_HEALTHCHECK_URL`.
 ported source is skipped for missing credentials, so gating on it alone would
 report green while collecting nothing.
 
-## Drill: kill the scheduler (do this in week 1)
+## Drill: is a MISSING ping noticed? (the dead-man switch)
 
-An untested dead-man switch is not a dead-man switch.
+An untested dead-man switch is not a dead-man switch — and the obvious way to test it is
+wrong.
 
-1. `launchctl bootout gui/$UID/com.niche-hunter.nightly` before 09:10. (This
-   drill is the one sanctioned exception to the rule just above — put it back in
-   step 3.)
-2. Confirm the healthchecks "down" alert arrives by ~15:00 (period 1d + grace 6h).
-3. Bootstrap it again; confirm the next run turns the check green again, and
-   that `launchctl list | grep niche-hunter` shows it loaded.
-4. Record the date performed: **alert routing verified 2026-08-27** (`/fail` ping → healthchecks → ntfy, all HTTP 200). The *timing* half —
-   confirming a missed ping is detected after the grace window — has not
-   been run; it needs a real skipped day. Do it in week 1.
+**Do NOT boot out the scheduler.** The version of this drill that stood here until
+2026-09-01 said `launchctl bootout` before 09:10, which stops the nightly and so
+**destroys a day of snapshots that cannot be re-collected** in order to prove the alarm
+works. It sacrifices the asset to test the guard on the asset. That is why its second half
+was never run: doing it correctly was expensive.
+
+Instead, silence the *ping* and let the collection proceed:
+
+```bash
+# the evening before
+cp .env .env.drill-backup
+# blank NH_HEALTHCHECK_URL in .env  (leave NH_NTFY_TOPIC alone)
+
+# ...the 09:10 nightly runs and collects normally, pinging nothing...
+
+# after the alert arrives, restore
+mv .env.drill-backup .env
+```
+
+`ping_hc()` guards every ping with `[ -n "${NH_HEALTHCHECK_URL:-}" ]` and `.env` is
+re-sourced at each fire, so `/start`, success and `/fail` all become no-ops while the
+night's data lands as usual. With period 1d + grace 6h the "down" alert should reach you
+around **15:1x** on the drill day.
+
+Three things to know while it runs:
+
+- The drill day's genuine failures degrade too — `/fail` is silenced with the rest. That is
+  acceptable because `alert()` reads `NH_NTFY_TOPIC` independently and still pushes.
+- This tests healthchecks' *detection*, not that the agent is loaded. `launchctl list |
+  grep niche-hunter` is a monthly-checklist line, not part of this drill.
+- **Record it with this exact wording**, because `nh criteria` matches on it:
+  `missed-ping detection verified YYYY-MM-DD`. Keep the routing line below too — C2 wants
+  both halves.
+
+Recorded: **alert routing verified 2026-08-27** (`/fail` ping → healthchecks → ntfy, all
+HTTP 200). The *timing* half is still unrun, so `nh criteria` reads C2 red — honestly.
+
+**A free alternative:** 2026-08-30 was an accidental live run of exactly this. The Mac
+slept through the fire, no ping was sent, and healthchecks should have alerted that
+afternoon. If your phone has that notification, the drill is already done — record the
+date and C2 goes green with no night spent.
 
 ## Drill: restore from backup (do this in week 1)
+
+```bash
+scripts/restore_check.sh              # newest local (iCloud) copy
+scripts/restore_check.sh --offsite    # newest B2 object, downloaded first
+```
+
+**Performed 2026-09-01 from B2**: downloaded `weekly/niche_hunter_2026-09-01.db.gz`,
+decompressed, `integrity_check` ok, 20 tables and 208,444 snapshots — matching source. That
+is the third dated drill and the first from the offsite copy.
+
+**The `--offsite` arm is the one that proves something new.** A local restore tests gzip and
+SQLite. It does not test that the remote object exists, is complete, is readable with the key
+we actually hold, or that the endpoint and bucket in `.env` are where data is really going —
+and those are precisely the failure modes a second destination exists to cover. A bucket can
+accept 266 MB every Sunday for a year and still be unopenable on the day it matters.
+
+Both arms now assert **contents**, not just openability: ≥20 tables and a non-zero
+`video_snapshots` count. `PRAGMA integrity_check` returns `ok` for a perfectly valid *empty*
+database — the same trap `backup_db.sh` documents — so a drill that proves only "it opens"
+proves the one thing that was never in doubt.
+
+
 
 ```bash
 ./scripts/restore_check.sh
 ```
 
 Restores the newest backup to a scratch path, runs `PRAGMA integrity_check`, then
-`nh doctor` and `nh status` against the restored copy. Expect `14/14 tables
-present`. Record the date performed: **passed 2026-08-27** — restored a real
-25 MB iCloud backup, 14/14 tables, 14,270 snapshots intact.
+`nh doctor` and `nh status` against the restored copy, and asserts contents: **≥20 tables
+and a non-zero `video_snapshots` count.**
+
+History, since the numbers moved: **passed 2026-08-27** on a 25 MB iCloud backup with
+14/14 tables and 14,270 snapshots. This paragraph went on saying "expect 14/14 tables"
+after the schema reached 20 — a reader following it would have seen 20/20 and wondered
+which of the two was broken.
 
 Note on verification: `integrity_check` alone is **not** sufficient — it returns
 `ok` for a valid but empty database. `backup_db.sh` therefore also compares table
 and snapshot counts against the source, because an unset `NH_DATABASE_URL` once
 produced a "successful" 113-byte backup of nothing.
+
+## The monthly half-hour
+
+Once a month, in this order. It is the only recurring obligation this system has.
+
+```bash
+uv run nh criteria --report     # the eight, graded; writes reports/production_criteria_<date>.md
+uv run nh deferrals             # has anything come unblocked?
+uv run nh status                # note the quota-day headroom line before the next step
+uv run nh prune --dry-run       # storage; glance at logs/disk.log too
+crontab -l && launchctl list | grep niche-hunter    # both schedulers still hold what they should
+```
+
+Then, by hand:
+
+1. **Re-record fixtures** if `nh criteria` says C8 is going stale (~102 quota units — check
+   the headroom line first, and do it on a day the nightly has already run).
+2. **Review any source whose ToS has moved**, and date it in `docs/SOURCES.md` as
+   `reviewed YYYY-MM-DD` *inside that source's `##` section* — C7 splits on those headings,
+   so a date under `trends` does not vouch for `reddit`.
+3. **Send one test push**: `curl -d "monthly check" ntfy.sh/$NH_NTFY_TOPIC`. See the secrets
+   table for why this one is manual and not optional.
+4. **Confirm the newest `restore drill passed` line is under 45 days old** — `nh criteria`
+   checks this, but read it yourself the first few months while the monthly agent is new.
+
+Explicitly **not** on this list: re-running the backtest. The pre-registration voids
+re-running the primary, so a monthly re-run is either a no-op or p-hacking. What replaces it
+is `nh deferrals` — asking whether a trigger has fired that would justify a *new*
+pre-registered test.
+
+## Secrets: what exists, how to rotate it, and how you learn it broke
+
+Six credentials, all in `.env` except one. **`.env` is operator-edited only** — it is
+gitignored and Claude is blocked from writing it.
+
+| secret | where | scope | rotate by | how its loss surfaces |
+|---|---|---|---|---|
+| `NH_YT_API_KEY` | `.env` | YouTube Data API v3 | Google Cloud console → new key → paste | `nh status --check` **problem** the next morning |
+| `NH_B2_KEY_ID` / `NH_B2_APP_KEY` | `.env` | one B2 bucket | B2 → Application Keys → new, bucket-scoped | ntfy push from `backup_db.sh`, and the monthly drill fails |
+| `google-ads.yaml` | repo root, gitignored | Ads OAuth refresh token | `scripts/gads_oauth.py` | KP staleness warning after 70 days |
+| `NH_HEALTHCHECK_URL` | `.env` | one healthchecks check | healthchecks → new check URL | **silence** — indistinguishable from the drill above |
+| `NH_NTFY_TOPIC` | `.env` | one ntfy topic | pick a new high-entropy topic, resubscribe | **nothing detects it** — see below |
+
+**The ntfy topic is the hole, and it is worth knowing about.** `alert()` is deliberately
+fail-soft — `curl -fs … || true` — so alerting can never be what breaks a job. The cost is
+that a wrong, expired or renamed topic produces no error anywhere: every push silently goes
+nowhere, and the first you learn of it is a failure you never heard about. Nothing in the
+system can detect this, which is why the monthly checklist has a manual test send. It is
+also worth treating the topic as a **bearer token**: anyone who guesses it can push
+notifications to your phone, so pick something long and random rather than `niche-hunter`.
+
+## Being away: what it costs
+
+The scheduled wake covers a sleeping Mac and launchd replays a fire slept through. What is
+not covered is the machine being **off or absent** for days.
+
+Each missed day costs **one day-column of `video_snapshots` and `channel_snapshots`** —
+unrecoverable, because no source serves history for them. Everything else self-heals:
+Wikipedia backfills from `_resume_from` (history to 2015), Trends is shape-only and
+re-fetched whole, RSS survives short gaps inside its 15-entry window, and quota resets
+daily.
+
+While the Mac is off, healthchecks will page you every day. Two honest options: leave it
+plugged in and let `wakeorpoweron` handle it, or pause the check deliberately before you go.
+Do not disable the scheduler — `echo "away" > .skip-once` is for one night; a longer absence
+is a pause on the healthchecks side.
 
 ## Reading the state
 

@@ -2941,3 +2941,131 @@ objection is unchanged and ADR-0045 already settled that a second rater of the s
 cannot detect a bias it shares. Two samples were spent that way and neither is evidence.
 Declining to gather evidence is a decision; substituting non-evidence for it is not the
 same decision, and this ADR authorises only the first.
+
+## ADR-0055 — Production criterion 4 is met by a characterised null; Slice 8 is rescoped
+2026-08-31. Accepted. Amends the "Definition of done" table in `docs/ROADMAP.md` and rewrites
+Slice 8's entry. Changes no code behaviour.
+
+### C4 is met, and reading it otherwise makes the exit unreachable forever
+
+The criterion reads: **"Calibrated — a published rank correlation with its null distribution,
+its universe, and known failure modes."** Every element is in
+`reports/backtest_2026-08-28.md`: the correlation (ρ 0.091), the null (10,000 global
+permutations, p 0.4988), the universe (survivorship — YouNiverse holds only channels that had
+already crossed 10k subscribers, named there as "the defining limitation"), and a
+hand-written failure analysis.
+
+It asks for a **characterised** correlation, not a **positive** one, and the distinction is
+not a lawyer's reading — it is the branch the roadmap already took. Gate E's own section says
+the response was to *narrow the claim*, not to keep testing until something passed. Under the
+narrowed claim the product surfaces evidence for a human to judge, and a characterised null
+is precisely the calibration that product rests on: **it is why the niche list is
+alphabetical and why nothing ranked ships.** A reader who knows ρ 0.091 knows exactly how
+much to trust an ordering, which is what criterion 4 exists to tell them.
+
+Recorded rather than assumed, because the alternative reading has a permanent consequence.
+`reports/backtest_preregistration_2026-08-27.md` voids on re-running the primary with another
+stratum, threshold, horizon or supply proxy; ADR-0054 closes the labelling; and reviving the
+predictive claim needs a corpus containing channels that **failed**, which no source here
+provides. So a "positive correlation" reading leaves C4 red forever, Slice 8 open forever,
+and the definition of done unreachable by construction — while every other criterion goes
+green. A definition of done that cannot be met is not a standard, it is an oversight.
+
+**The other seven are unamended.** C1 and C8 are *waiting* criteria — satisfied by elapsed
+time and by a monthly habit, not by code — and that is a fact about them, not a defect.
+
+### Slice 8 is rescoped: the cloud move is cut
+
+**What a missed night actually costs**, since every argument for deploying rests on it:
+Wikipedia self-heals (`WikipediaCollector.fetch` resumes per term from `_resume_from`, and
+the source serves history back to 2015); Trends is shape-only; RSS survives short gaps inside
+its 15-entry window. The irreducible loss is **one day-column of `video_snapshots` and
+`channel_snapshots`** — real and unrecoverable, and feeding no validated claim today.
+
+**What the cloud costs.** ADR-0019 already records that "the swap is just a URL" is false: no
+data-migration path exists, integer primary keys need `setval`, no test has ever executed
+against Postgres, and one runtime-crash class (`length(jsonb)`) shipped once already. Add to
+that a migration whose principal risk is the one artifact `.claude/rules/data.md` exists to
+protect; a secret-management burden that does not exist on a laptop; real monthly cost
+against a current $0; an unauthenticated loopback-only Streamlit surface that would suddenly
+need authentication; and a second scheduler, which is the two-runs-in-one-quota-day collision
+this repo already documents. None of ADR-0019's four triggers has fired except #4 — "deploy
+fires the swap" — which is circular and must not be read as forcing Postgres.
+
+And "runs without you" is not fully purchasable at any price: the Keyword Planner CSV is a
+manual monthly download, fixtures are re-recorded by hand against a live source, and the
+niche set is an editorial choice.
+
+**The cheap intervention that buys most of it** is one command —
+`sudo pmset repeat wakeorpoweron MTWRFSU 09:05:00`. launchd already replays a fire the Mac
+slept through on wake; the uncovered case is a Mac asleep *all day*, which is exactly how
+2026-08-30 was lost, and a scheduled wake closes it. Caveat recorded in the RUNBOOK: a closed
+laptop wakes only on AC power.
+
+**Also cut:** the secret manager — the whole inventory is one YouTube API key, a healthcheck
+URL, an ntfy topic and `google-ads.yaml`, which is a RUNBOOK section and a rotation procedure,
+not a service. And SLOs + paging: healthchecks (period 1d, grace 6h) plus ntfy **is** the
+paging stack for one operator, and the SLO is one sentence — "green by ~15:00 local, or a push
+arrives." Write it; build nothing.
+
+**Cut from the monthly runbook: "re-run backtest".** The pre-registration voids re-running the
+primary, so a monthly re-run is either a no-op or p-hacking. It is replaced by "check whether
+any deferral trigger has fired that would justify a *new* pre-registered test" — which is the
+same instinct pointed somewhere it can pay.
+
+### What Slice 8 ships instead
+
+Three live defects inside its own subject matter, then the evidence machinery:
+
+1. **The backups are on a 24 GB trajectory in iCloud Drive.** ~711 MB today across five
+   files, growing **52 MB/day**, against a 30-day retention window — if growth holds linear
+   that is ~24 GB of someone's iCloud quota. The window was set when a backup was 26 MB.
+
+   **A correction, because the first draft of this ADR got it backwards and this is the exact
+   defect ADR-0053 named two days ago.** That draft said "the retention sweep has been
+   failing since 2026-08-30". It was failing *until* then: `logs/backup.log`'s two
+   `find: … Operation not permitted` lines predate the timestamped entries and match the
+   measurement already written into `scripts/backup_db.sh:75` ("under cron this `find` cannot
+   traverse iCloud Drive… Measured 2026-08-29"); Full Disk Access reached cron on 2026-08-30;
+   and the 2026-08-31 run logs `backup ok` with no find error. A dated experiment's log lines
+   were read as an ongoing defect — a prose echo of a superseded measurement, committed by
+   the person who had just written the ADR against doing that. Left visible rather than
+   quietly amended, since the pattern is the point.
+
+   So the sweep works and the *window* is the issue. Slice 8 shortens retention and adds a
+   second, non-iCloud destination — today the database and its backup are one Apple ID
+   apart.
+2. **Nothing pushes an `alerts` row anywhere.** The rules phase writes rows, `alert()` exists
+   in `scripts/_common.sh`, and nothing connects them: the table is empty and its only
+   consumer is a web page nobody has open. The 2026-09-14 ballast revert fires Rule 2 that
+   night, which is a free live test of the whole chain.
+3. **The dead-man-switch drill destroys the asset it protects.** RUNBOOK step 1 is
+   `launchctl bootout` *before 09:10*, so testing the alarm costs a night of unrecoverable
+   snapshots — which is why its timing half has never been run. Amended to blank
+   `NH_HEALTHCHECK_URL` for one day instead: the ping goes missing while the data is still
+   collected.
+
+Plus **quota headroom made visible per Pacific quota day**.
+
+**Not enforcement — that already exists, and two drafts of this ADR said otherwise.**
+`YouTubeApiCollector.__init__` seeds its ledger with `budget - _spent_today()`, summing
+`job_runs.quota_used` since midnight America/Los_Angeles across every run_id, and it has been
+tested since Slice 1. A planning agent reported "the per-run ledger means the real per-day cap
+can be exceeded with no warning", citing 13,637 units on 2026-08-31; that figure was
+UTC-day grouping — the exact trap ADR-0049 documents — and by Pacific day it is 6,447 across
+one run. This ADR then repeated the conclusion, and CLAUDE.md's own stale bullet
+("`QuotaLedger`'s budget is per-**RUN**, not per-day") made it look corroborated. Nobody
+opened the collector. **Three artifacts agreeing is not evidence when two of them are echoes
+of the third.**
+
+What is actually missing is *visibility*: `check()` warns only when a single run spends its
+whole budget, so an operator cannot see the day's remaining headroom before deciding to
+re-run. That is what Slice 8 adds. The one real overshoot — 9,624 against 9,500 on
+2026-08-27 — is the documented per-query stop granularity, 124 units, one `search.list`.
+
+And **`nh criteria`**, which is the centrepiece. The exit is "all eight met **and
+evidenced**", two of the eight are satisfied by elapsed time rather than by code, and this
+repo's standing answer to "a standard nobody can check" is to make it executable —
+`nh deferrals` exists for exactly that reason and is the module this copies. Without it the
+slice reads open for a month after the work is finished, which is the header-rot Slices 9 and
+11 already demonstrated.

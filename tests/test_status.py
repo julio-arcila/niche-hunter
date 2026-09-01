@@ -384,3 +384,118 @@ def test_a_stamp_dropped_on_only_some_clusters_warns(settings, engine):
 
     assert result.ok
     assert any("dropped" in w and "no detail.ballast" in w for w in result.warnings)
+
+
+# --- quota day headroom -------------------------------------------------------------
+#
+# The day's total was invisible: `job_runs.quota_budget` records each run's REMAINING
+# slice, so `nh status`'s QUOTA column shows a fraction of a fraction and nowhere
+# reported what the day had left. Enforcement was never the gap — the collector has
+# deducted the day's prior spend since Slice 1 — visibility was.
+
+
+def _spend(engine, units, *, run_id="q1", hours_ago=1):
+    """A finished youtube_api run, placed relative to PACIFIC midnight.
+
+    Anchored explicitly for the reason `test_youtube_api.py::_prior_run` documents: a row
+    "an hour ago" belongs to the previous quota day between 00:00 and 01:00 Pacific, and a
+    test that ignores that goes red once a day in the window the behaviour matters most.
+    """
+    from zoneinfo import ZoneInfo
+
+    midnight = (
+        utcnow()
+        .astimezone(ZoneInfo("America/Los_Angeles"))
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+    )
+    with session_scope(engine) as s:
+        s.add(
+            JobRun(
+                run_id=run_id,
+                job="nightly",
+                source="youtube_api",
+                status="ok",
+                started_at=(midnight + timedelta(hours=hours_ago)).astimezone(utcnow().tzinfo),
+                quota_used=units,
+                quota_budget=9_500,
+            )
+        )
+
+
+def test_quota_day_sums_across_runs(settings, engine):
+    """The whole point: two runs in one Pacific day are one quota day."""
+    from nh.jobs.status import quota_day
+
+    _spend(engine, 6_000, run_id="a")
+    _spend(engine, 3_000, run_id="b", hours_ago=2)
+    spent, budget = quota_day(engine, settings)
+
+    assert spent == 9_000 and budget == 9_500
+
+
+def test_quota_day_excludes_yesterday(settings, engine):
+    """Spend before Pacific midnight belongs to the previous quota day. Getting this
+    wrong is ADR-0049's trap, which this repo has walked into twice."""
+    from nh.jobs.status import quota_day
+
+    _spend(engine, 7_000, run_id="yesterday", hours_ago=-3)
+    _spend(engine, 1_000, run_id="today")
+
+    assert quota_day(engine, settings)[0] == 1_000
+
+
+def test_a_heavy_quota_day_warns_but_does_not_fail(settings, engine):
+    """A warning, never a problem. An expensive day is not a failed collection, and a
+    problem would redden the night and page someone for arithmetic.
+
+    Booked under `RUN_ID` so it belongs to the healthy night rather than becoming a newer
+    run of its own — `check()` judges the LATEST run_id, and a stray one makes every other
+    source look absent. `_healthy` already spends 3,000, so this adds 5,100 for 8,100 of
+    9,500 = 85.3%, just over the threshold.
+    """
+    _healthy(engine)
+    _spend(engine, 5_100, run_id=RUN_ID)
+    result = check(engine, settings)
+
+    assert result.ok, f"a heavy day must not fail the night: {result.problems}"
+    assert any("quota day is" in w and "headroom" in w for w in result.warnings)
+
+
+def test_an_ordinary_night_does_not_warn(settings, engine):
+    """3,000 + 4,190 = 7,190 — the heaviest real night (2026-08-30), 76% of budget.
+
+    Measured single-nightly spend is 68-76%, so the threshold has to sit above that or it
+    fires every night and stops being read.
+    """
+    _healthy(engine)
+    _spend(engine, 4_190, run_id=RUN_ID)
+    result = check(engine, settings)
+
+    assert result.ok
+    assert not any("quota day" in w for w in result.warnings)
+
+
+def test_criteria_c6_reads_the_same_helper(settings, engine):
+    """C6 had no test at all until the delegation refactor, so this pins both.
+
+    Three copies of a timezone-sensitive sum is three chances to reproduce the same
+    trap independently; asserting they agree is what makes one helper worth having.
+    """
+    from nh.jobs.criteria import c6_bounded
+    from nh.jobs.status import quota_day
+
+    _spend(engine, 5_000, run_id="c6")
+    spent, budget = quota_day(engine, settings)
+    result = c6_bounded(engine)
+
+    assert f"{spent:,}/{budget:,}" in result.detail
+    assert result.met is True
+
+
+def test_criteria_c6_is_not_met_when_the_day_is_overspent(settings, engine):
+    """It must be able to go red — the whole contract of `nh criteria`."""
+    from nh.jobs.criteria import c6_bounded
+
+    _spend(engine, 12_000, run_id="over")
+
+    assert c6_bounded(engine).met is False
