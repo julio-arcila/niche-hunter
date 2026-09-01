@@ -91,49 +91,20 @@ reviewer. Summarize exploration briefly.
   2026-09-14 deadline. The ROADMAP headers for slices 9 and 11 said "PLANNED, not started"
   until 2026-08-31, three days after both shipped — read `nh/seeds.py` and
   `features/run.py::METRICS`, not the roadmap, for what exists.
-- **THE ONE THING WAITING ON A HUMAN — and BOTH drawn samples have now been spent by a
-  model.** 2026-08-29 (ADR-0041) and 2026-08-30 (ADR-0042) were each labelled by fable-5
-  at the operator's repeated instruction. Both came to **78/99**, lower bound 0.6974,
-  failing the 0.70 bar by 0.0026 — one row, twice, from opposite sides of a criterion
-  revision. **Neither is evidence**: it is fable-5 grading a lexicon built from fable-5
-  labels, the exact circularity the test exists to prevent.
-  **The third sample is DRAWN and waiting**: `reports/exposition_labelling_2026-08-31.jsonl`,
-  seed 20260831, **100 rows, 10 per domain across the ten remaining domains** (ADR-0044),
-  4 rows overlapping what a model labelled. Bar is ADR-0041's tabulated **79/100**.
-  Run `uv run python scripts/label_exposition.py` — it now defaults to the newest draw.
-  ~20 minutes, and it need not be the operator: ADR-0041 requires a rater independent of
-  the model family, not a specialist. See `reports/exposition_result_2026-08-30.md`.
-- **THE SECOND SAMPLE, AND IT IS THE ONE ON A CLOCK (ADR-0050).**
-  `reports/recall_labelling_2026-08-31.jsonl`, seed 20260901, **100 rows over 87 channels,
-  10 per domain**, drawn from decided-noise rows on ballast channels — the stratum
-  ADR-0041 says in its own text it cannot reach. Run
-  `uv run python scripts/label_exposition.py --sample recall`. **Same ADR-0042 criterion,
-  both passes, unchanged**: relevance is the geometric mean of domain x exposition, so a
-  false negative is exactly `label = 1`. One standard covers both samples; label them in
-  one sitting.
-  Bar is the **95% Wilson UPPER bound <= 0.10, at most 4 of 100** — upper, because the
-  claim being defended is that the excluded rows contain almost nothing.
-  **Why it is on a clock:** Held against the SAME day's corpus, ADR-0047 takes
-  `history-of-ideas on_niche_share` from 0.0758 to 0.2273 with an **identical numerator of
-  230**, so the whole difference is denominator removal — and it is unvalidated. The
-  stored night-over-night step is 0.0781 -> 0.2273 (numerator 154 -> 230, the corpus grew);
-  quoting the A/B as if it were that step was corrected 2026-08-31 after review. `inputs.BALLAST_SUNSET` is **2026-09-14**: past it, with
-  `BALLAST_VALIDATED` still `None`, `not_ballast` returns true-everywhere and
-  `supply.definition()` reverts to `v2-on-niche` — verified end to end, it puts
-  history-of-ideas back to 0.0758 with the numerator unmoved. Set `BALLAST_VALIDATED`
-  only in the commit that writes the computed interval into ADR-0047; **it is a human's
-  verdict, never a file the code reads**, because completing the labels and passing the
-  bar are different events.
-- **The one clock read in `nh/features/inputs.py` is `ballast_active()`, and the module
-  docstring's "nothing reads the clock" now names it.** It is not a leak — it switches a
-  whole definition, never what a `day`-bounded read can see — but `pinned_ballast()`
-  resolves it **once per run** and holds it, because a nightly starting at 23:58 on
-  2026-09-13 would otherwise write two definitions under one `run_id`. Both `run_phases`
-  and `backtest.replay` wrap themselves in it; `replay(..., ballast=True/False)` pins
-  history to a chosen definition, which is the only honest way to compare v2 against v3.
-  **Every ballast exclusion goes through `exclude_ballast(column, ...)`** — a review found
-  `member_channels` calling the subquery directly, so it kept filtering after the switch
-  went false while the row stamped `v2-on-niche`. A test fails on any new direct call site.
+- **THE LABELLING IS CLOSED, BY DECISION (ADR-0054).** The operator declines to label
+  either drawn sample and will not crowdsource them. **Do not raise it again, and do not
+  treat it as pending work** — it is the third branch ADR-0050 pre-committed to, taken
+  deliberately. Both samples remain drawn and reproducible
+  (`reports/exposition_labelling_2026-08-31.jsonl`, `reports/recall_labelling_2026-08-31.jsonl`,
+  seeds 20260831 and 20260901) should a rater ever appear; nothing about the instrument
+  decayed. **A model labelling them is still not evidence** — ADR-0041's objection is
+  unchanged and two samples were already spent that way.
+- **So ballast reverts on 2026-09-14 and that is the expected outcome, not a failure.**
+  `ballast_active()` goes False, `supply.definition()` stamps `v2-on-niche`, and
+  `history-of-ideas on_niche_share` returns to 0.0758 — verified end to end, no migration,
+  no lost history. Rule 2 fires that night and names the cause; `nh status --check` warns
+  on the ballast delta. Expect both. The eight scorer-dependent metrics and the whole
+  `scorecards` row stay withheld from every surface indefinitely.
 - **BUT THIS NO LONGER BLOCKS ANYTHING (ADR-0045).** The requirement now fires when an
   exposition score is CITED — a scorecard row for an active exposition cluster carrying a
   non-NULL `value`/`sustainability`/`opportunity` — not while the score merely exists. The

@@ -81,7 +81,10 @@ DEFERRALS: tuple[Deferral, ...] = (
             "and run.pressure_index which ranks them — all revert to v2-on-niche"
         ),
         cost=(
-            "~30 minutes: `uv run python scripts/label_exposition.py --sample recall` "
+            "DECIDED 2026-08-31: the operator declines to label (ADR-0054), so this "
+            "resolves by SUNSET rather than by evidence — on 2026-09-14 ballast reverts "
+            "and this entry closes. It is not waiting on anyone. Were it ever revived: "
+            "~30 minutes, `uv run python scripts/label_exposition.py --sample recall` "
             "over reports/recall_labelling_2026-08-31.jsonl (100 rows, 87 channels, "
             "ADR-0042's two passes unchanged). Bar is the 95% Wilson UPPER bound "
             "<= 0.10, at most 4 of 100. A MODEL MUST NOT LABEL IT — the objection is "

@@ -2901,3 +2901,43 @@ The one thing this sweep did **not** do is edit `nh/backtest/niches.py`, whose c
 frozen curation file whose commit is cited as blind-curation evidence in a report; the
 claim was true at commit time, and editing it now would weaken that evidence. Recorded here
 instead — which is the correct move for a claim whose staleness is part of its value.
+
+## ADR-0054 — The operator declines to label; the samples resolve by sunset, not by evidence
+2026-08-31. Accepted. Records a decision that was offered as a designed option and taken.
+
+**The decision.** The operator will not label either drawn sample, and does not intend to
+crowdsource them. This is not a deferral and not a queue: it is the third branch ADR-0050
+pre-committed to, chosen deliberately.
+
+**It cost the design nothing, because the design anticipated it.** ADR-0050 wrote the
+sunset precisely so that a non-answer would also be an answer, and the conservative one:
+on **2026-09-14** `inputs.ballast_active()` returns False, `not_ballast` becomes a
+true-everywhere clause, `supply.definition()` stamps `v2-on-niche`, and
+`history-of-ideas on_niche_share` returns to 0.0758 with no migration and no lost history.
+Verified end to end before this was ever a live possibility. Rule 2 fires that night and
+says why, and `nh status --check` warns on the ballast delta. Nothing breaks.
+
+**What stays closed, permanently for now.** The eight scorer-dependent metrics and the
+whole `scorecards` row stay withheld from every surface. The evidence surface therefore
+shows the fourteen scorer-independent metrics, the demand series, the corpus, the source
+feed and the drilldowns — which is what it was built to show, and none of it depended on
+the labelling.
+
+**Why this is recorded rather than left implicit.** A deferral whose trigger nobody will
+pull is worse than a closed one: it reads as work in progress forever, and every artifact
+that mentions it — the register, the withheld text on each gated metric, the status block
+— quietly nags a reader about a task that is not going to happen. Three of those were
+edited with this ADR so they state a settled position instead. **The register is for things
+waiting on someone. This is not waiting on anyone.**
+
+**What would reopen it.** Nothing automatic. A rater appearing — a person, a crowd, a
+funded pass — is the only path, and the instrument is intact and drawn: two 100-row
+samples, a blinded tool, a pre-registered criterion and pre-registered bars, all reusable
+the day someone wants them. `scripts/draw_recall_sample.py` and
+`scripts/draw_exposition_sample.py` reproduce the draws from their seeds.
+
+**What this does not license.** It does not make a model's labels admissible — ADR-0041's
+objection is unchanged and ADR-0045 already settled that a second rater of the same family
+cannot detect a bias it shares. Two samples were spent that way and neither is evidence.
+Declining to gather evidence is a decision; substituting non-evidence for it is not the
+same decision, and this ADR authorises only the first.

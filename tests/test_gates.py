@@ -156,12 +156,14 @@ def test_the_whole_scorecard_is_withheld_together():
     assert "gap" in gates.SCORECARD_FIELDS and "demand" in gates.SCORECARD_FIELDS
 
 
-def test_the_withheld_reason_names_the_command_that_lifts_it():
-    """A gate that does not say how to open it is a wall. The register's own text is what
-    is shown in place of the number."""
+def test_the_withheld_reason_states_a_settled_position_not_a_queue():
+    """It used to name the command that lifts the gate. The operator has since declined to
+    label (ADR-0054), so advertising the task on every withheld metric forever would be
+    nagging about work that is not going to happen — and would misdescribe the state as
+    pending when it is decided."""
     reason = gates.citable("on_niche_share", "history-of-ideas").reason
-    assert "label_exposition.py" in reason
-    assert "exposition" in reason
+    assert "exposition" in reason and "ADR-0054" in reason
+    assert "label_exposition.py" not in reason
 
 
 def test_the_disclosure_register_is_complete_and_argued():

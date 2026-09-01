@@ -232,12 +232,13 @@ def test_the_whole_scorecard_is_withheld(exposition):
     assert "Gate E" in out, "and the reason quoted is the null, not the scorer"
 
 
-def test_a_withheld_number_says_how_to_unwithhold_it(exposition):
-    """A gate that does not say how to open it is a wall. What replaces the number is the
-    deferral register's own text, which is serving the register rather than citing."""
+def test_a_withheld_number_says_why_and_that_it_is_settled(exposition):
+    """What replaces the number is the reason, not an instruction. The operator declined to
+    label (ADR-0054), so a withheld metric states a decided position rather than pointing
+    at a task nobody is going to do."""
     out = runner.invoke(app, ["niche", "show", "history-of-ideas"]).stdout
-    assert "unvalidated" in out and "label_exposition.py" in out
-    assert "ADR-0041" in out
+    assert "unvalidated" in out and "ADR-0041" in out
+    assert "ADR-0054" in out and "label_exposition.py" not in out
 
 
 def test_the_flag_shows_them_again(exposition):

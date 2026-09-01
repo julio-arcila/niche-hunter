@@ -90,8 +90,8 @@ UNVALIDATED_AXES: frozenset[str] = frozenset({"exposition"})
 
 WITHHELD = (
     "computed, unvalidated, and not shown: the {axis} relevance rule rests on machine "
-    "labels only (ADR-0041). A drawn sample is waiting — "
-    "`uv run python scripts/label_exposition.py`, ~20 minutes."
+    "labels only (ADR-0041), and the operator has declined to label the drawn sample "
+    "(ADR-0054). This is a settled state, not a queue."
 )
 
 
