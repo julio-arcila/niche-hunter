@@ -98,6 +98,23 @@ def test_c2_distinguishes_routing_from_timing(monkeypatch, tmp_path):
     assert criteria.c2_alarmed().met is True
 
 
+def _drill_log(tmp_path, *ages_in_days, offsite=True):
+    """A restore log with passes N days old.
+
+    **Relative to today, never literal dates.** The first version wrote 2026-09-01 and
+    2026-09-02, which passed on the day it was written and would have started failing 46
+    days later when `DRILL_STALE_DAYS` caught up with them — a test that rots into a
+    false alarm is worse than no test, and this file's whole subject is graders that lie.
+    """
+    (tmp_path / "logs").mkdir(exist_ok=True)
+    today = datetime.now(tz=UTC).date()
+    lines = []
+    for i, age in enumerate(ages_in_days):
+        tag = " [offsite b2://]" if offsite and i == 0 else ""
+        lines.append(f"{today - timedelta(days=age)} restore drill passed for x.db.gz{tag}")
+    (tmp_path / "logs" / "restore.log").write_text("\n".join(lines) + "\n")
+
+
 def test_c3_needs_logged_passes_not_a_script(monkeypatch, tmp_path):
     """'A drill, performed, twice.' A restore script that has never been run is a plan."""
     (tmp_path / "logs").mkdir()
@@ -105,26 +122,37 @@ def test_c3_needs_logged_passes_not_a_script(monkeypatch, tmp_path):
 
     assert criteria.c3_recoverable().met is False
 
-    log = tmp_path / "logs" / "restore.log"
-    log.write_text("2026-09-01 restore drill passed for x.db.gz\n")
+    _drill_log(tmp_path, 1)
     assert criteria.c3_recoverable().met is False, "one drill is not twice"
 
-    log.write_text(
-        "2026-09-01 restore drill passed for x.db.gz\n"
-        "2026-09-02 restore drill passed for x.db.gz [offsite b2://]\n"
-    )
+    _drill_log(tmp_path, 1, 30)
     result = criteria.c3_recoverable()
     assert result.met is True and "offsite arm exercised" in result.detail
+
+
+def test_c3_goes_stale_when_the_schedule_dies(monkeypatch, tmp_path):
+    """The clause that makes the monthly agent load-bearing.
+
+    Without it, two drills in 2026 kept this green in 2027 — so a scheduled drill would
+    have had a success and a failure that were equally invisible to the grader. A job
+    whose death nobody notices is the auto-helpdesk pattern the RUNBOOK has a scar from.
+    """
+    monkeypatch.setattr(criteria, "ROOT", tmp_path)
+
+    _drill_log(tmp_path, criteria.DRILL_STALE_DAYS - 1, criteria.DRILL_STALE_DAYS + 40)
+    assert criteria.c3_recoverable().met is True, "inside the window, two passes: met"
+
+    _drill_log(tmp_path, criteria.DRILL_STALE_DAYS + 1, criteria.DRILL_STALE_DAYS + 40)
+    stale = criteria.c3_recoverable()
+    assert stale.met is False
+    assert "ago" in stale.detail, "and it says how old the newest pass is"
 
 
 def test_c3_says_when_only_the_local_arm_was_tested(monkeypatch, tmp_path):
     """A local restore tests gzip and SQLite. It says nothing about whether the offsite
     object is readable with the key we hold."""
-    (tmp_path / "logs").mkdir()
     monkeypatch.setattr(criteria, "ROOT", tmp_path)
-    (tmp_path / "logs" / "restore.log").write_text(
-        "2026-09-01 restore drill passed for x\n2026-09-02 restore drill passed for x\n"
-    )
+    _drill_log(tmp_path, 1, 2, offsite=False)
     assert "LOCAL ONLY" in criteria.c3_recoverable().detail
 
 

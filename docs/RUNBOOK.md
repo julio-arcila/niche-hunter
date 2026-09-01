@@ -35,8 +35,36 @@ day, which is the collision `.skip-once` exists to prevent.
 | job | scheduler | when | why there |
 |---|---|---|---|
 | `run_nightly.sh` | launchd | 09:10 | cron cannot survive a sleeping Mac |
-| `backup_db.sh` | cron | 09:40 | launchd agent has no Full Disk Access |
+| `backup_db.sh` | cron | 09:40 | launchd agent has no Full Disk Access to iCloud |
+| `restore_check.sh --offsite` | launchd | 09:55, 1st of the month | downloads from B2 into a temp dir — **never touches iCloud**, so the FDA constraint on the row above does not apply here |
 | disk check | cron | every 6h | a monitor, not a data job; skips cost nothing |
+
+**Why the drill is launchd when the backup is cron**, since the two rows look
+contradictory. Full Disk Access is granted per *responsible process*: cron holds it on
+this machine and a launchd agent does not, which is why the backup — writing to
+TCC-protected iCloud Drive — stays on cron. The drill's `--offsite` arm downloads from
+B2 into a `mktemp` scratch and never opens `~/Library/Mobile Documents`, so that
+constraint is simply absent. And for a *monthly* job cron is the worse choice:
+`pmset -g custom` shows `sleep 1` on battery, so the 09:05 wake, the nightly and the
+backup finish around 09:45, the Mac re-sleeps, and a cron fire after that is silently
+skipped and never retried — the mechanism that lost 2026-08-30. launchd replays a
+`StartCalendarInterval` it slept through.
+
+```bash
+cp scripts/launchd/com.niche-hunter.restore-drill.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.niche-hunter.restore-drill.plist
+launchctl kickstart -p gui/$UID/com.niche-hunter.restore-drill    # this IS the verification
+```
+
+That kickstart appends a dated pass to `logs/restore.log`, which `nh criteria` counts —
+so installing it correctly and evidencing criterion 3 are the same act.
+
+**The drill is watched, which is the point.** `c3_recoverable` requires two dated passes
+**and** a newest one inside `DRILL_STALE_DAYS` (45). Without that clause two drills in
+2026 would have kept C3 green in 2027, and a scheduled drill would have had a success and
+a failure equally invisible to the grader — a job whose death nobody notices, which is the
+pattern the four dead auto-helpdesk jobs on this machine already demonstrated. A failing
+drill also pushes through `alert()`.
 
 ### The scheduled wake — the thing that replaced a cloud deploy
 

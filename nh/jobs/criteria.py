@@ -38,6 +38,10 @@ ROOT = Path(__file__).resolve().parents[2]
 UNATTENDED_NIGHTS = 30
 #: C3. "A drill, performed, twice" — the roadmap's wording.
 DRILLS_REQUIRED = 2
+#: C3, and the clause that makes the monthly schedule load-bearing. A drill on a monthly
+#: agent plus the same late-month slack `FIXTURE_STALE_DAYS` allows: if the agent dies,
+#: this criterion goes red inside 45 days rather than staying green on drills from 2026.
+DRILL_STALE_DAYS = 45
 #: C7. A source review older than this is stale. A quarter: long enough not to nag, short
 #: enough that a changed ToS is caught inside one.
 REVIEW_STALE_DAYS = 90
@@ -133,23 +137,38 @@ def c2_alarmed() -> Result:
 
 
 def c3_recoverable() -> Result:
-    """Dated passes in the restore log — not the existence of a restore script.
+    """Dated passes in the restore log — recent ones, and at least one from offsite.
 
-    A script that has never been run is a plan, and the criterion says "a drill,
-    performed, twice".
+    Three clauses, and the recency one is the newest and the reason the monthly schedule
+    is worth having.
+
+    Without it this criterion counted passes and nothing else, so two drills in 2026 made
+    it green in 2027 — and a scheduled drill would then have had a success and a failure
+    that were equally invisible to the grader. That is the auto-helpdesk pattern the
+    RUNBOOK has a scar from: a job whose death nobody notices. Caught by review on
+    2026-09-01, in a module whose own tests are about self-graders that cannot fail.
+
+    A script that has never been run is a plan, so the evidence is the log, not the file.
     """
     log = ROOT / "logs" / "restore.log"
     text = log.read_text() if log.exists() else ""
     passes = re.findall(r"(\d{4}-\d{2}-\d{2}).*restore drill passed", text)
     offsite = "b2://" in text or "offsite" in text
-    met = len(passes) >= DRILLS_REQUIRED
-    detail = f"{len(passes)}/{DRILLS_REQUIRED} logged passes"
-    if passes:
-        detail += f", newest {max(passes)}"
+    if len(passes) < DRILLS_REQUIRED:
+        return Result(
+            3,
+            "Recoverable",
+            False,
+            f"{len(passes)}/{DRILLS_REQUIRED} logged passes",
+            "logs/restore.log",
+        )
+    newest = max(date.fromisoformat(d) for d in passes)
+    age = (date.today() - newest).days
+    detail = f"{len(passes)} logged passes, newest {newest} ({age}d ago)"
     detail += (
         "; offsite arm exercised" if offsite else "; LOCAL ONLY — the offsite copy is untested"
     )
-    return Result(3, "Recoverable", met, detail, "logs/restore.log")
+    return Result(3, "Recoverable", age <= DRILL_STALE_DAYS, detail, "logs/restore.log")
 
 
 def c4_calibrated() -> Result:

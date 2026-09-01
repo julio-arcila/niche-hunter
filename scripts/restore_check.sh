@@ -19,7 +19,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 set -e
 
 SCRATCH="$(mktemp -d -t nh_restore)"
-trap 'rm -rf "$SCRATCH"' EXIT
+# Cleanup AND failure notification in one trap. Every exit path below is `exit 1` with a
+# log line and nothing else, which is fine when a human typed the command and is useless
+# when launchd runs it monthly at 09:55 — a drill whose failure is only in a log file that
+# nobody opens is the auto-helpdesk pattern this repo already has a scar from.
+_on_exit() {
+  rc=$?
+  rm -rf "$SCRATCH"
+  [ $rc -eq 0 ] || alert "niche-hunter restore drill FAILED (exit $rc) — logs/restore_drill.log"
+  exit $rc
+}
+trap _on_exit EXIT
 
 if [ "${1:-}" = "--offsite" ]; then
   [ -n "${NH_B2_BUCKET:-}" ] || { log "no B2 bucket configured"; exit 1; }

@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.niche-hunter.restore-drill</string>
+
+  <!-- Monthly proof that the offsite backup can actually be restored.
+       "Recoverable" is production criterion 3, and `nh criteria` reads the log this
+       writes: two dated passes AND a newest one inside DRILL_STALE_DAYS. So a schedule
+       that dies turns C3 red within 45 days instead of leaving it green forever.
+
+       WHY launchd, when the backup is on cron. The backup writes to iCloud Drive, which
+       is TCC-protected, and Full Disk Access is granted per responsible process: cron
+       holds it here and a launchd agent does not (measured — see the backup plist's
+       header). The --offsite arm has no such problem: it downloads from B2 into a
+       mktemp scratch and never touches ~/Library/Mobile Documents. So the constraint
+       that pins the backup to cron simply does not apply to this job.
+
+       And for a MONTHLY job, cron is the worse choice. `pmset -g custom` shows
+       `sleep 1` on battery: the 09:05 wake, the nightly, and the backup finish around
+       09:45, the Mac re-sleeps, and a cron fire after that is silently skipped and never
+       retried — the exact mechanism that lost 2026-08-30. launchd replays a
+       StartCalendarInterval it slept through, on wake.
+
+       09:55 on the 1st: after the backup window, so the newest object in the bucket is
+       whole. A multipart upload in flight is not visible to `s3 ls`, but a partial one
+       never is either — the listing only shows completed objects.
+
+       INSTALL:
+         cp scripts/launchd/com.niche-hunter.restore-drill.plist ~/Library/LaunchAgents/
+         launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.niche-hunter.restore-drill.plist
+         launchctl kickstart -p gui/$UID/com.niche-hunter.restore-drill
+
+       That kickstart IS the install verification: it appends a dated pass to
+       logs/restore.log, which `nh criteria` then counts. -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/mac/Projects/youtube/niche-hunter/scripts/restore_check.sh</string>
+    <string>--offsite</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Day</key><integer>1</integer>
+    <key>Hour</key><integer>9</integer>
+    <key>Minute</key><integer>55</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/mac/Projects/youtube/niche-hunter/logs/restore_drill.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/mac/Projects/youtube/niche-hunter/logs/restore_drill.log</string>
+
+  <!-- Never on load: bootstrapping at login must not cost a 266MB download. -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
