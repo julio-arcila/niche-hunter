@@ -38,6 +38,36 @@ day, which is the collision `.skip-once` exists to prevent.
 | `backup_db.sh` | cron | 09:40 | launchd agent has no Full Disk Access |
 | disk check | cron | every 6h | a monitor, not a data job; skips cost nothing |
 
+### The scheduled wake — the thing that replaced a cloud deploy
+
+```bash
+sudo pmset repeat wakeorpoweron MTWRFSU 09:05:00     # silent on success
+pmset -g sched                                       # confirm: "wakepoweron at 9:05AM every day"
+```
+
+Installed **2026-09-01**, five minutes before the 09:10 nightly.
+
+launchd already replays a fire the Mac slept *through* on wake, which is why the nightly
+moved off cron. The case it does not cover is a Mac asleep **all day** — nobody opens the
+lid, nothing wakes it, and the day is simply gone. That is exactly how 2026-08-30 was lost,
+and it is the only realised failure mode this system has had.
+
+**This is what Slice 8 shipped instead of deploying to a cloud** (ADR-0055). One command
+against a migration whose principal risk was to the one artifact that cannot be re-collected.
+
+Two caveats, because they decide whether it actually fires:
+
+- **A closed laptop wakes only on AC power.** On battery with the lid shut, macOS will not
+  honour the scheduled wake. If the machine lives closed, it needs to live plugged in.
+- `wakeorpoweron` also powers the machine on if it is fully shut down, which `wake` alone
+  does not. That is the intent — "off overnight" is the same lost day as "asleep overnight".
+
+What is still uncovered, and is now written down rather than assumed: the Mac being *away*
+— travelling, or off for days. That costs one day-column of `video_snapshots` and
+`channel_snapshots` per missed day. Wikipedia backfills itself on the next run
+(`_resume_from`, history to 2015), Trends is shape-only, and RSS survives short gaps inside
+its 15-entry window. So an absence costs the supply series and nothing else.
+
 ### The nightly, and why launchd
 
 ```

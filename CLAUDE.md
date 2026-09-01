@@ -227,6 +227,11 @@ reviewer. Summarize exploration briefly.
   scheduled job instead. Still good practice — a skipped fire is a deliberate, logged act —
   but it is no longer load-bearing against a quota collision. Quota day resets midnight
   Pacific = 02:00 local.
+- **A scheduled wake fires at 09:05**, five minutes before the nightly — installed
+  2026-09-01, `pmset repeat wakeorpoweron MTWRFSU 09:05:00`, confirmed in `pmset -g sched`.
+  launchd replays a fire slept *through*; this covers the Mac asleep ALL DAY, which is how
+  2026-08-30 was lost and is the only realised failure this system has had. **It is what
+  ADR-0055 shipped instead of a cloud deploy.** Caveat: a closed laptop wakes only on AC.
 - **The nightly runs from launchd** (`com.niche-hunter.nightly`, 09:10), not cron:
   cron silently skips a fire the Mac sleeps through and never retries it, which is
   how 2026-08-30 was lost for good. The backup and disk check stay in cron, because
