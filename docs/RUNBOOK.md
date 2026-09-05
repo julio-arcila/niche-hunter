@@ -828,3 +828,22 @@ that fixtures are recorded from real responses. Fix: parametrize the collector t
 over both — the real one proves the documented shape is the served shape, the synthetic
 one keeps encoding edge cases a single feed may not exhibit. Budget for the real capture
 failing an assertion written to the synthetic shape; that failure is the finding.
+
+### `nh criteria` measures age on the local clock, so the suite reddens every evening
+
+`nh/jobs/criteria.py` computes staleness with `date.today()` — the **local** date — at
+lines 112, 166 and 284, while `tests/test_criteria.py` builds its fixtures with
+`datetime.now(tz=UTC).date()`. Whenever UTC has rolled past local and the two dates
+differ, a fixture written to be one day past a staleness threshold reads as exactly on
+it, and `age <= REVIEW_STALE_DAYS` calls that fresh.
+
+Observed 2026-09-04: UTC was already 2026-09-05, so `test_c3_goes_stale_when_the_schedule_dies`
+and `test_c7_goes_stale` both failed on a clean tree. This machine sits at UTC-5, so the
+window is **19:00 local until midnight, every day** — the same boundary `observed_date`
+already has, surfacing in a second place.
+
+The convention says timestamps are UTC (CLAUDE.md), so the code is what is wrong, not the
+tests. Deliberately left unfixed: it changes how C3 and C7 grade, which is an
+evidence-standard-adjacent change and wants a decision rather than a drive-by. Until then,
+**two red tests after 19:00 local are this, not a regression** — check the clock before
+chasing them.

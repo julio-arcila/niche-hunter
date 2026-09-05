@@ -245,6 +245,32 @@ reviewer. Summarize exploration briefly.
 - **`observed_date` is UTC**, so the snapshot day boundary is **19:00 local** — not
   the 02:00 Pacific quota reset. A catch-up nightly started after 19:00 collects for
   *tomorrow*; that is how 2026-08-30's gap became permanent even after a rerun.
+- **The nightly runs `youtube_api` TWICE (ADR-0057), and the second pass is not a bug.**
+  `registry.py` puts `youtube_api` before `youtube_rss` so a fresh channel gets its first
+  feed poll the same night — which left every RSS-discovered video without a duration
+  until the next nightly, and `eligible_videos` gates on `is_short IS FALSE`. So each
+  discovery wave entered the supply pool a night late and in a lump, and a replay of day
+  D saw a wave the stored row for day D excluded. `_sweep_enrichment` closes it. Its
+  `job` is `nightly:sweep` but its **source stays `youtube_api`**, because `_spent_today`
+  sums by source and a distinct source would exempt ~220 units/night from the ledger.
+  That second row also broke `status.check`, whose per-source verdict was a dict
+  comprehension over an unordered query — the sweep's `ok` masked a FAILED primary
+  collection until `_worst_per_source` landed. Expect a one-time `inputs_n` jump on the
+  first night; Rule 3 fires only on falls, so it will not page.
+- **`supply.trimmed_mean_views` exists and feeds NOTHING (ADR-0056).** It ships beside
+  `median_views` on an identical pool — between/within 7.94 against 3.36 — because the
+  pool arrives in lumps and a median steps when one crosses the midpoint. It reads
+  2.2x-32x the median: heavy tails, a *different quantity*, not a better estimate of the
+  same one. `scorecards.supply` still ranks `median_views` and that non-decision is
+  recorded, not accidental — the choice could not be made on Gate E evidence anyway,
+  since `median_views` is not replayable.
+- **Two ballast warnings now, not one.** `BALLAST_DRIFT_SHARE` 0.05 per night catches a
+  batch; `BALLAST_RAMP_SHARE` 0.10 over 7 **stored** days catches a flood no single night
+  trips. The second exists because the first was blind by construction:
+  `anthropocene-anthropology` moved +62% across 2026-09-01..04 and went quiet at +4.6%
+  with the trend running. Cause was one discovery query's arrivals, **not**
+  reclassification, so it does not implicate the lexicon. Both go quiet after 2026-09-14
+  when the cut reverts and the ballast set empties — designed, not broken.
 - Known defects, unfixed: the `court-cases` successors have seeds and demand terms but
   **no lexicon**, so they can never gain members and stay retired. `winner_age_years`
   and `top10_concentration` were in `replay.BACKTEST_METRICS` while `video_snapshots` is
