@@ -18,7 +18,12 @@ from sqlalchemy.orm import Session
 
 from nh.collectors.trends import window_ratio
 from nh.db.models import DemandSeries, DemandSnapshot
-from nh.features.inputs import KP_ADEQUATE_KEYWORDS, demand_terms, keyword_planner_rows
+from nh.features.inputs import (
+    KP_ADEQUATE_KEYWORDS,
+    demand_terms,
+    keyword_planner_rows,
+    kp_freshness,
+)
 from nh.features.types import FeatureResult
 
 GROUP = "demand"
@@ -424,7 +429,12 @@ def total_monthly_searches(
         group=GROUP,
         name="total_monthly_searches",
         value=sum(volumes),
-        confidence=coverage * min(len(volumes) / KP_ADEQUATE_KEYWORDS, 1.0),
+        # Third leg is the reading's AGE (ADR-0058). This metric is KP-sourced like the
+        # four money.* ones and was equally frozen; it lives in demand.* only because
+        # search volume is demand, which is why an audit of `money.*` missed it.
+        confidence=(
+            coverage * min(len(volumes) / KP_ADEQUATE_KEYWORDS, 1.0) * kp_freshness(day, kp.rows)
+        ),
         inputs_n=len(volumes),
         detail={
             "geo": geo,

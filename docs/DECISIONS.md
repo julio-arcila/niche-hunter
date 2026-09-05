@@ -3249,3 +3249,71 @@ One larger-than-usual pass, admitting yesterday's lump and today's on-time wave 
 `inputs_n` jumps for the format-sensitive metrics. Rule 3 (`evidence_collapse`) fires only
 on FALLS, so this will not page. Ballast counts are unaffected: relevance is decided from
 title and description at clustering time, not from enrichment.
+
+## ADR-0058 — Confidence in a Keyword Planner reading decays with its age
+2026-09-04. Accepted. Adds a third leg to five metrics' confidence. **No value changes**,
+no schema change, no migration.
+
+### The defect: a frozen input read as a flawless metric
+
+`keyword_metrics` holds exactly ONE `observed_date` — 2026-07-31, `method='ui_csv'`, 96
+keywords, 162 rows — because Google Ads Basic access is still pending and the UI CSV
+export is manual. It was 35 days old on 2026-09-04 and ageing one day per day.
+
+No confidence term anywhere in `nh/features/` read the AGE of its input. Grepped, and
+there was none: `_kp_confidence`, `supply._confidence`, demand's `_adequacy` and all of
+openness compute from coverage and sample size only. So the five KP-sourced metrics were
+**exactly as confident on day 400 as on day 1**.
+
+That is worse than merely wrong, because of how it presents. A diagnostic comparing
+between-cluster spread against night-over-night wobble found these five with a
+within-cluster variance of **exactly 0.0** and rank stability of **1.000** — the best
+figures in the whole table. A constant input produces a perfectly stable metric, and a
+reader scanning for problems finds the frozen ones look flawless. They would have gone on
+looking flawless indefinitely.
+
+### The form, and why it is not tuned
+
+`freshness = min(1, KP_REFRESH_DAYS / age_days)`, with `KP_REFRESH_DAYS = 30`, multiplied
+into confidence. At 35 days that is 0.857; at 90 days, 0.333; unbounded downward.
+
+**30 is the source's own cadence, not a constant invented here.** KP volumes are
+twelve-month monthly averages, and `.claude/rules/sources.md` already sets the cache at 7
+days on exactly this reasoning ("volumes are monthly, so a daily refresh buys nothing").
+An exponential half-life was considered and rejected: a half-life would be a number chosen
+here with nothing behind it, and at 30 days it reads 0.445 against the linear form's 0.857
+— a large difference resting on an arbitrary choice. A hard cliff was rejected too, since
+a step in a stored confidence series reads as an event that happened.
+
+### Scope: five metrics, and the one that looks like a sixth
+
+Four `money.*` — `priced_share`, `competition_index_mean`, `vw_cpc`, `median_bid_high` —
+plus **`demand.total_monthly_searches`**, which is KP-sourced and was equally frozen but
+lives under `demand.*` because search volume is demand. An audit of "the money metrics"
+misses it, and one did.
+
+**`money.midroll_eligible_share` is deliberately NOT touched.** It sits in `money.*` but is
+computed from videos, not from the export; it moves nightly (0.5055 -> 0.5179 -> 0.5146 ->
+0.5150 across 2026-09-01..04) and was never frozen. Discounting it for the export's age
+would be wrong.
+
+The general observation — that nothing in the feature layer reads input age — is recorded
+here but deliberately not acted on. Every other source refreshes nightly, so there is no
+staleness to describe; the next slow-refresh source will need this, and should reuse
+`kp_freshness`'s shape rather than invent a second one.
+
+### Verified against stored rows, not only fixtures
+
+On a scratch copy of the live database, all five metrics recomputed for 2026-09-04 across
+the ten active clusters: **50 cells, zero values moved, and every confidence exactly the
+stored value times 0.857**. Tests pin no-decay inside one cycle, linear decay past it,
+value-invariance across all five, and the `midroll_eligible_share` exclusion.
+
+### What this does NOT do
+
+It makes staleness **visible**. It does not fix it. The reading is still 35 days old and
+every one of these numbers still rests on a single manual export. The fix is one manual
+Keyword Planner UI CSV export — roughly half an hour, no approval needed, which is the
+reason this project resumed at all (ADR-0029). `keyword_metrics` is append-only and the
+newest reading per term wins, so `nh kp ingest <csv>` is all the ingestion needed. Until
+someone does that, these confidences will keep falling, correctly.
