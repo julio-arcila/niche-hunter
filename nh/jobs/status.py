@@ -56,6 +56,12 @@ QUOTA_WARN_SHARE = 0.85
 
 JOB = "nightly"
 
+#: The ADR-0057 enrichment sweep's own job name. Distinct from JOB so it cannot be
+#: mistaken for the night's youtube_api collection by anything reading `job_runs` by
+#: source — its SOURCE deliberately stays "youtube_api" so `_spent_today()` keeps
+#: charging its quota to the day. `_check_sweep` is what watches it.
+SWEEP_JOB = "nightly:sweep"
+
 
 def quota_day(engine: Engine | None = None, settings: Settings | None = None) -> tuple[int, int]:
     """`(spent, budget)` for the CURRENT Pacific quota day, across every run.
@@ -174,7 +180,7 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
         ).all()
 
     result = CheckResult(run_id)
-    by_source = {row[0]: row for row in rows}
+    by_source = _worst_per_source(rows)
 
     # `s.manual` excluded deliberately: a manual source has no network fetch the
     # nightly could run, so its absence from a nightly run says nothing about the
@@ -248,6 +254,7 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
 
     _check_one_run_per_day(engine, result)
     _check_ballast_drift(engine, result)
+    _check_sweep(engine, run_id, result)
     return result
 
 
@@ -338,6 +345,51 @@ def _warn_on_a_dropped_stamp(
             result.warnings.append(
                 f"{cluster_id} has no detail.ballast on {day} while other rows do — "
                 f"the size of the ADR-0047 cut is unrecorded for it"
+            )
+
+
+def _worst_per_source(rows: list) -> dict[str, tuple]:
+    """One row per source, and a FAILURE always wins.
+
+    This was `{row[0]: row for row in rows}` — a dict comprehension over an unordered
+    query, so whichever row the driver returned last silently became the source's
+    verdict. That was survivable only while every source wrote exactly one row per run.
+    ADR-0057's enrichment sweep broke that assumption: it writes a second `youtube_api`
+    row, deliberately, so `_spent_today()` keeps counting its quota — and being inserted
+    last, its `ok` masked a FAILED primary collection. A dead API key would then page
+    nobody, which is the precise failure `check` exists to close.
+
+    The sweep now carries its own `job` and never reaches this query. This stays anyway:
+    the trap is in the aggregation, not in the sweep, and the next source to write twice
+    should not have to rediscover it.
+    """
+    worst: dict[str, tuple] = {}
+    for row in rows:
+        seen = worst.get(row[0])
+        if seen is None or (seen[1] == "ok" and row[1] != "ok"):
+            worst[row[0]] = row
+    return worst
+
+
+def _check_sweep(engine: Engine | None, run_id: str, result: CheckResult) -> None:
+    """A failed enrichment sweep warns; it does not page.
+
+    The night collected — the sweep only decides whether tonight's RSS wave gets its
+    duration tonight or tomorrow, and tomorrow is the behaviour that existed before
+    ADR-0057. But a pass that silently stops running is exactly how the enrichment lag
+    would come back unnoticed, so it must be visible.
+    """
+    with session_scope(engine) as session:
+        statuses = list(
+            session.scalars(
+                sa.select(JobRun.status).where(JobRun.run_id == run_id, JobRun.job == SWEEP_JOB)
+            )
+        )
+    for status in statuses:
+        if status != "ok":
+            result.warnings.append(
+                f"the enrichment sweep finished {status} — tonight's RSS wave keeps "
+                f"is_short NULL until tomorrow's nightly (ADR-0057)"
             )
 
 

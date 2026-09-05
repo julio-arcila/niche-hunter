@@ -21,6 +21,7 @@ from nh.collectors.youtube_api import YouTubeApiCollector
 from nh.config import Settings, get_settings
 from nh.db.types import utcnow
 from nh.jobs.phases import run_phases
+from nh.jobs.status import SWEEP_JOB
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +65,6 @@ def _sweep_enrichment(
     run_id: str,
     started: datetime,
     settings: Settings,
-    job: str,
     planned: list[PlannedRun],
 ) -> dict[str, str]:
     """Enrich what RSS discovered tonight, before the phases read it.
@@ -94,7 +94,7 @@ def _sweep_enrichment(
     collector = YouTubeApiCollector(
         run_id, settings=settings, observed_at=started, backfill_only=True
     )
-    record = collector.run(job=job)
+    record = collector.run(job=SWEEP_JOB)
     log.info(
         "%-8s %-16s quota=%s raw=%s upserts=%s",
         record.status,
@@ -145,7 +145,7 @@ def run_nightly(
         )
 
     if only is None:
-        statuses.update(_sweep_enrichment(run_id, started, settings, job, planned))
+        statuses.update(_sweep_enrichment(run_id, started, settings, planned))
 
     # Phases run even when a collector failed: features compute over what is real
     # and confidence says how much that was, so a dead source must not also cost

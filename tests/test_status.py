@@ -20,12 +20,12 @@ from nh.jobs.status import check, recent_runs
 RUN_ID = "66666666-6666-6666-6666-666666666666"
 
 
-def _run(engine, source, status="ok", snapshots=10, run_id=RUN_ID, ago_days=0, **kw):
+def _run(engine, source, status="ok", snapshots=10, run_id=RUN_ID, ago_days=0, job="nightly", **kw):
     with session_scope(engine) as s:
         s.add(
             JobRun(
                 run_id=run_id,
-                job="nightly",
+                job=job,
                 source=source,
                 status=status,
                 started_at=utcnow() - timedelta(days=ago_days),
@@ -567,3 +567,36 @@ def test_the_ramp_anchors_on_the_oldest_stamped_day_not_the_oldest_day(settings,
     result = check(engine, settings)
 
     assert any("ramped 20 -> 55" in w for w in result.warnings)
+
+
+def test_a_failed_primary_run_is_not_masked_by_a_later_sweep_row(settings, engine):
+    """The defect a reviewer caught in the sweep's own branch, and it is the exact class
+    check() exists to close: `by_source` was a dict comprehension over unordered rows, so
+    the SECOND youtube_api row of a run — the ADR-0057 enrichment sweep, always inserted
+    last — silently replaced the first. A dead API key would then page nobody, because
+    the sweep that spent one unit on an empty backlog reported ok."""
+    _run(engine, "youtube_api", status="failed", snapshots=0, quota_used=0, quota_budget=9_500)
+    _run(engine, "youtube_rss", snapshots=120)
+    _run(engine, "wikipedia", snapshots=450)
+    _run(engine, "trends", snapshots=5)
+    for phase, _ in PHASES:
+        _run(engine, phase, snapshots=None)
+    _run(engine, "youtube_api", status="ok", snapshots=0)  # the sweep, same job name
+
+    result = check(engine, settings)
+
+    assert not result.ok, "a failed collection must page even when a later row says ok"
+    assert any("youtube_api" in p for p in result.problems)
+
+
+def test_a_failed_sweep_warns_but_does_not_page(settings, engine):
+    """A sweep failure is not a failed night: the wave simply lands tomorrow, which is
+    the behaviour that existed before ADR-0057. It must still be visible — a pass that
+    silently stops running is how the enrichment lag would come back unnoticed."""
+    _healthy(engine)
+    _run(engine, "youtube_api", status="failed", snapshots=0, job="nightly:sweep")
+
+    result = check(engine, settings)
+
+    assert result.ok, "the night collected; only the sweep did not"
+    assert any("sweep" in w for w in result.warnings)

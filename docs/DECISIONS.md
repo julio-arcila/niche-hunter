@@ -3190,8 +3190,43 @@ A `backfill_only` flag on `YouTubeApiCollector`: skip discovery entirely, yield 
 
 Cost is roughly 220 units at 1 unit per 50 ids, against ~3,200 units of measured headroom
 (6,299 of 9,500 on 2026-09-04). A failure is not a failed night: the wave lands tomorrow,
-which is exactly the behaviour that existed before this, and the sweep reports its own
-status key so that stays visible.
+which is exactly the behaviour that existed before this. `_check_sweep` warns when it
+finishes anything but `ok`, because a pass that silently stops running is how the
+enrichment lag would come back unnoticed.
+
+### ADDENDUM, same day: the first draft of this ADR shipped the defect it warns about
+
+The paragraph above originally read "the sweep reports its own status key so that stays
+visible." That was **false as a claim about the health gate**, and a reviewer caught it
+before merge. The status key is `NightlyResult.statuses`, an in-process return value. The
+gate is `jobs.status.check`, which reads `job_runs` — and there it was worse than
+invisible:
+
+```python
+by_source = {row[0]: row for row in rows}   # unordered query, last row wins
+```
+
+Every source had written exactly one row per run, so nothing had ever exercised that. The
+sweep writes a SECOND `youtube_api` row and is inserted last, so its `ok` **silently
+replaced a FAILED primary collection**. Reproduced: a failed `youtube_api` plus a healthy
+sweep returned `ok=True, problems=[]`. A dead API key would have paged nobody — which is
+the exact failure `check` exists to close, reintroduced by the commit that closed a
+different one.
+
+Two changes, because the sweep was the trigger and not the defect:
+
+* The sweep carries its own `job` (`status.SWEEP_JOB = "nightly:sweep"`) and no longer
+  reaches that query at all. Its SOURCE deliberately stays `"youtube_api"`, because
+  `_spent_today()` sums by source and a distinct source would exempt it from the per-day
+  quota ledger.
+* `_worst_per_source` replaces the dict comprehension, and a failure always wins. The trap
+  is in the aggregation, not in the sweep; the next source to write twice should not have
+  to rediscover it.
+
+Recorded at this length because the pattern is the repo's own: `_check_one_run_per_day`
+exists because two feature runs in one day went unnoticed for two days, and this is the
+same shape one table over. The prose was written before the code was checked against it,
+which is ADR-0053's class exactly.
 
 ### What this does NOT fix, said plainly
 

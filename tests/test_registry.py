@@ -80,17 +80,17 @@ def _planned(**will_run: bool) -> list:
 def test_the_enrichment_sweep_is_skipped_when_rss_did_not_run(settings):
     """No new wave to close. The primary run's own backfill already drained the
     backlog, so a second pass would spend quota to find nothing."""
-    from nh.jobs.nightly import _sweep_enrichment
     from nh.db.types import utcnow
+    from nh.jobs.nightly import _sweep_enrichment
 
     planned = _planned(youtube_api=True, youtube_rss=False)
-    assert _sweep_enrichment("run", utcnow(), settings, "nightly", planned) == {}
+    assert _sweep_enrichment("run", utcnow(), settings, planned) == {}
 
 
 def test_the_enrichment_sweep_is_skipped_when_rss_is_not_planned_at_all(settings):
     """A `--only youtube_api` plan does not contain RSS. The sweep must read that the
     same way as a skipped RSS, not raise on the missing entry."""
-    from nh.jobs.nightly import _sweep_enrichment
     from nh.db.types import utcnow
+    from nh.jobs.nightly import _sweep_enrichment
 
-    assert _sweep_enrichment("run", utcnow(), settings, "partial", _planned(youtube_api=True)) == {}
+    assert _sweep_enrichment("run", utcnow(), settings, _planned(youtube_api=True)) == {}
