@@ -276,13 +276,26 @@ def test_no_criterion_is_hardcoded_met(engine, n):
     )
 
 
-def test_ages_are_measured_on_the_utc_clock():
+def test_ages_are_measured_on_the_utc_clock(monkeypatch):
     """The two staleness tests above only FAIL during the hours when UTC and local dates
     differ — 19:00 to midnight at UTC-5 — so they are not a reliable guard on their own.
-    This one pins the contract at any hour: everything this module compares against
-    (job_runs.started_at, restore.log stamps, the fixtures) is a UTC date, and measuring
-    age on the local clock made a review one day past the threshold read as exactly on
-    it, which grades fresh."""
-    from datetime import UTC, datetime
 
-    assert criteria._today() == datetime.now(tz=UTC).date()
+    This one bites at any instant. It replaces the module's clock with one that answers
+    only `now(tz=UTC)`, at an instant whose UTC date is nowhere near today's, and requires
+    `_today()` to follow it. An implementation reading the LOCAL clock never consults this
+    stub at all and returns the real date, failing the assertion. Asserting the value
+    equals `datetime.now(tz=UTC).date()` would only restate the implementation, which is
+    what the first version of this test did.
+    """
+    from datetime import UTC, date, datetime
+
+    instant = datetime(2020, 1, 2, 3, 4, tzinfo=UTC)
+
+    class OnlyUTC:
+        @staticmethod
+        def now(tz=None):
+            assert tz is UTC, "the module must ask for UTC explicitly, not the local zone"
+            return instant
+
+    monkeypatch.setattr(criteria, "datetime", OnlyUTC)
+    assert criteria._today() == date(2020, 1, 2)
