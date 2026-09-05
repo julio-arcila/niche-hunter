@@ -353,9 +353,21 @@ Then, by hand:
 2. **Review any source whose ToS has moved**, and date it in `docs/SOURCES.md` as
    `reviewed YYYY-MM-DD` *inside that source's `##` section* — C7 splits on those headings,
    so a date under `trends` does not vouch for `reddit`.
-3. **Send one test push**: `curl -d "monthly check" ntfy.sh/$NH_NTFY_TOPIC`. See the secrets
+3. **Refresh the Keyword Planner export** — the ~20 minutes that keeps five metrics from
+   decaying. Full procedure in `data/kp/README_export.md`; short form: regenerate
+   `kp_keywords_to_paste.txt` from `seed_terms`, paste all 96 into Keyword Planner's
+   "Get search volume and forecasts" side (**not** "Discover new keywords"), set
+   United States / English, take the Historical metrics CSV, then
+   `uv run nh kp ingest <csv> --geo US --lang en`.
+
+   This is on the list because ADR-0058 made its absence visible rather than silent:
+   four `money.*` metrics plus `demand.total_monthly_searches` now lose confidence as
+   the reading ages, and nothing else refreshes them. Note the export's `observed_date`
+   is the last day of its 12-month window, so a file lands ~4 weeks old on arrival and
+   the freshness leg is below 1.0 for part of most months by construction.
+4. **Send one test push**: `curl -d "monthly check" ntfy.sh/$NH_NTFY_TOPIC`. See the secrets
    table for why this one is manual and not optional.
-4. **Confirm the newest `restore drill passed` line is under 45 days old** — `nh criteria`
+5. **Confirm the newest `restore drill passed` line is under 45 days old** — `nh criteria`
    checks this, but read it yourself the first few months while the monthly agent is new.
 
 Explicitly **not** on this list: re-running the backtest. The pre-registration voids
