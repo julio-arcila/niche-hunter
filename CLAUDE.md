@@ -81,7 +81,7 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 - Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
-  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **967**. **`PHASES` is
+  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,029** (967 at Slice 7). **`PHASES` is
   now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
   so a new phase silently extends the nightly gate (it reads FAIL until the next nightly
   runs the new one; `run_nightly.sh` runs the phases before the check, so no page).
@@ -264,6 +264,20 @@ reviewer. Summarize exploration briefly.
   same one. `scorecards.supply` still ranks `median_views` and that non-decision is
   recorded, not accidental — the choice could not be made on Gate E evidence anyway,
   since `median_views` is not replayable.
+- **KP confidence now decays with the reading's AGE (ADR-0058), and the five metrics it
+  covers are not the five you would guess.** Four `money.*` plus
+  **`demand.total_monthly_searches`**, which is KP-sourced and was equally frozen but
+  lives under `demand.*` because search volume is demand — an audit of "the money
+  metrics" misses it, and one did. `money.midroll_eligible_share` is video-based and
+  deliberately excluded. `freshness = min(1, 30/age_days)`; 30 is the SOURCE's cadence,
+  not a tuned constant. **Values do not move, only confidence.** It makes the staleness
+  visible; only a manual UI CSV export (`nh kp ingest`) fixes it, and the reading has
+  been frozen at 2026-07-31 since before Slice 7.
+- **`nh criteria` measures age on the UTC clock (fixed 2026-09-04).** It used
+  `date.today()` while everything it compares against is UTC, so west of Greenwich two
+  staleness tests failed between 19:00 local and midnight — read as flaky for days. Same
+  19:00 boundary `observed_date` has. If a test only fails in the evening, suspect a
+  clock before suspecting the test.
 - **Two ballast warnings now, not one.** `BALLAST_DRIFT_SHARE` 0.05 per night catches a
   batch; `BALLAST_RAMP_SHARE` 0.10 over 7 **stored** days catches a flood no single night
   trips. The second exists because the first was blind by construction:
