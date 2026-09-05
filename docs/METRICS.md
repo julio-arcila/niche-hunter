@@ -298,6 +298,18 @@ Measured     : 2026-09-04, over 2026-09-01..04, ten active clusters, log10 scale
                moves smoothly. That is a property of the estimator against THIS
                pool's dynamics, so re-measure it after the 2026-09-14 revert rather
                than assuming it survives.
+Level        : 2026-09-04, ten active clusters, computed live. This reads MUCH HIGHER
+               than median_views on the same rows -- 2.2x (history-of-ideas) to 32.3x
+               (macro-economy), median 8.4x. That is not a bug and not a correction:
+               views are heavy-tailed, trimming 10% per tail leaves most of the upper
+               tail in, and a mean over that tail sits far above the midpoint. Read it
+               as a DIFFERENT quantity from median_views, never as a better estimate of
+               the same one. The spread of that multiple across clusters IS the +35%
+               between-cluster separation below -- the two facts are one fact.
+               The obvious follow-on -- trim harder -- is deliberately NOT taken: the
+               conventions are copied from the diagnostic that measured 7.94, and
+               changing them would leave this entry citing a number its code no longer
+               produces. A different trim needs its own measurement first.
 Caveat       : four nights, all of them inside the post-ADR-0051 convergence
                transient, and rank stability over four overlapping nights is a weak
                statistic. Re-check both figures once the window past 2026-09-14 has
