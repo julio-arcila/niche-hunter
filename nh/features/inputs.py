@@ -730,6 +730,35 @@ class KpInputs:
     curated: int
 
 
+#: How often a Keyword Planner reading can be refreshed before a refresh buys nothing.
+#: NOT tuned: KP volumes are twelve-month monthly averages, and `.claude/rules/sources.md`
+#: already fixes the cache at 7 days on the same reasoning. Using the source's own cadence
+#: is what keeps `kp_freshness` from being an invented constant.
+KP_REFRESH_DAYS = 30
+
+
+def kp_freshness(day: date, rows: list[KeywordMetric]) -> float:
+    """How much a Keyword Planner reading's age should discount confidence in it.
+
+    `min(1, KP_REFRESH_DAYS / age)` — full marks inside one refresh cycle, then decaying
+    without bound. Linear rather than an exponential half-life, deliberately: a half-life
+    would be a constant invented here, while 30 is the source's own. No cliff either,
+    because a step in a stored confidence series reads as an event that happened.
+
+    It exists because `keyword_metrics` held ONE `observed_date` — 2026-07-31, method
+    `ui_csv` — for 35 days and counting, while no confidence term anywhere in
+    `nh.features` read the AGE of its input. Four `money.*` metrics and
+    `demand.total_monthly_searches` were therefore exactly as confident on day 400 as on
+    day 1, with a within-cluster variance of exactly 0.0 and perfect rank stability: a
+    frozen input reading as a flawless metric. This makes the staleness visible. Only a
+    fresh export fixes it (ADR-0058).
+    """
+    if not rows:
+        return 0.0
+    age = (day - max(r.observed_date for r in rows)).days
+    return KP_REFRESH_DAYS / max(age, KP_REFRESH_DAYS)
+
+
 def keyword_planner_rows(session: Session, cluster_id: str, day: date, geo: str) -> KpInputs:
     """The latest Keyword Planner reading per curated term, in one market, as of `day`.
 

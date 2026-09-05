@@ -13,10 +13,19 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
+
 from nh.features import demand, money
 from nh.features.inputs import keyword_planner_rows
 from nh.features.money import SENTINEL_BIDS
-from tests.conftest_features import CLUSTER, DAY, add_keyword_metrics, make_cluster, session_for
+from tests.conftest_features import (
+    CLUSTER,
+    DAY,
+    add_channel,
+    add_keyword_metrics,
+    make_cluster,
+    session_for,
+)
 
 BEFORE_ANY_EXPORT = DAY - timedelta(days=3650)
 
@@ -209,3 +218,77 @@ def test_money_metrics_carry_their_currency_and_market(engine):
     ):
         assert result.detail["currency"] == "COP"
         assert result.detail["geo"] == "US"
+
+
+# --- ADR-0058: confidence decays with the reading's age, values do not move -----------
+
+
+def test_confidence_is_full_inside_one_refresh_cycle(engine):
+    """KP volumes are twelve-month monthly averages, so a reading younger than the
+    source's own cadence is not stale in any meaningful sense."""
+    from nh.features.inputs import KP_REFRESH_DAYS
+
+    make_cluster(engine)
+    add_keyword_metrics(engine, observed_offset_days=KP_REFRESH_DAYS)
+    session = session_for(engine)
+
+    at_cycle = money.priced_share(session, CLUSTER, DAY, geo="US").confidence
+    fresher = money.priced_share(session, CLUSTER, DAY - timedelta(days=20), geo="US").confidence
+    assert at_cycle == pytest.approx(fresher), "no decay inside one cycle"
+
+
+def test_confidence_decays_linearly_as_the_same_reading_ages(engine):
+    """The reading does not change; the day advances. Three times the cadence, one third
+    the confidence — unbounded, which is the property that was missing. Without it these
+    metrics were exactly as confident on day 400 as on day 1: keyword_metrics held ONE
+    observed_date for 35 days and counting, so a frozen input read as a flawless metric
+    with a within-cluster variance of exactly 0.0."""
+    from nh.features.inputs import KP_REFRESH_DAYS
+
+    make_cluster(engine)
+    add_keyword_metrics(engine, observed_offset_days=KP_REFRESH_DAYS)
+    session = session_for(engine)
+
+    fresh = money.priced_share(session, CLUSTER, DAY, geo="US")
+    stale = money.priced_share(session, CLUSTER, DAY + timedelta(days=60), geo="US")
+
+    assert stale.confidence == pytest.approx(fresh.confidence / 3)
+
+
+def test_staleness_moves_confidence_and_never_the_value(engine):
+    """The whole contract of ADR-0058, across all five KP-sourced metrics. A confidence
+    change is honest about what we know; a value change would be a different number
+    reported for the same input, which this is emphatically not."""
+    from nh.features.demand import total_monthly_searches
+    from nh.features.inputs import KP_REFRESH_DAYS
+
+    metrics = (
+        money.priced_share,
+        money.competition_index_mean,
+        money.vw_cpc,
+        money.median_bid_high,
+        total_monthly_searches,
+    )
+    make_cluster(engine)
+    add_keyword_metrics(engine, observed_offset_days=KP_REFRESH_DAYS)
+    session = session_for(engine)
+    later = DAY + timedelta(days=KP_REFRESH_DAYS * 5)
+
+    for metric in metrics:
+        fresh = metric(session, CLUSTER, DAY, geo="US")
+        stale = metric(session, CLUSTER, later, geo="US")
+        assert stale.value == fresh.value, f"{fresh.name} changed value on staleness alone"
+        assert stale.confidence == pytest.approx(fresh.confidence / 6), fresh.name
+
+
+def test_midroll_eligible_share_is_not_touched_by_kp_staleness(engine):
+    """It lives in money.* but is computed from VIDEOS, not from the export, so it was
+    never frozen and must not be discounted for the export's age. The scoping caveat is
+    the easy thing to get wrong when the fix is described as 'the money metrics'."""
+    from nh.features.inputs import KP_REFRESH_DAYS
+
+    make_cluster(engine)
+    add_channel(engine, "long", videos=3, age_days=1, is_short=False)
+    add_keyword_metrics(engine, observed_offset_days=KP_REFRESH_DAYS * 10)
+
+    assert money.midroll_eligible_share(session_for(engine), CLUSTER, DAY).confidence > 0

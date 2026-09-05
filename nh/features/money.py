@@ -28,6 +28,7 @@ from nh.features.inputs import (
     KpInputs,
     _day_end,
     keyword_planner_rows,
+    kp_freshness,
     member_join,
     on_niche_join,
     relevance_coverage,
@@ -67,17 +68,21 @@ def _real_bid(value: float | None) -> float | None:
     return None if value is None or value in SENTINEL_BIDS else value
 
 
-def _kp_confidence(kp: KpInputs, used: int) -> float:
-    """Curation coverage times sample adequacy.
+def _kp_confidence(kp: KpInputs, used: int, day: date) -> float:
+    """Curation coverage times sample adequacy times freshness.
 
     The `relevance_coverage` analogue for a source with no videos in it: what we can
     fail to see is a curated keyword, not a judged video. Leakage-safe because the
     numerator is day-bounded while the denominator is timeless curation — and before any
     export exists the caller has already returned `empty()`, so coverage is never
     multiplied into a confident zero.
+
+    The third leg is the age of the reading (ADR-0058). Without it these metrics were
+    exactly as confident on day 400 as on day 1, which is how a frozen input reads as a
+    flawless metric. VALUES DO NOT MOVE — only confidence.
     """
     coverage = min(len(kp.rows) / kp.curated, 1.0) if kp.curated else 0.0
-    return coverage * min(used / KP_ADEQUATE_KEYWORDS, 1.0)
+    return coverage * min(used / KP_ADEQUATE_KEYWORDS, 1.0) * kp_freshness(day, kp.rows)
 
 
 def _one_currency(rows) -> str | None:
@@ -170,7 +175,7 @@ def priced_share(session: Session, cluster_id: str, day: date, *, geo: str) -> F
         group=GROUP,
         name="priced_share",
         value=priced / len(kp.rows),
-        confidence=_kp_confidence(kp, len(kp.rows)),
+        confidence=_kp_confidence(kp, len(kp.rows), day),
         inputs_n=len(kp.rows),
         detail={
             "geo": geo,
@@ -209,7 +214,7 @@ def competition_index_mean(
         group=GROUP,
         name="competition_index_mean",
         value=sum(indexed) / len(indexed),
-        confidence=_kp_confidence(kp, len(indexed)),
+        confidence=_kp_confidence(kp, len(indexed), day),
         inputs_n=len(indexed),
         detail={
             "geo": geo,
@@ -256,7 +261,7 @@ def vw_cpc(session: Session, cluster_id: str, day: date, *, geo: str) -> Feature
         group=GROUP,
         name="vw_cpc",
         value=weighted / weight,
-        confidence=_kp_confidence(kp, used),
+        confidence=_kp_confidence(kp, used, day),
         inputs_n=used,
         detail={
             "geo": geo,
@@ -299,7 +304,7 @@ def median_bid_high(session: Session, cluster_id: str, day: date, *, geo: str) -
         group=GROUP,
         name="median_bid_high",
         value=value,
-        confidence=_kp_confidence(kp, len(highs)),
+        confidence=_kp_confidence(kp, len(highs), day),
         inputs_n=len(highs),
         detail={
             "geo": geo,

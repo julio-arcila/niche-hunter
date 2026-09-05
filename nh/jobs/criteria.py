@@ -102,6 +102,23 @@ def _consecutive_run(days: list[date]) -> tuple[int, date | None]:
     return run, best_start
 
 
+def _today() -> date:
+    """The UTC date, because everything this module compares against is a UTC date.
+
+    This was the LOCAL date, while `job_runs.started_at`, `logs/restore.log`'s stamps and
+    `tests/test_criteria.py`'s fixtures are all UTC. On a machine west of Greenwich the
+    two disagree for the last hours of every local day, and an age computed across that
+    gap comes out one short: a review written to be one day past `REVIEW_STALE_DAYS` read
+    as exactly on it, and `age <= REVIEW_STALE_DAYS` graded it fresh. Observed 2026-09-04
+    at UTC-5, where UTC had already rolled to 09-05 and both staleness tests failed on a
+    clean tree between 19:00 and midnight local.
+
+    The same 19:00-local boundary `observed_date` has, surfacing in a second place.
+    CLAUDE.md's convention is that timestamps are UTC; this brings the module to it.
+    """
+    return datetime.now(tz=UTC).date()
+
+
 def c1_unattended(engine: Engine | None = None) -> Result:
     days = _nightly_days(engine)
     run, start = _consecutive_run(days)
@@ -109,7 +126,7 @@ def c1_unattended(engine: Engine | None = None) -> Result:
     if met:
         detail = f"{run} consecutive all-ok nights since {start}"
     else:
-        eta = (date.today() + timedelta(days=UNATTENDED_NIGHTS - run)).isoformat()
+        eta = (_today() + timedelta(days=UNATTENDED_NIGHTS - run)).isoformat()
         detail = f"{run}/{UNATTENDED_NIGHTS} consecutive all-ok nights; earliest {eta}"
     return Result(1, "Unattended", met, detail, "job_runs")
 
@@ -163,7 +180,7 @@ def c3_recoverable() -> Result:
             "logs/restore.log",
         )
     newest = max(date.fromisoformat(d) for d in passes)
-    age = (date.today() - newest).days
+    age = (_today() - newest).days
     detail = f"{len(passes)} logged passes, newest {newest} ({age}d ago)"
     detail += (
         "; offsite arm exercised" if offsite else "; LOCAL ONLY — the offsite copy is untested"
@@ -281,7 +298,7 @@ def c7_lawful() -> Result:
             "docs/SOURCES.md",
         )
     oldest = min(reviewed, key=lambda k: reviewed[k])
-    age = (date.today() - reviewed[oldest]).days
+    age = (_today() - reviewed[oldest]).days
     return Result(
         7,
         "Lawful",

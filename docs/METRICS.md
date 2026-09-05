@@ -440,6 +440,24 @@ Confidence   : curation coverage x sample adequacy =
                first export's basket size. NOT money.CONFIDENCE_N, which is
                documented per-video and would pin this near 0.30 forever.
                At today's 6-keyword baskets this caps near 0.20 BY CONSTRUCTION.
+CHANGED 2026-09-04 (ADR-0058): confidence gains a THIRD leg, freshness =
+               min(1, 30 / age_days), where age is `day` minus the newest
+               observed_date actually used. **VALUES DO NOT MOVE, only confidence**,
+               and the confidence series is NOT comparable across this date.
+               Why: keyword_metrics held ONE observed_date (2026-07-31, method
+               ui_csv, 96 keywords) for 35 days and counting, and no confidence
+               term anywhere in nh/features/ read the AGE of its input -- so these
+               metrics were exactly as confident on day 400 as on day 1, and had
+               a within-cluster variance of exactly 0.0 with perfect rank
+               stability. That is a frozen input reading as a flawless metric.
+               30 is NOT tuned: it is the source's own cadence -- KP volumes are
+               monthly averages, and .claude/rules/sources.md already says a
+               refresh oftener than 7 days buys nothing. Linear rather than an
+               exponential half-life, deliberately, because a half-life would be
+               an invented constant; and no cliff, because a step in confidence
+               reads as an event. Google Ads Basic access is still pending, so
+               only a manual UI CSV export actually unfreezes this -- the decay
+               makes the staleness VISIBLE, it does not fix it.
 Failure mode : zero is a MEASUREMENT here, not an absence — keywords observed, none
                bid on. That is honest only because the denominator is day-bounded;
                before any export exists the metric returns NULL instead. The two
@@ -455,6 +473,24 @@ Formula      : mean of competition_index (0-100, verbatim from the export) over 
 Inputs       : keyword_metrics(competition_index, geo, observed_date); seed_terms
 Join key     : cluster_id, then (lower(term), lang)
 Confidence   : as priced_share.
+CHANGED 2026-09-04 (ADR-0058): confidence gains a THIRD leg, freshness =
+               min(1, 30 / age_days), where age is `day` minus the newest
+               observed_date actually used. **VALUES DO NOT MOVE, only confidence**,
+               and the confidence series is NOT comparable across this date.
+               Why: keyword_metrics held ONE observed_date (2026-07-31, method
+               ui_csv, 96 keywords) for 35 days and counting, and no confidence
+               term anywhere in nh/features/ read the AGE of its input -- so these
+               metrics were exactly as confident on day 400 as on day 1, and had
+               a within-cluster variance of exactly 0.0 with perfect rank
+               stability. That is a frozen input reading as a flawless metric.
+               30 is NOT tuned: it is the source's own cadence -- KP volumes are
+               monthly averages, and .claude/rules/sources.md already says a
+               refresh oftener than 7 days buys nothing. Linear rather than an
+               exponential half-life, deliberately, because a half-life would be
+               an invented constant; and no cliff, because a step in confidence
+               reads as an event. Google Ads Basic access is still pending, so
+               only a manual UI CSV export actually unfreezes this -- the decay
+               makes the staleness VISIBLE, it does not fix it.
 Failure mode : this is advertiser competition for SEARCH ads. It says nothing about
                how much video already exists in the niche — that is supply.*, a
                different auction in a different market. A reader who conflates them
@@ -472,6 +508,24 @@ Inputs       : keyword_metrics(avg_monthly_searches, bid_low, bid_high, currency
                seed_terms
 Join key     : cluster_id, then (lower(term), lang)
 Confidence   : as priced_share, with n = keywords contributing to the weighting.
+CHANGED 2026-09-04 (ADR-0058): confidence gains a THIRD leg, freshness =
+               min(1, 30 / age_days), where age is `day` minus the newest
+               observed_date actually used. **VALUES DO NOT MOVE, only confidence**,
+               and the confidence series is NOT comparable across this date.
+               Why: keyword_metrics held ONE observed_date (2026-07-31, method
+               ui_csv, 96 keywords) for 35 days and counting, and no confidence
+               term anywhere in nh/features/ read the AGE of its input -- so these
+               metrics were exactly as confident on day 400 as on day 1, and had
+               a within-cluster variance of exactly 0.0 with perfect rank
+               stability. That is a frozen input reading as a flawless metric.
+               30 is NOT tuned: it is the source's own cadence -- KP volumes are
+               monthly averages, and .claude/rules/sources.md already says a
+               refresh oftener than 7 days buys nothing. Linear rather than an
+               exponential half-life, deliberately, because a half-life would be
+               an invented constant; and no cliff, because a step in confidence
+               reads as an event. Google Ads Basic access is still pending, so
+               only a manual UI CSV export actually unfreezes this -- the decay
+               makes the staleness VISIBLE, it does not fix it.
 Failure mode : the weights are power-of-ten bucket MIDPOINTS (measured: six distinct
                values across 152 priced rows), so the weighting is order-of-magnitude
                at best. Value is in the ACCOUNT's currency, stored verbatim — COP on
@@ -487,6 +541,24 @@ Formula      : median of REAL top-of-page high bids across the cluster's observe
 Inputs       : keyword_metrics(bid_high, currency, geo, observed_date); seed_terms
 Join key     : cluster_id, then (lower(term), lang)
 Confidence   : as priced_share, with n = keywords carrying a real high bid.
+CHANGED 2026-09-04 (ADR-0058): confidence gains a THIRD leg, freshness =
+               min(1, 30 / age_days), where age is `day` minus the newest
+               observed_date actually used. **VALUES DO NOT MOVE, only confidence**,
+               and the confidence series is NOT comparable across this date.
+               Why: keyword_metrics held ONE observed_date (2026-07-31, method
+               ui_csv, 96 keywords) for 35 days and counting, and no confidence
+               term anywhere in nh/features/ read the AGE of its input -- so these
+               metrics were exactly as confident on day 400 as on day 1, and had
+               a within-cluster variance of exactly 0.0 with perfect rank
+               stability. That is a frozen input reading as a flawless metric.
+               30 is NOT tuned: it is the source's own cadence -- KP volumes are
+               monthly averages, and .claude/rules/sources.md already says a
+               refresh oftener than 7 days buys nothing. Linear rather than an
+               exponential half-life, deliberately, because a half-life would be
+               an invented constant; and no cliff, because a step in confidence
+               reads as an event. Google Ads Basic access is still pending, so
+               only a manual UI CSV export actually unfreezes this -- the decay
+               makes the staleness VISIBLE, it does not fix it.
 Failure mode : an advertiser's SEARCH-ad bid, NOT YouTube RPM — a different auction
                with different inventory and different bidders. The RPM disclosure
                pass of 2026-08-28 returned n=0 across nine measurement units, so this
@@ -750,6 +822,24 @@ Inputs       : keyword_metrics(avg_monthly_searches, geo, observed_date); seed_t
 Join key     : cluster_id, then (lower(term), lang) — geo resolves on the
                observation, never on the seed (ADR-0038)
 Confidence   : curation coverage x min(n/30, 1), as the money KP metrics.
+CHANGED 2026-09-04 (ADR-0058): confidence gains a THIRD leg, freshness =
+               min(1, 30 / age_days), where age is `day` minus the newest
+               observed_date actually used. **VALUES DO NOT MOVE, only confidence**,
+               and the confidence series is NOT comparable across this date.
+               Why: keyword_metrics held ONE observed_date (2026-07-31, method
+               ui_csv, 96 keywords) for 35 days and counting, and no confidence
+               term anywhere in nh/features/ read the AGE of its input -- so these
+               metrics were exactly as confident on day 400 as on day 1, and had
+               a within-cluster variance of exactly 0.0 with perfect rank
+               stability. That is a frozen input reading as a flawless metric.
+               30 is NOT tuned: it is the source's own cadence -- KP volumes are
+               monthly averages, and .claude/rules/sources.md already says a
+               refresh oftener than 7 days buys nothing. Linear rather than an
+               exponential half-life, deliberately, because a half-life would be
+               an invented constant; and no cliff, because a step in confidence
+               reads as an event. Google Ads Basic access is still pending, so
+               only a manual UI CSV export actually unfreezes this -- the decay
+               makes the staleness VISIBLE, it does not fix it.
 Failure mode : every value is a power-of-ten bucket MIDPOINT, not a count — measured
                2026-08-28, a zero-spend export takes only six distinct values (50,
                500, 5k, 50k, 500k, 5M) across 152 priced rows. This is
