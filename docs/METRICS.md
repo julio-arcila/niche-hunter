@@ -1118,6 +1118,14 @@ the metric's own entry record; the claim is true of the code only from that date
 The code stays; `nh deferrals` carries the trigger that would register
 it (a fifth of on-niche videos older than a year).
 
+**Re-verified 2026-09-04, so the next auditor need not re-derive it.** The trigger
+reads on-niche videos aged >=365d at **70 of 14,598 = 0.005**, against a threshold of
+0.20 — two orders of magnitude short, so the metric is correctly dormant and no work is
+outstanding on it. Note the `uploads_per_week` remedy does NOT transfer here even when
+the trigger does fire: that was a count over a window the feed cannot fill, re-based as
+a rate over an observed span, whereas this is a median of ages with no denominator to
+re-base. Whatever registers it will need a different fix, not that one.
+
 Two names removed from this list rather than implemented:
 
 - `demand.wikipedia_pageviews` — **superseded**, not pending. `demand.wiki_weekly_views`
