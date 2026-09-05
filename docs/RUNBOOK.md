@@ -829,7 +829,7 @@ over both — the real one proves the documented shape is the served shape, the 
 one keeps encoding edge cases a single feed may not exhibit. Budget for the real capture
 failing an assertion written to the synthetic shape; that failure is the finding.
 
-### `nh criteria` measures age on the local clock, so the suite reddens every evening
+### ~~`nh criteria` measures age on the local clock~~ — FIXED 2026-09-04
 
 `nh/jobs/criteria.py` computes staleness with `date.today()` — the **local** date — at
 lines 112, 166 and 284, while `tests/test_criteria.py` builds its fixtures with
@@ -842,8 +842,9 @@ and `test_c7_goes_stale` both failed on a clean tree. This machine sits at UTC-5
 window is **19:00 local until midnight, every day** — the same boundary `observed_date`
 already has, surfacing in a second place.
 
-The convention says timestamps are UTC (CLAUDE.md), so the code is what is wrong, not the
-tests. Deliberately left unfixed: it changes how C3 and C7 grade, which is an
-evidence-standard-adjacent change and wants a decision rather than a drive-by. Until then,
-**two red tests after 19:00 local are this, not a regression** — check the clock before
-chasing them.
+The convention says timestamps are UTC (CLAUDE.md), so the code was what was wrong, not
+the tests. `criteria._today()` now returns the UTC date at all three sites. Kept here
+rather than deleted because the symptom is worth recognising: **a test that only fails
+after 19:00 local is a clock-skew test, not a flaky one**, and the same boundary belongs
+to `observed_date` too. `test_ages_are_measured_on_the_utc_clock` pins it at any hour,
+since the two staleness tests can only catch it during the window.

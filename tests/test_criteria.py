@@ -274,3 +274,15 @@ def test_no_criterion_is_hardcoded_met(engine, n):
     assert "False" in source or any(op in source for op in ("<=", ">=", "==", "not ")), (
         f"c{n} has no path to a negative verdict"
     )
+
+
+def test_ages_are_measured_on_the_utc_clock():
+    """The two staleness tests above only FAIL during the hours when UTC and local dates
+    differ — 19:00 to midnight at UTC-5 — so they are not a reliable guard on their own.
+    This one pins the contract at any hour: everything this module compares against
+    (job_runs.started_at, restore.log stamps, the fixtures) is a UTC date, and measuring
+    age on the local clock made a review one day past the threshold read as exactly on
+    it, which grades fresh."""
+    from datetime import UTC, datetime
+
+    assert criteria._today() == datetime.now(tz=UTC).date()
