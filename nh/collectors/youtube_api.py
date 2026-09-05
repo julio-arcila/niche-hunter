@@ -110,7 +110,15 @@ class YouTubeApiCollector(Collector):
     description = "YouTube Data API v3 — discovery and enrichment."
     quota_budget = 9_500
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, backfill_only: bool = False, **kwargs: Any) -> None:
+        #: Skip discovery and enrich only what RSS has left unenriched. The nightly runs
+        #: the collector twice: once normally, then once with this set, AFTER
+        #: `youtube_rss`. Without the second pass every video RSS discovered tonight
+        #: waits for tomorrow's fire before it has a duration, so `eligible_videos` —
+        #: which requires `is_short IS FALSE` — admits each discovery wave a night late
+        #: and in a lump. Measured 2026-09-04: videos first seen that day were 2.6%
+        #: enriched against 100% for every earlier day. See ADR-0057.
+        self.backfill_only = backfill_only
         super().__init__(*args, **kwargs)
         # The budget is per *day*, not per run. A ledger that starts fresh each
         # time has no idea an earlier run today already spent most of it, so a
@@ -152,6 +160,12 @@ class YouTubeApiCollector(Collector):
     def fetch(self) -> Iterable[Raw]:
         """Discovery, then enrichment. Reading a response to feed the next stage is
         plumbing, not normalization, so the whole pipeline lives in one generator."""
+        if self.backfill_only:
+            # No discovery, no search.list, no seeds read. The sweep exists to close the
+            # enrichment lag, and a sweep that could spend 100 units per query would put
+            # the night's irreplaceable discovery budget at risk to do it.
+            yield from self._backfill(seen=set())
+            return
         video_ids: dict[str, None] = {}  # insertion-ordered dedupe
         channel_ids: dict[str, None] = {}
         for seed in self._seeds():

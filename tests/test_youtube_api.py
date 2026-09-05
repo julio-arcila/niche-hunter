@@ -523,3 +523,54 @@ def test_the_backlog_drains_oldest_first(settings, engine):
 def test_an_unenriched_video_with_no_backlog_costs_nothing(settings, engine):
     collector = _collector(settings, engine)
     assert collector._unenriched_ids() == []
+
+
+@responses.activate
+def test_a_backfill_only_run_never_calls_search(settings, engine):
+    """The sweep exists to close the enrichment lag, not to discover. A pass that could
+    spend 100 units per search.list would put the night's irreplaceable discovery budget
+    at risk to do it — and it runs when discovery has already spent."""
+    apply_seeds(engine, ONE_SEED)  # seeds present, and still not read
+    _unenriched(engine, "sweep000001")
+    responses.add(
+        responses.GET, f"{API}/videos", json={"items": [_video_payload("sweep000001")]}, status=200
+    )
+    record = _collector(settings, engine, backfill_only=True).run()
+
+    assert record.status == "ok", record.error
+    assert not [c for c in responses.calls if "/search" in c.request.url]
+    assert record.quota_used == 1, "one videos.list page, no search"
+
+
+@responses.activate
+def test_the_sweep_enriches_what_rss_left_behind(settings, engine):
+    """The defect it closes: a feed supplies no duration, so is_short stays NULL and
+    eligible_videos — which requires `is_short IS FALSE` — admits the whole discovery
+    wave a night late and in a lump."""
+    from nh.db.models import Video
+
+    _unenriched(engine, "sweep000001")
+    responses.add(
+        responses.GET, f"{API}/videos", json={"items": [_video_payload("sweep000001")]}, status=200
+    )
+    _collector(settings, engine, backfill_only=True).run()
+
+    with session_scope(engine) as s:
+        video = s.get(Video, "sweep000001")
+    assert video.enriched is True
+    assert video.is_short is False, "this is the column eligible_videos gates on"
+
+
+@responses.activate
+def test_the_sweeps_spend_counts_against_the_next_runs_budget(settings, engine):
+    """It must stay JobRun.source='youtube_api'. `_spent_today` sums by source, so a
+    distinct name would silently exempt the sweep from the per-day ledger and the day
+    could overshoot by the whole sweep."""
+    _unenriched(engine, "sweep000001")
+    responses.add(
+        responses.GET, f"{API}/videos", json={"items": [_video_payload("sweep000001")]}, status=200
+    )
+    record = _collector(settings, engine, backfill_only=True).run()
+
+    assert record.source == "youtube_api"
+    assert _collector(settings, engine).quota.budget == settings.yt_quota_budget - record.quota_used

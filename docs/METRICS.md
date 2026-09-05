@@ -240,6 +240,19 @@ Stopgap      : replaces the prototype's 30-180 day age window, which the RSS 15-
                age-normalised views-at-day-30 once the snapshot series is >=30 days
                deep. Until then these levels drift upward as today's very young video
                population (10,853 of 13,725 under 30 days) ages in; do not trend them.
+Enrichment lag (fixed 2026-09-04, ADR-0057): until that date this pool admitted each
+               discovery wave A NIGHT LATE and in a lump. RSS supplies no duration, so
+               `is_short` stayed NULL until the next nightly's backfill, and eligibility
+               requires `is_short IS FALSE`. Measured 2026-09-04: videos first seen
+               08-31..09-03 were 100% enriched, those first seen 09-04 were 2.6%, and
+               10,856 were waiting. Consequences, both now closed: the value stepped
+               whenever a wave crossed the median (ai-and-software 3,442 at n=542 ->
+               605 at n=850 overnight), and a REPLAY of day D saw the wave the stored
+               row for day D had excluded, because nothing dates when `is_short` became
+               known. Stored rows before 2026-09-04 carry the lag; they are not wrong,
+               but they are not what a replay of the same day now produces.
+               Shares this with supply.format_mix and money.midroll_eligible_share,
+               which gate on the same two columns.
 Feeds        : scorecards.supply; gap from Slice 3
 Measured     : 2026-08-28 -- 417x spread (979.5 to 408,594 views) across the five
                clusters, or 214x (979.5 to 209,845) across the four that are not
@@ -293,7 +306,7 @@ Measured     : 2026-09-04, over 2026-09-01..04, ten active clusters, log10 scale
                intermediate at 4.40 and was not chosen.
                WHY IT WORKS, so the number is not cargo: the pool is fed in nightly
                lumps by discovery waves (see the enrichment-lag note under
-               median_views' Stopgap). A median jumps when a wave of low-view videos
+               median_views' "Enrichment lag"). A median jumps when a wave of low-view videos
                crosses the midpoint; a trimmed mean integrates over the bulk and
                moves smoothly. That is a property of the estimator against THIS
                pool's dynamics, so re-measure it after the 2026-09-14 revert rather

@@ -3145,3 +3145,72 @@ if missed — `features.run.METRICS`, `api.basis`, `api.drilldown.REGISTRY`,
 `api.gates.SCORER_DEPENDENT` and `scoring.rules.DEFINITION_WATCHED`. Membership in
 SCORER_DEPENDENT was not asserted but DERIVED: `test_gates.py` re-ran every metric at two
 relevance thresholds and confirmed this one moves.
+
+## ADR-0057 — The nightly enriches what RSS found tonight, instead of tomorrow
+2026-09-04. Accepted. Adds a second, discovery-free `youtube_api` pass after the collector
+loop. No schema change, no migration, no metric redefinition.
+
+### The defect
+
+`nh/collectors/registry.py` runs `youtube_api` BEFORE `youtube_rss`, deliberately: a
+channel discovered tonight must get its first feed poll the same night (ADR-0007). The
+cost of that order went unnoticed for the whole of Slice 1-7. The API collector's own
+`_backfill()` has already finished by the time RSS lands its wave; a feed carries title,
+published date and views but never **duration**; so `is_short` and `midroll_eligible`
+stay NULL until the *next* nightly. `eligible_videos` requires `is_short IS FALSE`.
+
+Every format-sensitive supply metric therefore admitted each discovery wave a night
+late, all at once. Measured 2026-09-04: videos first seen 2026-08-31 through 09-03 are
+100% enriched; videos first seen 09-04 are **2.6%**; 10,856 sit waiting. This is not a
+backlog — `_backfill` keeps up. It is the ordering, and it recurs every single night.
+
+Two consequences, and the second is the one that matters more:
+
+1. **Noise.** `median_views` steps whenever a wave crosses the midpoint — measured,
+   `ai-and-software` went 3,442 (n=542) to 605 (n=850) in one night.
+2. **A stored row and its replay disagree.** Nothing dates when `is_short` became known,
+   so re-running day D today includes the wave the stored row for day D excluded. A
+   metric whose replay does not reproduce its own stored value undermines the one thing
+   the snapshot history is for.
+
+### What ships, and the three load-bearing details
+
+A `backfill_only` flag on `YouTubeApiCollector`: skip discovery entirely, yield only
+`_backfill(seen=set())`. `run_nightly` invokes it once after the collector loop.
+
+* **`JobRun.source` stays `"youtube_api"`.** `_spent_today()` sums by source, so a
+  distinct name would silently exempt the sweep from the per-day quota ledger — the day
+  could then overshoot by the whole sweep. It also keeps `status.check`'s
+  known-sources sweep from reporting a source no check covers. Tested.
+* **Full nightlies only.** A `--only` debugging run must not spend quota it was not
+  asked to spend, the same rule that already governs the phases.
+* **Skipped when `youtube_rss` did not run**, including when RSS is not in the plan at
+  all — there is then no new wave to close and the primary run's backfill already
+  drained the backlog. Tested both ways.
+
+Cost is roughly 220 units at 1 unit per 50 ids, against ~3,200 units of measured headroom
+(6,299 of 9,500 on 2026-09-04). A failure is not a failed night: the wave lands tomorrow,
+which is exactly the behaviour that existed before this, and the sweep reports its own
+status key so that stays visible.
+
+### What this does NOT fix, said plainly
+
+An earlier framing credited the frozen-pool diagnostic's **98.6%** wobble reduction to
+this change. That is wrong and the correction belongs here: freezing the video pool is a
+diagnostic manipulation, not a shippable fix — the pool must grow. This closes the *lag*
+and its *irregularity* (a night lost to a sleeping Mac stacked two waves; 2026-08-30 did
+exactly that). A wave arriving on time is still a lump of the same size. The regular
+lump-driven component is what `supply.trimmed_mean_views` absorbs (ADR-0056). The two
+changes are complements: this one is mostly a correctness fix, that one is mostly the
+noise fix.
+
+Residue, named so it is not rediscovered as a surprise: hourly hot-channel RSS
+discoveries after the sweep still wait for the next morning. The sweep closes the bulk,
+not everything.
+
+### Expected on the landing night
+
+One larger-than-usual pass, admitting yesterday's lump and today's on-time wave together.
+`inputs_n` jumps for the format-sensitive metrics. Rule 3 (`evidence_collapse`) fires only
+on FALLS, so this will not page. Ballast counts are unaffected: relevance is decided from
+title and description at clustering time, not from enrichment.
