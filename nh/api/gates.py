@@ -49,6 +49,7 @@ SCORER_DEPENDENT: frozenset[str] = frozenset(
         # supply.* — all six, plus the cross-cluster rank built from them
         "uploads_per_week",
         "median_views",
+        "trimmed_mean_views",
         "on_niche_share",
         "geo_concentration",
         "format_mix",

@@ -249,6 +249,61 @@ Measured     : 2026-08-28 -- 417x spread (979.5 to 408,594 views) across the fiv
                this file.
 ```
 
+
+### supply.trimmed_mean_views
+```
+Formula      : 10%-per-tail trimmed mean of current views over the SAME pool as
+               supply.median_views -- eligible_niche_videos(cluster, day), identical
+               eligibility, identical per-channel FEED_DEPTH cap, identical relevance
+               filter applied after the cap. Only the estimator differs.
+               Trim is per TAIL, not total: k = floor(0.10 * n) dropped from each end,
+               so 20% of the pool is discarded. Operates on RAW views, not log views.
+               n < 10 gives k = 0, which is the plain arithmetic mean -- stated
+               because "10% trimmed" is silent about it, and the fallback is
+               deliberate rather than an accident of a library call. When
+               n - 2k <= 0 it likewise returns the untrimmed mean, never NULL.
+               These conventions are not a choice made here: they are the exact
+               conventions of the diagnostic that measured the improvement below,
+               and writing a plausible variant while inheriting its numbers would be
+               a fresh instance of the ADR-0053 stale-echo class.
+Inputs       : videos; video_snapshots(observed_date, views, source); cluster_members
+               (item_type='channel' for the pool, item_type='video' for relevance)
+Join key     : cluster_id
+Confidence   : identical to supply.median_views -- same pool, same channels, same
+               numerator_decisiveness. The estimator changes what is computed from
+               the rows, not how much the rows can be trusted.
+Failure mode : inherits EVERY median_views failure mode, and this is the point to
+               resist reading it as an improvement in correctness. Views are still
+               LIFETIME views; the 14-day floor is still below view settlement;
+               relevanceLanguage=en still skews the pool; the relevance filter's
+               held-out precision is still 0.781. The trim buys resistance to pool
+               CHURN, not accuracy. It is also less robust than the median to a
+               genuine outlier by construction -- a trimmed mean still averages the
+               core, so a niche whose bulk shifts moves more than its median does.
+               No eligible videos -> NULL, never 0.
+Feeds        : NOTHING. scorecards.supply continues to rank median_views alone, and
+               whether it ever switches is a separate and later decision (ADR-0056
+               records the non-decision explicitly). Nothing ranked ships regardless
+               -- Gate E's null holds value/sustainability/opportunity at NULL.
+Measured     : 2026-09-04, over 2026-09-01..04, ten active clusters, log10 scale for
+               the statistics only. Between-cluster spread 0.617 vs the stored
+               median's 0.458 (+35%); within-cluster night-over-night wobble 0.078 vs
+               0.136 (halved); ratio 7.94 vs 3.36; mean night-over-night rank
+               correlation 0.992 vs 0.935. A log-mean on the same rows is
+               intermediate at 4.40 and was not chosen.
+               WHY IT WORKS, so the number is not cargo: the pool is fed in nightly
+               lumps by discovery waves (see the enrichment-lag note under
+               median_views' Stopgap). A median jumps when a wave of low-view videos
+               crosses the midpoint; a trimmed mean integrates over the bulk and
+               moves smoothly. That is a property of the estimator against THIS
+               pool's dynamics, so re-measure it after the 2026-09-14 revert rather
+               than assuming it survives.
+Caveat       : four nights, all of them inside the post-ADR-0051 convergence
+               transient, and rank stability over four overlapping nights is a weak
+               statistic. Re-check both figures once the window past 2026-09-14 has
+               filled. This metric ships to be measured, not because it is trusted.
+```
+
 ### openness.breakthrough_rate_cohort
 ```
 Formula      : share of COHORT CHANNELS with >=1 breakthrough among their eligible

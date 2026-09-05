@@ -280,6 +280,7 @@ REGISTRY: dict[str, Drilldown] = {
     "median_bid_high": _keyword_planner,
     "uploads_per_week": _on_niche_videos,
     "median_views": _on_niche_videos,
+    "trimmed_mean_views": _on_niche_videos,
     "on_niche_share": _on_niche_videos,
     "format_mix": _on_niche_videos,
     "top10_concentration": _on_niche_videos,

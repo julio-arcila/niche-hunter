@@ -16,6 +16,7 @@ from nh.features.supply import (
     geo_concentration,
     median_views,
     on_niche_share,
+    trimmed_mean_views,
     uploads_per_week,
     views_per_new_video,
 )
@@ -625,3 +626,68 @@ def test_a_nested_pin_restores_the_outer_one(engine, monkeypatch):
         with inputs.pinned_ballast(False):
             assert inputs.ballast_active() is False
         assert inputs.ballast_active() is True
+
+
+def test_the_trim_is_per_tail_and_on_raw_views(engine):
+    """Hand-computed, because the docs cite a measurement this must actually match.
+    Twelve videos: k = floor(12 * 0.10) = 1, so ONE is dropped from each end and the
+    core is the middle ten. Per tail, not 10% total; raw views, not log views."""
+    make_cluster(engine)
+    add_channel(engine, "a", videos=6, views=[1, 10, 20, 30, 40, 50])
+    add_channel(engine, "b", videos=6, views=[60, 70, 80, 90, 100, 100_000])
+    # pool sorted: [1,10,20,30,40,50,60,70,80,90,100,100000]; drop 1 and 100000
+    core = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    result = trimmed_mean_views(session_for(engine), CLUSTER, DAY)
+
+    assert result.value == pytest.approx(sum(core) / len(core))
+    assert result.detail["trimmed_per_tail"] == 1
+    assert result.inputs_n == 12, "inputs_n is the POOL, not the trimmed core"
+
+
+def test_below_ten_videos_the_trim_does_nothing_and_says_so(engine):
+    """floor(n * 0.10) is 0 for n < 10, so this is the plain arithmetic mean — including
+    the outlier a reader might assume a 'trimmed mean' removed. Deliberate, documented,
+    and visible in `detail`, because a trim that silently did nothing is exactly the
+    case that would otherwise mislead."""
+    make_cluster(engine)
+    add_channel(engine, "a", videos=5, views=[1, 2, 3, 4, 5_000])
+    result = trimmed_mean_views(session_for(engine), CLUSTER, DAY)
+
+    assert result.value == pytest.approx(5_010 / 5)
+    assert result.detail["trimmed_per_tail"] == 0
+
+
+def test_it_carries_the_median_of_the_same_pool_for_comparison(engine):
+    """The metric exists to be compared against median_views on IDENTICAL rows. Making
+    a reader run a second query to do that is how the comparison stops being made."""
+    make_cluster(engine)
+    add_channel(engine, "a", videos=4, views=[10, 20, 30, 1_000_000])
+    session = session_for(engine)
+
+    trimmed = trimmed_mean_views(session, CLUSTER, DAY)
+    assert trimmed.detail["median_views"] == median_views(session, CLUSTER, DAY).value
+
+
+def test_an_empty_pool_is_null_never_zero(engine):
+    """Data rule 7, and the same contract as median_views: absent is unknown."""
+    make_cluster(engine)
+    add_channel(engine, "fresh", videos=3, views=[1, 2, 3], age_days=2)
+    result = trimmed_mean_views(session_for(engine), CLUSTER, DAY)
+
+    assert result.value is None
+    assert result.confidence == 0.0
+
+
+def test_it_shares_the_pool_and_the_confidence_of_median_views(engine):
+    """Same pool to the row. A second eligibility rule would make the whole comparison
+    meaningless, and the estimator changes what is computed from the rows, not how far
+    the rows can be trusted."""
+    make_cluster(engine)
+    add_channel(engine, "a", videos=6, views=[1, 10, 20, 30, 40, 50])
+    add_channel(engine, "b", videos=6, views=[60, 70, 80, 90, 100, 110])
+    session = session_for(engine)
+
+    trimmed, median = trimmed_mean_views(session, CLUSTER, DAY), median_views(session, CLUSTER, DAY)
+    assert trimmed.inputs_n == median.inputs_n
+    assert trimmed.confidence == median.confidence
+    assert trimmed.detail["definition"] == median.detail["definition"]

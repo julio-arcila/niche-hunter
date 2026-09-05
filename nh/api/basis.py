@@ -49,6 +49,7 @@ SOURCE_OF: dict[str, str] = {
     # supply — the corpus is what discovery returned for the seed's market
     "uploads_per_week": "youtube",
     "median_views": "youtube",
+    "trimmed_mean_views": "youtube",
     "on_niche_share": "youtube",
     "geo_concentration": "youtube",
     "format_mix": "youtube",

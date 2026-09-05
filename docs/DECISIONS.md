@@ -3069,3 +3069,79 @@ repo's standing answer to "a standard nobody can check" is to make it executable
 `nh deferrals` exists for exactly that reason and is the module this copies. Without it the
 slice reads open for a month after the work is finished, which is the header-rot Slices 9 and
 11 already demonstrated.
+
+## ADR-0056 — A second reach estimator ships beside `median_views`, and deliberately feeds nothing
+2026-09-04. Accepted. Adds `supply.trimmed_mean_views`. Changes no existing metric, no
+schema, no stored series. `scorecards.supply` is untouched.
+
+### What was measured
+
+Diagnosing night-over-night noise in the supply metrics turned up a cleanly separable
+cause. `median_views` wobbles because its pool is fed in nightly LUMPS: videos discovered
+by RSS carry no duration, `eligible_videos` requires `is_short IS FALSE`, and the
+enrichment that supplies it arrives on the next nightly — so each discovery wave enters
+the pool a night late, all at once. Measured 2026-09-04: videos first seen 08-31..09-03
+are 100% enriched, those first seen 09-04 are 2.6%, and 10,856 sit waiting. A median jumps
+when such a wave crosses the midpoint.
+
+On identical rows and nights (2026-09-01..04, ten active clusters, log10 for the
+statistics only):
+
+| estimator | between | within | ratio | mean rank rho |
+|---|---|---|---|---|
+| median (stored) | 0.458 | 0.136 | 3.36 | 0.935 |
+| **10%-per-tail trimmed mean** | **0.617** | **0.078** | **7.94** | **0.992** |
+| log-mean | 0.367 | 0.083 | 4.40 | 0.980 |
+
+The trimmed mean raises between-cluster spread 35% while halving within-cluster wobble.
+A trailing window was considered and rejected on measurement, not taste: `median_views`
+relative change against `inputs_n` has log-log slope **+0.32** where sampling noise
+predicts −0.50, so the wobble is composition, and smoothing would smear each enrichment
+step across more nights rather than cancel it.
+
+### Why a new metric and not a redefinition
+
+Redefining `median_views` to compute a trimmed mean would leave a function whose name
+lies about its formula — the precise defect this repo keeps catching in its own prose
+(ADR-0053). It would also break a stored series that has a clean `detail.definition`
+history, for a change that is an estimator preference rather than a correction. Shipping
+beside is the treatment already used for `pressure_index` next to `scorecards.supply`,
+and for the event stratum next to topic.
+
+A new series STARTING creates no discontinuity in any existing series, which is also why
+this could land ten days before the 2026-09-14 ballast revert without stacking two steps
+inside one comparison window. It gains four nights on the v3 side, so the revert is
+observable in both estimators; `DEFINITION_WATCHED` carries the new name so Rule 2 will
+name its step that night.
+
+### The non-decision, recorded as one
+
+**`scorecards.supply` continues to rank `median_views` alone.** Nothing about the
+measurement above licenses a switch: four nights, all inside the post-ADR-0051
+convergence transient, and rank stability over four overlapping nights is a weak
+statistic. Nor could a switch be backtested — `median_views` is NOT REPLAYABLE
+(`data/backtest.db` has no per-video snapshot series; the backtest's supply analogue is
+`views_per_new_video`), so the estimator that ranks the scorecard cannot be chosen on
+Gate E evidence at all. Whether it ever changes is a later decision needing its own ADR
+and its own measurement. Until then this metric is computed, gated like every other
+scorer-dependent number, and used for nothing.
+
+### What was pinned, and why that mattered
+
+"10%-trimmed mean" is ambiguous — per tail or total, raw or log domain, and undefined at
+small n. The conventions here are not chosen but COPIED from the diagnostic that produced
+7.94: **per tail** (k = floor(0.10n) from each end, 20% of the pool), on **raw** views,
+falling back to the untrimmed mean when k is 0 or the core would empty. Below n = 10 it
+is therefore the plain arithmetic mean, outlier included. Writing a plausible variant
+while citing the diagnostic's numbers would have been a fresh instance of ADR-0053's
+stale-echo class, so `detail` carries `trimmed_per_tail` and the pool's own
+`median_views` on every row, and the tests pin all three conventions by hand computation.
+
+### Risk
+
+None to stored history: `features_daily` gains rows going forward only, snapshots are
+untouched, no migration. The registration is guarded in five places that each fail loudly
+if missed — `features.run.METRICS`, `api.basis`, `api.drilldown.REGISTRY`,
+`api.gates.SCORER_DEPENDENT` and `scoring.rules.DEFINITION_WATCHED`. Membership in
+SCORER_DEPENDENT was not asserted but DERIVED: `test_gates.py` re-ran every metric at two
+relevance thresholds and confirmed this one moves.
