@@ -240,6 +240,19 @@ Stopgap      : replaces the prototype's 30-180 day age window, which the RSS 15-
                age-normalised views-at-day-30 once the snapshot series is >=30 days
                deep. Until then these levels drift upward as today's very young video
                population (10,853 of 13,725 under 30 days) ages in; do not trend them.
+Enrichment lag (fixed 2026-09-04, ADR-0057): until that date this pool admitted each
+               discovery wave A NIGHT LATE and in a lump. RSS supplies no duration, so
+               `is_short` stayed NULL until the next nightly's backfill, and eligibility
+               requires `is_short IS FALSE`. Measured 2026-09-04: videos first seen
+               08-31..09-03 were 100% enriched, those first seen 09-04 were 2.6%, and
+               10,856 were waiting. Consequences, both now closed: the value stepped
+               whenever a wave crossed the median (ai-and-software 3,442 at n=542 ->
+               605 at n=850 overnight), and a REPLAY of day D saw the wave the stored
+               row for day D had excluded, because nothing dates when `is_short` became
+               known. Stored rows before 2026-09-04 carry the lag; they are not wrong,
+               but they are not what a replay of the same day now produces.
+               Shares this with supply.format_mix and money.midroll_eligible_share,
+               which gate on the same two columns.
 Feeds        : scorecards.supply; gap from Slice 3
 Measured     : 2026-08-28 -- 417x spread (979.5 to 408,594 views) across the five
                clusters, or 214x (979.5 to 209,845) across the four that are not
@@ -247,6 +260,73 @@ Measured     : 2026-08-28 -- 417x spread (979.5 to 408,594 views) across the fiv
                10,832)"; it is superseded, and the reason it went stale unnoticed
                is that it carried no date -- see the dating rule at the head of
                this file.
+```
+
+
+### supply.trimmed_mean_views
+```
+Formula      : 10%-per-tail trimmed mean of current views over the SAME pool as
+               supply.median_views -- eligible_niche_videos(cluster, day), identical
+               eligibility, identical per-channel FEED_DEPTH cap, identical relevance
+               filter applied after the cap. Only the estimator differs.
+               Trim is per TAIL, not total: k = floor(0.10 * n) dropped from each end,
+               so 20% of the pool is discarded. Operates on RAW views, not log views.
+               n < 10 gives k = 0, which is the plain arithmetic mean -- stated
+               because "10% trimmed" is silent about it, and the fallback is
+               deliberate rather than an accident of a library call. When
+               n - 2k <= 0 it likewise returns the untrimmed mean, never NULL.
+               These conventions are not a choice made here: they are the exact
+               conventions of the diagnostic that measured the improvement below,
+               and writing a plausible variant while inheriting its numbers would be
+               a fresh instance of the ADR-0053 stale-echo class.
+Inputs       : videos; video_snapshots(observed_date, views, source); cluster_members
+               (item_type='channel' for the pool, item_type='video' for relevance)
+Join key     : cluster_id
+Confidence   : identical to supply.median_views -- same pool, same channels, same
+               numerator_decisiveness. The estimator changes what is computed from
+               the rows, not how much the rows can be trusted.
+Failure mode : inherits EVERY median_views failure mode, and this is the point to
+               resist reading it as an improvement in correctness. Views are still
+               LIFETIME views; the 14-day floor is still below view settlement;
+               relevanceLanguage=en still skews the pool; the relevance filter's
+               held-out precision is still 0.781. The trim buys resistance to pool
+               CHURN, not accuracy. It is also less robust than the median to a
+               genuine outlier by construction -- a trimmed mean still averages the
+               core, so a niche whose bulk shifts moves more than its median does.
+               No eligible videos -> NULL, never 0.
+Feeds        : NOTHING. scorecards.supply continues to rank median_views alone, and
+               whether it ever switches is a separate and later decision (ADR-0056
+               records the non-decision explicitly). Nothing ranked ships regardless
+               -- Gate E's null holds value/sustainability/opportunity at NULL.
+Measured     : 2026-09-04, over 2026-09-01..04, ten active clusters, log10 scale for
+               the statistics only. Between-cluster spread 0.617 vs the stored
+               median's 0.458 (+35%); within-cluster night-over-night wobble 0.078 vs
+               0.136 (halved); ratio 7.94 vs 3.36; mean night-over-night rank
+               correlation 0.992 vs 0.935. A log-mean on the same rows is
+               intermediate at 4.40 and was not chosen.
+               WHY IT WORKS, so the number is not cargo: the pool is fed in nightly
+               lumps by discovery waves (see the enrichment-lag note under
+               median_views' "Enrichment lag"). A median jumps when a wave of low-view videos
+               crosses the midpoint; a trimmed mean integrates over the bulk and
+               moves smoothly. That is a property of the estimator against THIS
+               pool's dynamics, so re-measure it after the 2026-09-14 revert rather
+               than assuming it survives.
+Level        : 2026-09-04, ten active clusters, computed live. This reads MUCH HIGHER
+               than median_views on the same rows -- 2.2x (history-of-ideas) to 32.3x
+               (macro-economy), median 8.4x. That is not a bug and not a correction:
+               views are heavy-tailed, trimming 10% per tail leaves most of the upper
+               tail in, and a mean over that tail sits far above the midpoint. Read it
+               as a DIFFERENT quantity from median_views, never as a better estimate of
+               the same one. The spread of that multiple across clusters IS the +35%
+               between-cluster separation below -- the two facts are one fact.
+               The obvious follow-on -- trim harder -- is deliberately NOT taken: the
+               conventions are copied from the diagnostic that measured 7.94, and
+               changing them would leave this entry citing a number its code no longer
+               produces. A different trim needs its own measurement first.
+Caveat       : four nights, all of them inside the post-ADR-0051 convergence
+               transient, and rank stability over four overlapping nights is a weak
+               statistic. Re-check both figures once the window past 2026-09-14 has
+               filled. This metric ships to be measured, not because it is trusted.
 ```
 
 ### openness.breakthrough_rate_cohort
@@ -1117,6 +1197,14 @@ this sentence claimed that redefinition a day before it existed, which rule 9 an
 the metric's own entry record; the claim is true of the code only from that date.
 The code stays; `nh deferrals` carries the trigger that would register
 it (a fifth of on-niche videos older than a year).
+
+**Re-verified 2026-09-04, so the next auditor need not re-derive it.** The trigger
+reads on-niche videos aged >=365d at **70 of 14,598 = 0.005**, against a threshold of
+0.20 — two orders of magnitude short, so the metric is correctly dormant and no work is
+outstanding on it. Note the `uploads_per_week` remedy does NOT transfer here even when
+the trigger does fire: that was a count over a window the feed cannot fill, re-based as
+a rate over an observed span, whereas this is a median of ages with no denominator to
+re-base. Whatever registers it will need a different fix, not that one.
 
 Two names removed from this list rather than implemented:
 

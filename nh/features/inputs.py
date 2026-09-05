@@ -283,6 +283,35 @@ BALLAST_VALIDATED: bool | None = None
 #: read.
 BALLAST_DRIFT_SHARE = 0.05
 
+#: The same movement, integrated over `BALLAST_RAMP_DAYS` stored feature days. A
+#: per-night threshold is blind to a ramp by construction, and the blindness is not
+#: hypothetical: `anthropocene-anthropology` went 56 -> 69 -> 87 -> 91 ballast channels
+#: over 2026-09-01..04 — **+62% cumulative** — while tripping `BALLAST_DRIFT_SHARE` on
+#: only two of the three nights and then going quiet at +4.6% with the trend still
+#: running. One discovery query (`human origins explained`, first run 2026-09-01, 100
+#: hits/night) accounted for 33 of the 34 channels; no standing member was reclassified,
+#: so this is query topicality and NOT the lexicon.
+#:
+#: Set against a MEASURED separation, not a round multiple of the nightly wire. Over the
+#: three transitions 2026-09-01..04 the ten active clusters ramped, as a share of member
+#: channels: anthropocene-anthropology 0.135, then metaphysical-battles 0.063,
+#: macro-economy 0.051, geopolitics 0.043, and the other six at or below 0.028. A 2.2x gap
+#: separates the case this exists for from every other cluster, and 0.10 sits in it.
+#: **On the DELTA, never the level**, for the same reason as above.
+#:
+#: PROVISIONAL, and say so rather than let it harden: three transitions is a thin basis,
+#: and all of them sit inside the post-ADR-0051 convergence transient, where clusters are
+#: still filling at 8-12%/night with exits near zero. Re-derive it from the same query
+#: once the window past 2026-09-14 has filled. Note also that the revert on that date
+#: ends the ballast cut, so what this watches becomes an empty set until some future
+#: validated-ballast state — it is not dead code, but it will read 0 for a while, and
+#: that is the designed outcome and not a fault.
+BALLAST_RAMP_SHARE = 0.10
+
+#: Stored feature days, never calendar days — 2026-08-30 collected nothing, and a window
+#: counted in calendar days would silently compare across that hole.
+BALLAST_RAMP_DAYS = 7
+
 
 #: Set only by `pinned_ballast`, and consulted before everything else. Run-scoped, so a
 #: run that straddles midnight on the sunset date cannot compute half its clusters one

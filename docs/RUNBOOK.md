@@ -414,6 +414,41 @@ uv run nh doctor              # database reachable, schema present
 Then run the `data-qa` agent against the newest `run_id` on nights 1, 2 and 7 at
 minimum — it checks NULL rates, snapshot monotonicity, duplicates and orphans.
 
+### Two ballast warnings, and why there are two
+
+`nh status --check` watches the ADR-0047 cut twice, because one threshold cannot see
+both failure shapes:
+
+| warning | window | fires at | catches |
+|---|---|---|---|
+| `ballast channels moved A -> B` | one night | `BALLAST_DRIFT_SHARE` 0.05 | a batch tipping in at once — a lexicon regression |
+| `ballast channels ramped A -> B` | up to `BALLAST_RAMP_DAYS` (7) **stored** days | `BALLAST_RAMP_SHARE` 0.10 | a slow flood no single night trips |
+
+The second exists because the first was blind by construction and the blindness was
+realised: `anthropocene-anthropology` went 56 -> 91 channels across 2026-09-01..04,
+**+62%**, tripping the nightly wire on only two of three nights and then falling silent
+at +4.6% with the trend still running.
+
+**When the ramp warning fires, the question is which query.** Attribution is a hand
+query, deliberately — it is a diagnosis, not machinery:
+
+```bash
+sqlite3 data/niche_hunter.db "
+  SELECT query, MIN(observed_date) first_ran, COUNT(*) hits
+  FROM discoveries WHERE seed_id = (SELECT id FROM niche_seeds WHERE slug='<slug>')
+  GROUP BY query ORDER BY first_ran;"
+```
+
+A query whose `first_ran` sits at the start of the ramp is the cause. That was the whole
+diagnosis for anthropocene: `human origins explained`, first run 2026-09-01, 100
+hits/night, 33 of 34 channels. **Arrivals are curation; reclassification of standing
+members would be the lexicon** — and only the second would justify touching a lexicon,
+which needs human negative evidence, not a machine's read of its own failures.
+
+Both thresholds are on the DELTA, never the level — `history-of-ideas` sits at 126 of
+205 by construction. And both go quiet after 2026-09-14, when the cut reverts and the
+ballast set empties; that is designed, not broken.
+
 ## The evidence surface
 
 ```bash

@@ -3069,3 +3069,183 @@ repo's standing answer to "a standard nobody can check" is to make it executable
 `nh deferrals` exists for exactly that reason and is the module this copies. Without it the
 slice reads open for a month after the work is finished, which is the header-rot Slices 9 and
 11 already demonstrated.
+
+## ADR-0056 — A second reach estimator ships beside `median_views`, and deliberately feeds nothing
+2026-09-04. Accepted. Adds `supply.trimmed_mean_views`. Changes no existing metric, no
+schema, no stored series. `scorecards.supply` is untouched.
+
+### What was measured
+
+Diagnosing night-over-night noise in the supply metrics turned up a cleanly separable
+cause. `median_views` wobbles because its pool is fed in nightly LUMPS: videos discovered
+by RSS carry no duration, `eligible_videos` requires `is_short IS FALSE`, and the
+enrichment that supplies it arrives on the next nightly — so each discovery wave enters
+the pool a night late, all at once. Measured 2026-09-04: videos first seen 08-31..09-03
+are 100% enriched, those first seen 09-04 are 2.6%, and 10,856 sit waiting. A median jumps
+when such a wave crosses the midpoint.
+
+On identical rows and nights (2026-09-01..04, ten active clusters, log10 for the
+statistics only):
+
+| estimator | between | within | ratio | mean rank rho |
+|---|---|---|---|---|
+| median (stored) | 0.458 | 0.136 | 3.36 | 0.935 |
+| **10%-per-tail trimmed mean** | **0.617** | **0.078** | **7.94** | **0.992** |
+| log-mean | 0.367 | 0.083 | 4.40 | 0.980 |
+
+The trimmed mean raises between-cluster spread 35% while halving within-cluster wobble.
+A trailing window was considered and rejected on measurement, not taste: `median_views`
+relative change against `inputs_n` has log-log slope **+0.32** where sampling noise
+predicts −0.50, so the wobble is composition, and smoothing would smear each enrichment
+step across more nights rather than cancel it.
+
+### Why a new metric and not a redefinition
+
+Redefining `median_views` to compute a trimmed mean would leave a function whose name
+lies about its formula — the precise defect this repo keeps catching in its own prose
+(ADR-0053). It would also break a stored series that has a clean `detail.definition`
+history, for a change that is an estimator preference rather than a correction. Shipping
+beside is the treatment already used for `pressure_index` next to `scorecards.supply`,
+and for the event stratum next to topic.
+
+A new series STARTING creates no discontinuity in any existing series, which is also why
+this could land ten days before the 2026-09-14 ballast revert without stacking two steps
+inside one comparison window. It gains four nights on the v3 side, so the revert is
+observable in both estimators; `DEFINITION_WATCHED` carries the new name so Rule 2 will
+name its step that night.
+
+### The non-decision, recorded as one
+
+**`scorecards.supply` continues to rank `median_views` alone.** Nothing about the
+measurement above licenses a switch: four nights, all inside the post-ADR-0051
+convergence transient, and rank stability over four overlapping nights is a weak
+statistic. Nor could a switch be backtested — `median_views` is NOT REPLAYABLE
+(`data/backtest.db` has no per-video snapshot series; the backtest's supply analogue is
+`views_per_new_video`), so the estimator that ranks the scorecard cannot be chosen on
+Gate E evidence at all. Whether it ever changes is a later decision needing its own ADR
+and its own measurement. Until then this metric is computed, gated like every other
+scorer-dependent number, and used for nothing.
+
+### What was pinned, and why that mattered
+
+"10%-trimmed mean" is ambiguous — per tail or total, raw or log domain, and undefined at
+small n. The conventions here are not chosen but COPIED from the diagnostic that produced
+7.94: **per tail** (k = floor(0.10n) from each end, 20% of the pool), on **raw** views,
+falling back to the untrimmed mean when k is 0 or the core would empty. Below n = 10 it
+is therefore the plain arithmetic mean, outlier included. Writing a plausible variant
+while citing the diagnostic's numbers would have been a fresh instance of ADR-0053's
+stale-echo class, so `detail` carries `trimmed_per_tail` and the pool's own
+`median_views` on every row, and the tests pin all three conventions by hand computation.
+
+### Risk
+
+None to stored history: `features_daily` gains rows going forward only, snapshots are
+untouched, no migration. The registration is guarded in five places that each fail loudly
+if missed — `features.run.METRICS`, `api.basis`, `api.drilldown.REGISTRY`,
+`api.gates.SCORER_DEPENDENT` and `scoring.rules.DEFINITION_WATCHED`. Membership in
+SCORER_DEPENDENT was not asserted but DERIVED: `test_gates.py` re-ran every metric at two
+relevance thresholds and confirmed this one moves.
+
+## ADR-0057 — The nightly enriches what RSS found tonight, instead of tomorrow
+2026-09-04. Accepted. Adds a second, discovery-free `youtube_api` pass after the collector
+loop. No schema change, no migration, no metric redefinition.
+
+### The defect
+
+`nh/collectors/registry.py` runs `youtube_api` BEFORE `youtube_rss`, deliberately: a
+channel discovered tonight must get its first feed poll the same night (ADR-0007). The
+cost of that order went unnoticed for the whole of Slice 1-7. The API collector's own
+`_backfill()` has already finished by the time RSS lands its wave; a feed carries title,
+published date and views but never **duration**; so `is_short` and `midroll_eligible`
+stay NULL until the *next* nightly. `eligible_videos` requires `is_short IS FALSE`.
+
+Every format-sensitive supply metric therefore admitted each discovery wave a night
+late, all at once. Measured 2026-09-04: videos first seen 2026-08-31 through 09-03 are
+100% enriched; videos first seen 09-04 are **2.6%**; 10,856 sit waiting. This is not a
+backlog — `_backfill` keeps up. It is the ordering, and it recurs every single night.
+
+Two consequences, and the second is the one that matters more:
+
+1. **Noise.** `median_views` steps whenever a wave crosses the midpoint — measured,
+   `ai-and-software` went 3,442 (n=542) to 605 (n=850) in one night.
+2. **A stored row and its replay disagree.** Nothing dates when `is_short` became known,
+   so re-running day D today includes the wave the stored row for day D excluded. A
+   metric whose replay does not reproduce its own stored value undermines the one thing
+   the snapshot history is for.
+
+### What ships, and the three load-bearing details
+
+A `backfill_only` flag on `YouTubeApiCollector`: skip discovery entirely, yield only
+`_backfill(seen=set())`. `run_nightly` invokes it once after the collector loop.
+
+* **`JobRun.source` stays `"youtube_api"`.** `_spent_today()` sums by source, so a
+  distinct name would silently exempt the sweep from the per-day quota ledger — the day
+  could then overshoot by the whole sweep. It also keeps `status.check`'s
+  known-sources sweep from reporting a source no check covers. Tested.
+* **Full nightlies only.** A `--only` debugging run must not spend quota it was not
+  asked to spend, the same rule that already governs the phases.
+* **Skipped when `youtube_rss` did not run**, including when RSS is not in the plan at
+  all — there is then no new wave to close and the primary run's backfill already
+  drained the backlog. Tested both ways.
+
+Cost is roughly 220 units at 1 unit per 50 ids, against ~3,200 units of measured headroom
+(6,299 of 9,500 on 2026-09-04). A failure is not a failed night: the wave lands tomorrow,
+which is exactly the behaviour that existed before this. `_check_sweep` warns when it
+finishes anything but `ok`, because a pass that silently stops running is how the
+enrichment lag would come back unnoticed.
+
+### ADDENDUM, same day: the first draft of this ADR shipped the defect it warns about
+
+The paragraph above originally read "the sweep reports its own status key so that stays
+visible." That was **false as a claim about the health gate**, and a reviewer caught it
+before merge. The status key is `NightlyResult.statuses`, an in-process return value. The
+gate is `jobs.status.check`, which reads `job_runs` — and there it was worse than
+invisible:
+
+```python
+by_source = {row[0]: row for row in rows}   # unordered query, last row wins
+```
+
+Every source had written exactly one row per run, so nothing had ever exercised that. The
+sweep writes a SECOND `youtube_api` row and is inserted last, so its `ok` **silently
+replaced a FAILED primary collection**. Reproduced: a failed `youtube_api` plus a healthy
+sweep returned `ok=True, problems=[]`. A dead API key would have paged nobody — which is
+the exact failure `check` exists to close, reintroduced by the commit that closed a
+different one.
+
+Two changes, because the sweep was the trigger and not the defect:
+
+* The sweep carries its own `job` (`status.SWEEP_JOB = "nightly:sweep"`) and no longer
+  reaches that query at all. Its SOURCE deliberately stays `"youtube_api"`, because
+  `_spent_today()` sums by source and a distinct source would exempt it from the per-day
+  quota ledger.
+* `_worst_per_source` replaces the dict comprehension, and a failure always wins. The trap
+  is in the aggregation, not in the sweep; the next source to write twice should not have
+  to rediscover it.
+
+Recorded at this length because the pattern is the repo's own: `_check_one_run_per_day`
+exists because two feature runs in one day went unnoticed for two days, and this is the
+same shape one table over. The prose was written before the code was checked against it,
+which is ADR-0053's class exactly.
+
+### What this does NOT fix, said plainly
+
+An earlier framing credited the frozen-pool diagnostic's **98.6%** wobble reduction to
+this change. That is wrong and the correction belongs here: freezing the video pool is a
+diagnostic manipulation, not a shippable fix — the pool must grow. This closes the *lag*
+and its *irregularity* (a night lost to a sleeping Mac stacked two waves; 2026-08-30 did
+exactly that). A wave arriving on time is still a lump of the same size. The regular
+lump-driven component is what `supply.trimmed_mean_views` absorbs (ADR-0056). The two
+changes are complements: this one is mostly a correctness fix, that one is mostly the
+noise fix.
+
+Residue, named so it is not rediscovered as a surprise: hourly hot-channel RSS
+discoveries after the sweep still wait for the next morning. The sweep closes the bulk,
+not everything.
+
+### Expected on the landing night
+
+One larger-than-usual pass, admitting yesterday's lump and today's on-time wave together.
+`inputs_n` jumps for the format-sensitive metrics. Rule 3 (`evidence_collapse`) fires only
+on FALLS, so this will not page. Ballast counts are unaffected: relevance is decided from
+title and description at clustering time, not from enrichment.

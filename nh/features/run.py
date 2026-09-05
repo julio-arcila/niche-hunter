@@ -77,6 +77,7 @@ METRICS: tuple[Metric, ...] = (
     _geo(demand.total_monthly_searches, "US"),
     supply.uploads_per_week,
     supply.median_views,
+    supply.trimmed_mean_views,
     supply.on_niche_share,
     supply.geo_concentration,
     supply.format_mix,

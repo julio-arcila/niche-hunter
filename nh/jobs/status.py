@@ -30,7 +30,7 @@ from nh.db.models import (
 )
 from nh.db.session import session_scope
 from nh.db.types import utcnow
-from nh.features.inputs import BALLAST_DRIFT_SHARE
+from nh.features.inputs import BALLAST_DRIFT_SHARE, BALLAST_RAMP_DAYS, BALLAST_RAMP_SHARE
 from nh.jobs.phases import PHASES
 
 #: `observed_date` is a PERIOD END, so it already lags the export by up to a month
@@ -55,6 +55,12 @@ BALLAST_STAMPED = ("on_niche_share", "median_views")
 QUOTA_WARN_SHARE = 0.85
 
 JOB = "nightly"
+
+#: The ADR-0057 enrichment sweep's own job name. Distinct from JOB so it cannot be
+#: mistaken for the night's youtube_api collection by anything reading `job_runs` by
+#: source — its SOURCE deliberately stays "youtube_api" so `_spent_today()` keeps
+#: charging its quota to the day. `_check_sweep` is what watches it.
+SWEEP_JOB = "nightly:sweep"
 
 
 def quota_day(engine: Engine | None = None, settings: Settings | None = None) -> tuple[int, int]:
@@ -174,7 +180,7 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
         ).all()
 
     result = CheckResult(run_id)
-    by_source = {row[0]: row for row in rows}
+    by_source = _worst_per_source(rows)
 
     # `s.manual` excluded deliberately: a manual source has no network fetch the
     # nightly could run, so its absence from a nightly run says nothing about the
@@ -248,6 +254,7 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
 
     _check_one_run_per_day(engine, result)
     _check_ballast_drift(engine, result)
+    _check_sweep(engine, run_id, result)
     return result
 
 
@@ -341,6 +348,94 @@ def _warn_on_a_dropped_stamp(
             )
 
 
+def _worst_per_source(rows: list) -> dict[str, tuple]:
+    """One row per source, and a FAILURE always wins.
+
+    This was `{row[0]: row for row in rows}` — a dict comprehension over an unordered
+    query, so whichever row the driver returned last silently became the source's
+    verdict. That was survivable only while every source wrote exactly one row per run.
+    ADR-0057's enrichment sweep broke that assumption: it writes a second `youtube_api`
+    row, deliberately, so `_spent_today()` keeps counting its quota — and being inserted
+    last, its `ok` masked a FAILED primary collection. A dead API key would then page
+    nobody, which is the precise failure `check` exists to close.
+
+    The sweep now carries its own `job` and never reaches this query. This stays anyway:
+    the trap is in the aggregation, not in the sweep, and the next source to write twice
+    should not have to rediscover it.
+    """
+    worst: dict[str, tuple] = {}
+    for row in rows:
+        seen = worst.get(row[0])
+        if seen is None or (seen[1] == "ok" and row[1] != "ok"):
+            worst[row[0]] = row
+    return worst
+
+
+def _check_sweep(engine: Engine | None, run_id: str, result: CheckResult) -> None:
+    """A failed enrichment sweep warns; it does not page.
+
+    The night collected — the sweep only decides whether tonight's RSS wave gets its
+    duration tonight or tomorrow, and tomorrow is the behaviour that existed before
+    ADR-0057. But a pass that silently stops running is exactly how the enrichment lag
+    would come back unnoticed, so it must be visible.
+    """
+    with session_scope(engine) as session:
+        statuses = list(
+            session.scalars(
+                sa.select(JobRun.status).where(JobRun.run_id == run_id, JobRun.job == SWEEP_JOB)
+            )
+        )
+    for status in statuses:
+        if status != "ok":
+            result.warnings.append(
+                f"the enrichment sweep finished {status} — tonight's RSS wave keeps "
+                f"is_short NULL until tomorrow's nightly (ADR-0057)"
+            )
+
+
+def _check_ballast_ramp(
+    result: CheckResult,
+    days: list[date],
+    stamped: dict[tuple[date, str], int],
+    members: dict[str, int],
+) -> None:
+    """Warn on cumulative ballast movement the per-night wire cannot see.
+
+    `_check_ballast_drift` compares two adjacent days, so a cluster can ramp
+    indefinitely while every single night stays under `BALLAST_DRIFT_SHARE`. That is
+    not hypothetical — see `BALLAST_RAMP_SHARE` for the run that did it. This compares
+    today against the OLDEST of the stored days in the window, on the delta and never
+    the level, and says nothing when the window holds fewer than three days: two days
+    is what the nightly wire already covers, and warning twice about one step teaches
+    the operator to skim.
+    """
+    if len(days) < 3:
+        return
+    today = days[0]
+    for cluster_id in sorted({c for _, c in stamped}):
+        now = stamped.get((today, cluster_id))
+        if now is None:
+            continue
+        # The OLDEST STAMPED day, not the oldest day: the stamp landed on 2026-08-31 and
+        # a window reaching past it holds days that carry no ballast at all. Anchoring on
+        # days[-1] would make this check silently unfireable for its first week, which is
+        # the failure mode where a check reads green because it never runs.
+        anchored = [
+            (d, stamped[(d, cluster_id)]) for d in reversed(days) if (d, cluster_id) in stamped
+        ]
+        if len(anchored) < 3:
+            continue
+        oldest, before = anchored[0]
+        floor = max(members.get(cluster_id, 0), 1)
+        ramp = abs(now - before) / floor
+        if ramp > BALLAST_RAMP_SHARE:
+            result.warnings.append(
+                f"{cluster_id} ballast channels ramped {before} -> {now} "
+                f"({ramp:.1%} of {floor} members) across {len(anchored)} stored days, "
+                f"{oldest} to {today} — cumulative, may not have tripped the nightly check"
+            )
+
+
 def _check_ballast_drift(engine: Engine | None, result: CheckResult) -> None:
     """Warn when a cluster's ballast cut changes size overnight (ADR-0047, ADR-0050).
 
@@ -352,7 +447,7 @@ def _check_ballast_drift(engine: Engine | None, result: CheckResult) -> None:
     a different thing — that means the stamp was dropped, and it warns.
     """
     with session_scope(engine) as session:
-        days = _feature_days(session, 2)
+        days = _feature_days(session, BALLAST_RAMP_DAYS)
         if not days:
             return
         rows = session.execute(
@@ -378,6 +473,8 @@ def _check_ballast_drift(engine: Engine | None, result: CheckResult) -> None:
 
     today = days[0]
     _warn_on_a_dropped_stamp(result, today, seen, stamped)
+
+    _check_ballast_ramp(result, days, stamped, members)
 
     if len(days) < 2:
         return

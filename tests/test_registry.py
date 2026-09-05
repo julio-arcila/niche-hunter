@@ -64,3 +64,33 @@ def test_every_registered_metric_has_a_name_matching_what_it_emits():
         assert getattr(metric, "__name__", None), f"{metric!r} has no __name__"
     names = [m.__name__ for m in METRICS]
     assert len(names) == len(set(names)), "two metrics share a __name__"
+
+
+def _planned(**will_run: bool) -> list:
+    """A plan naming only the sources the caller cares about."""
+    from nh.jobs.nightly import PlannedRun
+
+    return [
+        PlannedRun(spec=spec, will_run=will_run[spec.source], reason="")
+        for spec in iter_specs()
+        if spec.source in will_run
+    ]
+
+
+def test_the_enrichment_sweep_is_skipped_when_rss_did_not_run(settings):
+    """No new wave to close. The primary run's own backfill already drained the
+    backlog, so a second pass would spend quota to find nothing."""
+    from nh.db.types import utcnow
+    from nh.jobs.nightly import _sweep_enrichment
+
+    planned = _planned(youtube_api=True, youtube_rss=False)
+    assert _sweep_enrichment("run", utcnow(), settings, planned) == {}
+
+
+def test_the_enrichment_sweep_is_skipped_when_rss_is_not_planned_at_all(settings):
+    """A `--only youtube_api` plan does not contain RSS. The sweep must read that the
+    same way as a skipped RSS, not raise on the missing entry."""
+    from nh.db.types import utcnow
+    from nh.jobs.nightly import _sweep_enrichment
+
+    assert _sweep_enrichment("run", utcnow(), settings, _planned(youtube_api=True)) == {}

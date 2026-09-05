@@ -38,6 +38,12 @@ from nh.features.inputs import (
 from nh.features.types import FeatureResult
 
 GROUP = "supply"
+
+#: Share of `trimmed_mean_views`' pool dropped from EACH tail — 0.10 per tail is 20% of
+#: the pool. Per tail rather than total, and on raw views rather than log views, because
+#: those are the conventions of the diagnostic that measured the 7.94 between/within
+#: ratio; a plausible variant here would inherit a number it did not produce.
+TRIM_FRACTION = 0.10
 #: Four weeks. Long enough to smooth a lumpy publishing schedule, short enough to
 #: track a niche that is heating up.
 WINDOW_DAYS = 28
@@ -350,6 +356,76 @@ def median_views(session: Session, cluster_id: str, day: date) -> FeatureResult:
             "ballast": _ballast_detail(session, cluster_id, day),
             "contributing_channels": len(by_channel),
             "p90_views": float(pooled[int(0.9 * (len(pooled) - 1))]),
+            "as_of": day.isoformat(),
+            "filters": {
+                "long_form_only": True,
+                "age_floor_days": AGE_FLOOR_DAYS,
+                "per_channel_cap": FEED_DEPTH,
+                "on_niche_only": True,
+            },
+            "inputs": {"tables": ["videos", "video_snapshots", "cluster_members"]},
+        },
+    )
+
+
+def _trimmed_mean(pooled: list[float], frac: float = 0.10) -> float:
+    """Mean of `pooled` with `frac` of the values dropped from EACH tail.
+
+    Per tail, not total, and on raw views rather than log views. Below n = 10 the floor
+    makes k zero and this is the plain arithmetic mean; the same fallback covers any n
+    where the trim would empty the core. Both conventions are the diagnostic's, kept
+    verbatim so the entry in docs/METRICS.md can cite its measurement honestly.
+    """
+    ordered = sorted(pooled)
+    k = int(len(ordered) * frac)
+    core = ordered[k : len(ordered) - k] if len(ordered) - 2 * k > 0 else ordered
+    return sum(core) / len(core)
+
+
+def trimmed_mean_views(session: Session, cluster_id: str, day: date) -> FeatureResult:
+    """Typical reach again, estimated so that a churning pool moves it less.
+
+    Same pool as `median_views` to the row — this exists to be COMPARED with it, and a
+    second eligibility rule would make the comparison meaningless. The pool is fed in
+    nightly lumps by discovery waves, and a median jumps when a wave crosses the
+    midpoint while a trimmed mean integrates over the bulk: measured over
+    2026-09-01..04, between/within 7.94 against the median's 3.36.
+
+    It feeds nothing. `scorecards.supply` still ranks `median_views`, and whether that
+    ever changes is a separate decision (ADR-0056) that this deliberately does not take.
+    """
+    by_channel = eligible_niche_videos(session, cluster_id, day)
+    pooled = [views for rows in by_channel.values() for _, views in rows]
+    if not pooled:
+        return FeatureResult.empty(
+            GROUP,
+            "trimmed_mean_views",
+            "no eligible on-niche videos: none long-form, aged past the floor, "
+            "observed, and judged on-niche",
+            age_floor_days=AGE_FLOOR_DAYS,
+        )
+    trimmed = int(len(pooled) * TRIM_FRACTION)
+    return FeatureResult(
+        group=GROUP,
+        name="trimmed_mean_views",
+        value=float(_trimmed_mean(pooled, TRIM_FRACTION)),
+        confidence=_confidence(
+            len(by_channel),
+            len(by_channel),
+            len(member_channels(session, cluster_id, day)),
+            numerator_coverage(session, cluster_id, day),
+        ),
+        inputs_n=len(pooled),
+        detail={
+            "definition": definition(),
+            "ballast": _ballast_detail(session, cluster_id, day),
+            "contributing_channels": len(by_channel),
+            # Both, always: a reader must be able to see the estimator's effect on the
+            # SAME rows without running a second query, and a trim that silently did
+            # nothing (n < 10) is exactly the case that would otherwise mislead.
+            "median_views": float(statistics.median(pooled)),
+            "trimmed_per_tail": trimmed,
+            "trim_fraction": TRIM_FRACTION,
             "as_of": day.isoformat(),
             "filters": {
                 "long_form_only": True,

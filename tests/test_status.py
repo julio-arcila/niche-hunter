@@ -20,12 +20,12 @@ from nh.jobs.status import check, recent_runs
 RUN_ID = "66666666-6666-6666-6666-666666666666"
 
 
-def _run(engine, source, status="ok", snapshots=10, run_id=RUN_ID, ago_days=0, **kw):
+def _run(engine, source, status="ok", snapshots=10, run_id=RUN_ID, ago_days=0, job="nightly", **kw):
     with session_scope(engine) as s:
         s.add(
             JobRun(
                 run_id=run_id,
-                job="nightly",
+                job=job,
                 source=source,
                 status=status,
                 started_at=utcnow() - timedelta(days=ago_days),
@@ -499,3 +499,104 @@ def test_criteria_c6_is_not_met_when_the_day_is_overspent(settings, engine):
     _spend(engine, 12_000, run_id="over")
 
     assert c6_bounded(engine).met is False
+
+
+def test_a_cumulative_ramp_warns_even_when_no_single_night_does(settings, engine):
+    """The blind spot the nightly wire has by construction, reproduced from the run that
+    found it. anthropocene-anthropology went 56 -> 69 -> 87 -> 91 ballast channels over
+    2026-09-01..04 while one discovery query flooded it; +62% cumulative, and the last
+    step was +4.6% — under BALLAST_DRIFT_SHARE, so the check went quiet with the trend
+    still running."""
+    from datetime import date
+
+    _healthy(engine)
+    _members(engine, "anthropocene-anthropology", 259)
+    for day, ballast in ((1, 56), (2, 69), (3, 87), (4, 91)):
+        _feature(engine, "anthropocene-anthropology", date(2026, 9, day), ballast=ballast)
+    result = check(engine, settings)
+
+    assert result.ok, "a ramp is a warning, not a failed night"
+    assert any("ramped 56 -> 91" in w for w in result.warnings)
+    assert any("cumulative" in w for w in result.warnings)
+
+
+def test_a_steady_high_ballast_level_never_ramps(settings, engine):
+    """The level rule again, over the window this time. A cluster parked at 126 of 205
+    must stay silent across seven days, or the ramp check reintroduces exactly the
+    every-night warning that BALLAST_DRIFT_SHARE was written to avoid."""
+    from datetime import date
+
+    _healthy(engine)
+    _members(engine, "history-of-ideas", 205)
+    for day in range(1, 8):
+        _feature(engine, "history-of-ideas", date(2026, 9, day), ballast=126 + day % 2)
+    result = check(engine, settings)
+
+    assert result.ok
+    assert not any("ramped" in w for w in result.warnings)
+
+
+def test_a_ramp_needs_three_stored_days_not_three_calendar_days(settings, engine):
+    """2026-08-30 collected nothing, so a window counted in calendar days compares across
+    a hole. Two stored days is what the nightly wire already covers; warning about one
+    step twice is how a check stops being read."""
+    from datetime import date
+
+    _healthy(engine)
+    _members(engine, "gappy", 100)
+    _feature(engine, "gappy", date(2026, 8, 29), ballast=10)
+    _feature(engine, "gappy", date(2026, 8, 31), ballast=40)  # +30 of 100 across the hole
+    result = check(engine, settings)
+
+    assert any("moved 10 -> 40" in w for w in result.warnings), "the nightly wire covers it"
+    assert not any("ramped" in w for w in result.warnings), "two stored days is not a ramp"
+
+
+def test_the_ramp_anchors_on_the_oldest_stamped_day_not_the_oldest_day(settings, engine):
+    """The stamp landed 2026-08-31, so a seven-day window reaches days carrying no
+    ballast at all. Anchoring on the window's oldest day would make this check silently
+    unfireable for its first week — green because it never ran."""
+    from datetime import date
+
+    _healthy(engine)
+    _members(engine, "late-stamp", 200)
+    _feature(engine, "late-stamp", date(2026, 8, 27))  # no ballast stamp
+    _feature(engine, "late-stamp", date(2026, 8, 28))  # no ballast stamp
+    for day, ballast in ((1, 20), (2, 35), (3, 48), (4, 55)):
+        _feature(engine, "late-stamp", date(2026, 9, day), ballast=ballast)
+    result = check(engine, settings)
+
+    assert any("ramped 20 -> 55" in w for w in result.warnings)
+
+
+def test_a_failed_primary_run_is_not_masked_by_a_later_sweep_row(settings, engine):
+    """The defect a reviewer caught in the sweep's own branch, and it is the exact class
+    check() exists to close: `by_source` was a dict comprehension over unordered rows, so
+    the SECOND youtube_api row of a run — the ADR-0057 enrichment sweep, always inserted
+    last — silently replaced the first. A dead API key would then page nobody, because
+    the sweep that spent one unit on an empty backlog reported ok."""
+    _run(engine, "youtube_api", status="failed", snapshots=0, quota_used=0, quota_budget=9_500)
+    _run(engine, "youtube_rss", snapshots=120)
+    _run(engine, "wikipedia", snapshots=450)
+    _run(engine, "trends", snapshots=5)
+    for phase, _ in PHASES:
+        _run(engine, phase, snapshots=None)
+    _run(engine, "youtube_api", status="ok", snapshots=0)  # the sweep, same job name
+
+    result = check(engine, settings)
+
+    assert not result.ok, "a failed collection must page even when a later row says ok"
+    assert any("youtube_api" in p for p in result.problems)
+
+
+def test_a_failed_sweep_warns_but_does_not_page(settings, engine):
+    """A sweep failure is not a failed night: the wave simply lands tomorrow, which is
+    the behaviour that existed before ADR-0057. It must still be visible — a pass that
+    silently stops running is how the enrichment lag would come back unnoticed."""
+    _healthy(engine)
+    _run(engine, "youtube_api", status="failed", snapshots=0, job="nightly:sweep")
+
+    result = check(engine, settings)
+
+    assert result.ok, "the night collected; only the sweep did not"
+    assert any("sweep" in w for w in result.warnings)

@@ -61,7 +61,7 @@ COLLAPSE_RATIO = 0.5
 #: a definition", because `uploads_per_week` carries `DEFINITION_SPAN_RATE`, a second and
 #: unrelated definition tag — a rule that treated every tag as one axis would report a
 #: step whenever either moved and could not say which.
-DEFINITION_WATCHED = ("on_niche_share", "median_views")
+DEFINITION_WATCHED = ("on_niche_share", "median_views", "trimmed_mean_views")
 
 
 @dataclass(frozen=True, slots=True)
