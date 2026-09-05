@@ -30,7 +30,7 @@ from nh.db.models import (
 )
 from nh.db.session import session_scope
 from nh.db.types import utcnow
-from nh.features.inputs import BALLAST_DRIFT_SHARE
+from nh.features.inputs import BALLAST_DRIFT_SHARE, BALLAST_RAMP_DAYS, BALLAST_RAMP_SHARE
 from nh.jobs.phases import PHASES
 
 #: `observed_date` is a PERIOD END, so it already lags the export by up to a month
@@ -341,6 +341,49 @@ def _warn_on_a_dropped_stamp(
             )
 
 
+def _check_ballast_ramp(
+    result: CheckResult,
+    days: list[date],
+    stamped: dict[tuple[date, str], int],
+    members: dict[str, int],
+) -> None:
+    """Warn on cumulative ballast movement the per-night wire cannot see.
+
+    `_check_ballast_drift` compares two adjacent days, so a cluster can ramp
+    indefinitely while every single night stays under `BALLAST_DRIFT_SHARE`. That is
+    not hypothetical — see `BALLAST_RAMP_SHARE` for the run that did it. This compares
+    today against the OLDEST of the stored days in the window, on the delta and never
+    the level, and says nothing when the window holds fewer than three days: two days
+    is what the nightly wire already covers, and warning twice about one step teaches
+    the operator to skim.
+    """
+    if len(days) < 3:
+        return
+    today = days[0]
+    for cluster_id in sorted({c for _, c in stamped}):
+        now = stamped.get((today, cluster_id))
+        if now is None:
+            continue
+        # The OLDEST STAMPED day, not the oldest day: the stamp landed on 2026-08-31 and
+        # a window reaching past it holds days that carry no ballast at all. Anchoring on
+        # days[-1] would make this check silently unfireable for its first week, which is
+        # the failure mode where a check reads green because it never runs.
+        anchored = [
+            (d, stamped[(d, cluster_id)]) for d in reversed(days) if (d, cluster_id) in stamped
+        ]
+        if len(anchored) < 3:
+            continue
+        oldest, before = anchored[0]
+        floor = max(members.get(cluster_id, 0), 1)
+        ramp = abs(now - before) / floor
+        if ramp > BALLAST_RAMP_SHARE:
+            result.warnings.append(
+                f"{cluster_id} ballast channels ramped {before} -> {now} "
+                f"({ramp:.1%} of {floor} members) across {len(anchored)} stored days, "
+                f"{oldest} to {today} — cumulative, may not have tripped the nightly check"
+            )
+
+
 def _check_ballast_drift(engine: Engine | None, result: CheckResult) -> None:
     """Warn when a cluster's ballast cut changes size overnight (ADR-0047, ADR-0050).
 
@@ -352,7 +395,7 @@ def _check_ballast_drift(engine: Engine | None, result: CheckResult) -> None:
     a different thing — that means the stamp was dropped, and it warns.
     """
     with session_scope(engine) as session:
-        days = _feature_days(session, 2)
+        days = _feature_days(session, BALLAST_RAMP_DAYS)
         if not days:
             return
         rows = session.execute(
@@ -378,6 +421,8 @@ def _check_ballast_drift(engine: Engine | None, result: CheckResult) -> None:
 
     today = days[0]
     _warn_on_a_dropped_stamp(result, today, seen, stamped)
+
+    _check_ballast_ramp(result, days, stamped, members)
 
     if len(days) < 2:
         return

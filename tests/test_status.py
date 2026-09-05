@@ -499,3 +499,71 @@ def test_criteria_c6_is_not_met_when_the_day_is_overspent(settings, engine):
     _spend(engine, 12_000, run_id="over")
 
     assert c6_bounded(engine).met is False
+
+
+def test_a_cumulative_ramp_warns_even_when_no_single_night_does(settings, engine):
+    """The blind spot the nightly wire has by construction, reproduced from the run that
+    found it. anthropocene-anthropology went 56 -> 69 -> 87 -> 91 ballast channels over
+    2026-09-01..04 while one discovery query flooded it; +62% cumulative, and the last
+    step was +4.6% — under BALLAST_DRIFT_SHARE, so the check went quiet with the trend
+    still running."""
+    from datetime import date
+
+    _healthy(engine)
+    _members(engine, "anthropocene-anthropology", 259)
+    for day, ballast in ((1, 56), (2, 69), (3, 87), (4, 91)):
+        _feature(engine, "anthropocene-anthropology", date(2026, 9, day), ballast=ballast)
+    result = check(engine, settings)
+
+    assert result.ok, "a ramp is a warning, not a failed night"
+    assert any("ramped 56 -> 91" in w for w in result.warnings)
+    assert any("cumulative" in w for w in result.warnings)
+
+
+def test_a_steady_high_ballast_level_never_ramps(settings, engine):
+    """The level rule again, over the window this time. A cluster parked at 126 of 205
+    must stay silent across seven days, or the ramp check reintroduces exactly the
+    every-night warning that BALLAST_DRIFT_SHARE was written to avoid."""
+    from datetime import date
+
+    _healthy(engine)
+    _members(engine, "history-of-ideas", 205)
+    for day in range(1, 8):
+        _feature(engine, "history-of-ideas", date(2026, 9, day), ballast=126 + day % 2)
+    result = check(engine, settings)
+
+    assert result.ok
+    assert not any("ramped" in w for w in result.warnings)
+
+
+def test_a_ramp_needs_three_stored_days_not_three_calendar_days(settings, engine):
+    """2026-08-30 collected nothing, so a window counted in calendar days compares across
+    a hole. Two stored days is what the nightly wire already covers; warning about one
+    step twice is how a check stops being read."""
+    from datetime import date
+
+    _healthy(engine)
+    _members(engine, "gappy", 100)
+    _feature(engine, "gappy", date(2026, 8, 29), ballast=10)
+    _feature(engine, "gappy", date(2026, 8, 31), ballast=40)  # +30 of 100 across the hole
+    result = check(engine, settings)
+
+    assert any("moved 10 -> 40" in w for w in result.warnings), "the nightly wire covers it"
+    assert not any("ramped" in w for w in result.warnings), "two stored days is not a ramp"
+
+
+def test_the_ramp_anchors_on_the_oldest_stamped_day_not_the_oldest_day(settings, engine):
+    """The stamp landed 2026-08-31, so a seven-day window reaches days carrying no
+    ballast at all. Anchoring on the window's oldest day would make this check silently
+    unfireable for its first week — green because it never ran."""
+    from datetime import date
+
+    _healthy(engine)
+    _members(engine, "late-stamp", 200)
+    _feature(engine, "late-stamp", date(2026, 8, 27))  # no ballast stamp
+    _feature(engine, "late-stamp", date(2026, 8, 28))  # no ballast stamp
+    for day, ballast in ((1, 20), (2, 35), (3, 48), (4, 55)):
+        _feature(engine, "late-stamp", date(2026, 9, day), ballast=ballast)
+    result = check(engine, settings)
+
+    assert any("ramped 20 -> 55" in w for w in result.warnings)
