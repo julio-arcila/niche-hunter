@@ -847,3 +847,44 @@ def test_a_retired_cluster_is_not_watched(settings, engine):
 
     assert record.status == "ok", record.error
     assert _requested() == []
+
+
+@responses.activate
+def test_only_ids_confirmed_tonight_are_excluded_not_ids_attempted(settings, engine):
+    """The first version excluded every id discovery ATTEMPTED; one cut short by the
+    ledger has no reading tonight and would silently drop out of its window. Review
+    found that deleting the exclusion passed every watchlist test, because all of them
+    ran the sweep, where the set is empty. This one fails if the exclusion is removed
+    (v0 is bought twice) or widened to attempts (v1 is never bought)."""
+    _watch_world(engine)
+    _serve_videos(engine)
+    collector = _night_collector(settings, engine)
+    list(collector._backfill(seen={"UCsmall-v0", "UCsmall-v1"}, read_tonight={"UCsmall-v0"}))
+
+    assert set(_requested()) == {"UCsmall-v1", "UCsmall-v2", "UCsmall-v3"}
+
+
+@responses.activate
+def test_a_watchlist_reread_records_views_and_leaves_the_video_row_alone(settings, engine):
+    """A re-read 14-17 days after first capture carries tonight's title, description and
+    duration. Upserting them would reach clustering's rescore and could flip `is_short`,
+    so the watchlist writes the snapshot only, and keeps the payload as raw."""
+    import sqlalchemy as sa
+
+    from nh.db.models import RawRecord, Video, VideoSnapshot
+
+    _watch_world(engine)
+    _serve_videos(engine)  # serves VIDEO_ITEM's title, not the fixture's
+    record = _night_collector(settings, engine).run()
+
+    assert record.status == "ok", record.error
+    with session_scope(engine) as s:
+        assert s.get(Video, "UCsmall-v0").title == "UCsmall-v0", "the row was not touched"
+        snap = s.scalars(
+            sa.select(VideoSnapshot).where(
+                VideoSnapshot.video_id == "UCsmall-v0", VideoSnapshot.source == "youtube_api"
+            )
+        ).one()
+        assert snap.views == 125_000
+        kinds = set(s.scalars(sa.select(RawRecord.kind).where(RawRecord.key == "UCsmall-v0")))
+    assert kinds == {"video_watch"}

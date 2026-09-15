@@ -3396,12 +3396,21 @@ serves a channel's newest 15 entries; once a channel posts fifteen newer uploads
 older one stops being refreshed and its series ends. So survival to day 14 is not random —
 it is decided by the channel's upload rate:
 
-| channel uploads in 18 days | survive to age 14 |
-|---|---|
-| ≤ 10 | ~95% |
-| 11–20 | 85% |
-| 21–50 | 7% |
-| > 50 | 0.4% |
+| channel's uploads, 2026-08-27..09-14 | videos | survived to age ≥ 14 |
+|---|---|---|
+| ≤ 5 | 408 | 94.4% |
+| 6–10 | 656 | 98.3% |
+| 11–20 | 1,597 | 87.7% |
+| 21–50 | 1,827 | 8.5% |
+| > 50 | 1,497 | 0.4% |
+
+The definition, stated because the first version of this table did not state one and a
+reviewer could not reproduce it: long-form videos of small active-cluster member channels
+published 2026-08-28..08-31; the bucket is the channel's count of **all** uploads published
+2026-08-27..09-14 (feed depth counts shorts too); survived means any snapshot at an age of
+14 days or more. Re-derived 2026-09-15. The reviewer's figures — 83 / 50 / 0.8 / 0.4 —
+anchored an 18-day window forward from each publish date instead: the same shape, a
+different anchor, and these numbers belong to the definition above.
 
 Measured on 2026-09-14, before this change: of the **5,985** long-form videos of small
 active-cluster member channels aged 14-17 that night, **2,359 had any reading — 39.4%**.
@@ -3435,6 +3444,17 @@ Three details carry weight:
 - **Not `video_missing`.** A watchlist id the API does not return is gone or private and
   is absent from the outcome (data rule 7). Marking it would repurpose a flag that exists
   to stop the unenriched backlog asking about a dead id forever.
+- **Snapshot only.** A re-read is raw kind `video_watch`, normalised to a `VideoSnapshot`
+  and nothing else. The first version re-upserted the whole `Video` row, and review caught
+  it: a title or description edited in the 14-17 days since first capture would have
+  reached clustering's nightly rescore, and a `#shorts` tag added since could flip
+  `is_short`. The raw payload is still kept (rule 2) — about 6,500 more `raw_records` rows a
+  night, not in `nh prune`'s `BULK_KINDS`.
+- **Only confirmed ids are excluded.** In the primary run, ids the API returned during
+  discovery are skipped (their snapshot may not be flushed yet); an id discovery merely
+  attempted before the ledger ran out has no reading and stays eligible. The first version
+  excluded attempts, and deleting the exclusion passed every test — both are now caught by
+  a test verified by mutation.
 
 Membership is today's, not as of the decision date, deliberately: this query decides what
 to *collect*, where a stray id costs a fiftieth of a unit. What is *analysed* is the frozen
@@ -3459,7 +3479,8 @@ that is the check reporting the problem this fixes.
 
 ### What it does not do
 
-It does not decide who is in the test, does not touch any feature, and changes nothing a
-metric reads — the watchlist writes ordinary `youtube_api` video snapshots through the
-normal collector path. It cannot recover a reading for a video already past age 17 when it
+It does not decide who is in the test, and it changes nothing a metric reads: it writes only
+`youtube_api` video snapshots through the normal collector path and never re-upserts a
+`Video` row, so nothing clustering or a feature reads from `videos` moves. (This sentence
+was false in the first version, which did re-upsert; see "Snapshot only".) It cannot recover a reading for a video already past age 17 when it
 lands; the first decision date loses nothing only if the change is live by 2026-09-19.

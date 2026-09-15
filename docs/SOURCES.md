@@ -57,7 +57,9 @@ start the snapshot clock.*
   It exists because RSS stops refreshing a video after fifteen newer uploads, which left
   only 39.4% of 14-17-day-old videos with a reading on 2026-09-14. A video with any
   snapshot that night, from any source, is skipped — which also makes it once per night
-  across the primary run and the sweep.
+  across the primary run and the sweep. Re-reads are snapshot-only (raw kind
+  `video_watch`): the `Video` row is never re-upserted, so an edited title cannot reach
+  clustering.
 - **Errors, and what they leave behind (2026-09-15)**: a non-200 is raised with Google's
   `error.errors[0].reason` and `error.message` in the text — `403 accessNotConfigured on
   videos: …` — never the request URL. Two reasons: `job_runs.error` stores `str(exc)`,

@@ -19,6 +19,7 @@ import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 
 from nh.collectors.registry import REGISTRY
+from nh.collectors.youtube_api import read_on, watchlist_population
 from nh.config import Settings, get_settings
 from nh.db.models import (
     ClusterMember,
@@ -26,6 +27,7 @@ from nh.db.models import (
     JobRun,
     KeywordMetric,
     Scorecard,
+    Video,
     VideoSnapshot,
 )
 from nh.db.session import session_scope
@@ -410,9 +412,6 @@ def _check_watchlist(engine: Engine | None, run_id: str, result: CheckResult) ->
     A warning, never a page: the night collected, and the [14, 17] reading window absorbs
     three short nights before any single video's reading is lost.
     """
-    # Inside the function: nh.jobs.nightly imports this module and the collector both.
-    from nh.collectors.youtube_api import Video, read_on, watchlist_population
-
     with session_scope(engine) as session:
         started = session.scalar(
             sa.select(sa.func.min(JobRun.started_at)).where(JobRun.run_id == run_id)

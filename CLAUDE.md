@@ -81,7 +81,7 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 - Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
-  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,044** (967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until this line, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
+  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,046** (967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until this line, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
   now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
   so a new phase silently extends the nightly gate (it reads FAIL until the next nightly
   runs the new one; `run_nightly.sh` runs the phases before the check, so no page).
@@ -310,7 +310,9 @@ reviewer. Summarize exploration briefly.
   definition — long-form, active-cluster member, MAX subs ≤ `COHORT_MAX_SUBS` — read by both
   the collector and `status._check_watchlist`, which warns below 0.9 coverage. A video with
   a reading that night from **any** source is skipped, which is also what makes it once
-  per night across the primary run and the sweep. ~130 units a night, capped at 15,000
+  per night across the primary run and the sweep. **Re-reads are snapshot-only** (raw
+  kind `video_watch`): re-upserting the row would let a title edited since capture reach
+  clustering. ~130 units a night, capped at 15,000
   ids. It decides what is *collected*; the frozen registration cohort decides what is
   *analysed*. The first decision date's uploads reach age 17 on **2026-09-19** — the
   watchlist must be collecting by then or they are lost.

@@ -45,6 +45,7 @@ from nh.db.models import (
     VideoSnapshot,
 )
 from nh.db.session import session_scope
+from nh.features.inputs import COHORT_MAX_SUBS, _midnight, _until
 
 #: YouTube resets quota at midnight in this zone, not UTC and not local.
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -170,14 +171,11 @@ def watchlist_population(day: date) -> sa.Select:
     population defined twice is a population that will disagree with itself.
 
     "Small" is the openness cohort's own ceiling, `features.inputs.COHORT_MAX_SUBS`, on
-    MAX subs on or before `day`. Imported inside the function: `nh.features.demand`
-    imports `nh.collectors`, and a module-level import here would close that loop.
+    MAX subs on or before `day`, imported rather than copied so the two cannot drift.
     Membership is today's rather than as of `day`, deliberately — this decides what to
     COLLECT, and reading a video that later leaves the cohort costs a fiftieth of a unit.
     The frozen registration cohort, not this query, decides what is ANALYSED.
     """
-    from nh.features.inputs import COHORT_MAX_SUBS, _midnight, _until
-
     small = (
         sa.select(ChannelSnapshot.channel_id)
         .where(ChannelSnapshot.observed_date <= day)
@@ -302,13 +300,15 @@ class YouTubeApiCollector(Collector):
             len(channel_ids),
             self.quota.used,
         )
+        read_tonight: set[str] = set()
         for item in self._enrich("videos", list(video_ids)):
+            read_tonight.add(item["id"])
             yield Raw(kind="video", key=item["id"], payload=item)
         for item in self._enrich("channels", list(channel_ids)):
             yield Raw(kind="channel", key=item["id"], payload=item)
-        yield from self._backfill(seen=set(video_ids))
+        yield from self._backfill(seen=set(video_ids), read_tonight=read_tonight)
 
-    def _backfill(self, seen: set[str]) -> Iterable[Raw]:
+    def _backfill(self, seen: set[str], read_tonight: set[str] | None = None) -> Iterable[Raw]:
         """Enrich videos RSS found, which arrive with no duration at all.
 
         A feed gives title, published and views but never duration, so `is_short`
@@ -325,8 +325,12 @@ class YouTubeApiCollector(Collector):
                 return
         # Last, after the backlog: a video with no duration is excluded from every
         # format-sensitive metric tonight, while a watchlist id has three more nights
-        # inside its reading window.
-        yield from self._watchlist(seen | set(backlog))
+        # inside its reading window. Excluded: only ids the API CONFIRMED tonight, whose
+        # snapshot may not be flushed yet. An id discovery merely attempted — cut short by
+        # the ledger — has no reading and must stay eligible; review found the first
+        # version excluding attempts. Backlog ids need no exclusion: unenriched videos
+        # have `is_short` NULL and are never in the population.
+        yield from self._watchlist(read_tonight or set())
 
     def _drain_backlog(self, backlog: dict[str, str]) -> Iterable[Raw]:
         """Enrich the unenriched backlog; mark what the API no longer serves."""
@@ -392,7 +396,7 @@ class YouTubeApiCollector(Collector):
         returned = 0
         for item in self._enrich("videos", ids):
             returned += 1
-            yield Raw(kind="video", key=item["id"], payload=item)
+            yield Raw(kind="video_watch", key=item["id"], payload=item)
         if returned < len(ids):
             self.log.warning(
                 "watchlist: %d of %d ids not returned — deleted, private, or out of budget",
@@ -548,6 +552,8 @@ class YouTubeApiCollector(Collector):
             return self._norm_search(raw)
         if raw.kind == "video":
             return self._norm_video(raw)
+        if raw.kind == "video_watch":
+            return self._norm_watch(raw)
         if raw.kind == "channel":
             return self._norm_channel(raw)
         if raw.kind == "video_missing":
@@ -649,6 +655,32 @@ class YouTubeApiCollector(Collector):
                     },
                 )
             ],
+        )
+
+    def _norm_watch(self, raw: Raw) -> Batch:
+        """A watchlist re-read (ADR-0059): the snapshot, and nothing else.
+
+        The `Video` row is deliberately not re-upserted. A title or description edited in
+        the 14-17 days since first capture would otherwise reach clustering's nightly
+        rescore, and a `#shorts` tag added since could flip `is_short` — the watchlist
+        would then change what metrics read, not only what outcomes see. Review caught the
+        first version doing exactly that. The raw payload keeps the rest (rule 2).
+        """
+        item = raw.payload
+        stats = item.get("statistics", {})
+        return Batch(
+            snapshots=[
+                Snapshot(
+                    VideoSnapshot,
+                    {
+                        "video_id": raw.key,
+                        "channel_id": item["snippet"]["channelId"],
+                        "views": as_int(stats.get("viewCount")),
+                        "likes": as_int(stats.get("likeCount")),
+                        "comments": as_int(stats.get("commentCount")),
+                    },
+                )
+            ]
         )
 
     def _norm_channel(self, raw: Raw) -> Batch:
