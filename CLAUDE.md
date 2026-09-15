@@ -258,8 +258,11 @@ reviewer. Summarize exploration briefly.
   collection until `_worst_per_source` landed. Expect a one-time `inputs_n` jump on the
   first night; Rule 3 fires only on falls, so it will not page.
 - **`supply.trimmed_mean_views` exists and feeds NOTHING (ADR-0056).** It ships beside
-  `median_views` on an identical pool — between/within 7.94 against 3.36 — because the
-  pool arrives in lumps and a median steps when one crosses the midpoint. It reads
+  `median_views` on an identical pool — between/within **5.35 against 3.96** over nine
+  clean nights (re-measured 2026-09-14; the 7.94 vs 3.36 this bullet first carried was
+  four nights that included the enrichment lag, and closing that lag helped the median
+  most) — because the pool arrives in lumps and a median steps when one crosses the
+  midpoint. The lead is 1.35x, not 2.4x, and mostly between-cluster spread. It reads
   2.2x-32x the median: heavy tails, a *different quantity*, not a better estimate of the
   same one. `scorecards.supply` still ranks `median_views` and that non-decision is
   recorded, not accidental — the choice could not be made on Gate E evidence anyway,

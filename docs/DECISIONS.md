@@ -3146,6 +3146,44 @@ if missed — `features.run.METRICS`, `api.basis`, `api.drilldown.REGISTRY`,
 SCORER_DEPENDENT was not asserted but DERIVED: `test_gates.py` re-ran every metric at two
 relevance thresholds and confirmed this one moves.
 
+### Addendum, 2026-09-14 — re-measured over nine clean nights, the lead is real and half the size
+
+The table above was four nights, and it said so. Nine stored nights are now available on a
+single definition (`v3-non-ballast-members`, 2026-09-05..13) with the enrichment lag closed
+by ADR-0057. Same statistics, same ten clusters, same rows for both estimators, log10 for
+the view-level figures:
+
+| estimator | between | within | ratio | rank rho (min) |
+|---|---|---|---|---|
+| median (stored) | 0.374 | 0.095 | **3.96** | 0.973 (0.952) |
+| 10%-per-tail trimmed mean | 0.473 | 0.088 | **5.35** | 0.988 (0.976) |
+
+**The trimmed mean still wins on identical rows, but by 1.35x, not 2.4x.** Three things the
+first measurement got wrong, in order of how much they mattered:
+
+1. **The four nights included the enrichment lag.** The median's worst failure mode was
+   whole discovery waves entering the pool a night late and crossing the midpoint at once.
+   ADR-0057 landed the same day as this ADR and removed it. So the median improved most —
+   3.36 → 3.96, rank rho 0.935 → 0.973 — and part of the trimmed mean's lead had been
+   compensation for a lag that no longer exists.
+2. **"Halving within-cluster wobble" did not survive.** 0.088 against 0.095 is about 7%.
+3. **The residual lead is mostly between-cluster spread** — 0.473 against 0.374 — which is
+   separation, not noise reduction. That was already the point of the `Level` note in
+   METRICS.md: this reads 2.2x–32x the median because it is a different quantity, and the
+   spread of that multiple across clusters is the whole of its between-cluster advantage.
+
+What held: the Caveat block ("four nights, all inside the transient, re-check both figures
+once the window past 2026-09-14 has filled"), which is the reason this addendum exists
+rather than a reader finding the gap. And the non-decision: `scorecards.supply` still ranks
+`median_views`, and at 1.35x on a metric that feeds nothing there is even less reason to
+revisit it than there was at 2.4x.
+
+Not yet separable: how much of the remaining wobble is cohort churn versus signal. Seven of
+ten clusters are still filling faster than the 2%/night the pre-registered rule requires
+(trading 5.8%, anthropocene 5.8%, geopolitics 5.2%, macro-economy 4.1%, ai-and-software
+3.3%, logic 3.1%, metaphysical-battles 2.1%). Re-measure from ~2026-09-21 on post-revert
+nights only.
+
 ## ADR-0057 — The nightly enriches what RSS found tonight, instead of tomorrow
 2026-09-04. Accepted. Adds a second, discovery-free `youtube_api` pass after the collector
 loop. No schema change, no migration, no metric redefinition.
