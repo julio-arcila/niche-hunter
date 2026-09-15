@@ -687,3 +687,204 @@ def test_a_persistent_per_minute_403_names_its_own_ceiling(settings, engine, mon
     assert "userRateLimitExceeded" in text and "per-minute ceiling" in text
     assert "most likely the daily" not in text
     assert collector.quota.used == 0, "nothing was charged for five rejections"
+
+
+# -- the channel-reach watchlist (ADR-0059) -----------------------------------------
+
+WATCH_NIGHT = "2026-09-20"
+WATCH_BUILT = "2026-09-10"  # the builders' RSS snapshots land here, never on the night
+
+
+def _watch_world(engine, *, read_tonight=False):
+    """One small member channel whose five uploads sit at ages 14, 15, 16, 17 and 18 on
+    the night, plus every way a video must stay out: a big channel, a short, a non-member,
+    and an upload at age 13. All enriched, so none is in the unenriched backlog."""
+    from datetime import date
+
+    import sqlalchemy as sa
+
+    from nh.db.models import Video, VideoSnapshot
+    from tests.conftest_features import add_channel, make_cluster
+
+    built, night = date.fromisoformat(WATCH_BUILT), date.fromisoformat(WATCH_NIGHT)
+    make_cluster(engine)
+    add_channel(engine, "UCsmall", subs=1_000, videos=5, age_days=4, day=built)
+    add_channel(engine, "UCbig", subs=50_000, videos=5, age_days=4, day=built)
+    add_channel(engine, "UCshort", subs=1_000, videos=5, age_days=4, is_short=True, day=built)
+    add_channel(engine, "UCoutsider", subs=1_000, videos=5, age_days=4, member=False, day=built)
+    add_channel(engine, "UCyoung", subs=1_000, videos=1, age_days=3, day=built)
+    with session_scope(engine) as s:
+        s.execute(sa.update(Video).values(enriched=True))
+        if read_tonight:
+            s.add(
+                VideoSnapshot(
+                    video_id="UCsmall-v0",
+                    channel_id="UCsmall",
+                    observed_date=night,
+                    views=9,
+                    source="youtube_rss",
+                    run_id="rss",
+                )
+            )
+
+
+def _serve_videos(engine):
+    """Answer /videos with each requested id's own channel and publish date, so the
+    enrichment upsert cannot move a video out of the population and fake a pass."""
+    import json
+    from urllib.parse import parse_qs, urlparse
+
+    from nh.db.models import Video
+
+    def respond(request):
+        ids = parse_qs(urlparse(request.url).query)["id"][0].split(",")
+        items = []
+        with session_scope(engine) as s:
+            for vid in ids:
+                row = s.get(Video, vid)
+                snippet = {
+                    **VIDEO_ITEM["snippet"],
+                    "channelId": row.channel_id,
+                    "publishedAt": row.published_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+                items.append({**VIDEO_ITEM, "id": vid, "snippet": snippet})
+        return 200, {}, json.dumps({"items": items})
+
+    responses.add_callback(responses.GET, f"{API}/videos", callback=respond)
+
+
+def _night_collector(settings, engine):
+    from datetime import UTC, datetime
+
+    night = datetime.fromisoformat(WATCH_NIGHT).replace(hour=14, minute=10, tzinfo=UTC)
+    return _collector(settings, engine, backfill_only=True, observed_at=night)
+
+
+def _requested(path="/videos"):
+    from urllib.parse import parse_qs, urlparse
+
+    return [
+        vid
+        for call in responses.calls
+        if path in call.request.url
+        for vid in parse_qs(urlparse(call.request.url).query)["id"][0].split(",")
+    ]
+
+
+@responses.activate
+def test_the_watchlist_reads_exactly_the_registered_population(settings, engine):
+    """Ages 14-17 only, long-form only, small active-cluster members only. The
+    pre-registered outcome reads a video at its smallest age in that window, so a
+    video outside it costs quota and buys nothing — and one missing from it is an
+    outcome censored by RSS feed position, which is what this exists to stop."""
+    _watch_world(engine)
+    _serve_videos(engine)
+    record = _night_collector(settings, engine).run()
+
+    assert record.status == "ok", record.error
+    assert set(_requested()) == {"UCsmall-v0", "UCsmall-v1", "UCsmall-v2", "UCsmall-v3"}
+    assert record.quota_used == 1, "four ids is one videos.list page"
+
+
+@responses.activate
+def test_a_video_already_read_tonight_is_not_bought_again(settings, engine):
+    """The outcome takes max views across sources on the date, so an RSS snapshot counts
+    exactly as an API one does. Re-reading it would spend quota on nothing."""
+    _watch_world(engine, read_tonight=True)
+    _serve_videos(engine)
+    _night_collector(settings, engine).run()
+
+    assert set(_requested()) == {"UCsmall-v1", "UCsmall-v2", "UCsmall-v3"}
+
+
+@responses.activate
+def test_a_capped_watchlist_keeps_the_videos_about_to_leave_the_window(settings, engine):
+    """Oldest first: age 17 has one night left inside the reading window, age 14 has
+    four. A capped night must drop the ones that can still be caught tomorrow."""
+    _watch_world(engine)
+    _serve_videos(engine)
+    settings.yt_watchlist_max_ids = 2
+    _night_collector(settings, engine).run()
+
+    assert _requested() == ["UCsmall-v3", "UCsmall-v2"]
+
+
+@responses.activate
+def test_the_watchlist_is_read_once_per_night_however_many_runs_reach_it(settings, engine):
+    """The primary run and the ADR-0057 sweep both call `_backfill`. Whichever arrives
+    first writes tonight's snapshots; the second must find nothing left — and must find
+    nothing because of those readings, not because the upsert moved a video out."""
+    from datetime import date
+
+    from nh.collectors.youtube_api import watchlist_population
+
+    _watch_world(engine)
+    _serve_videos(engine)
+    _night_collector(settings, engine).run()
+    after_first = len(_requested())
+    _night_collector(settings, engine).run()
+
+    assert after_first == 4
+    assert len(_requested()) == after_first, "the second run bought nothing"
+    with session_scope(engine) as s:
+        still = s.scalars(watchlist_population(date.fromisoformat(WATCH_NIGHT))).all()
+    assert len(still) == 4, "the population itself did not drift"
+
+
+@responses.activate
+def test_a_retired_cluster_is_not_watched(settings, engine):
+    """Retired clusters keep collecting RSS history, but nothing analyses their channels
+    at channel grain, so their videos are not worth a unit."""
+    import sqlalchemy as sa
+
+    from nh.db.models import Cluster
+
+    _watch_world(engine)
+    with session_scope(engine) as s:
+        s.execute(sa.update(Cluster).values(active=False))
+    _serve_videos(engine)
+    record = _night_collector(settings, engine).run()
+
+    assert record.status == "ok", record.error
+    assert _requested() == []
+
+
+@responses.activate
+def test_only_ids_confirmed_tonight_are_excluded_not_ids_attempted(settings, engine):
+    """The first version excluded every id discovery ATTEMPTED; one cut short by the
+    ledger has no reading tonight and would silently drop out of its window. Review
+    found that deleting the exclusion passed every watchlist test, because all of them
+    ran the sweep, where the set is empty. This one fails if the exclusion is removed
+    (v0 is bought twice) or widened to attempts (v1 is never bought)."""
+    _watch_world(engine)
+    _serve_videos(engine)
+    collector = _night_collector(settings, engine)
+    list(collector._backfill(seen={"UCsmall-v0", "UCsmall-v1"}, read_tonight={"UCsmall-v0"}))
+
+    assert set(_requested()) == {"UCsmall-v1", "UCsmall-v2", "UCsmall-v3"}
+
+
+@responses.activate
+def test_a_watchlist_reread_records_views_and_leaves_the_video_row_alone(settings, engine):
+    """A re-read 14-17 days after first capture carries tonight's title, description and
+    duration. Upserting them would reach clustering's rescore and could flip `is_short`,
+    so the watchlist writes the snapshot only, and keeps the payload as raw."""
+    import sqlalchemy as sa
+
+    from nh.db.models import RawRecord, Video, VideoSnapshot
+
+    _watch_world(engine)
+    _serve_videos(engine)  # serves VIDEO_ITEM's title, not the fixture's
+    record = _night_collector(settings, engine).run()
+
+    assert record.status == "ok", record.error
+    with session_scope(engine) as s:
+        assert s.get(Video, "UCsmall-v0").title == "UCsmall-v0", "the row was not touched"
+        snap = s.scalars(
+            sa.select(VideoSnapshot).where(
+                VideoSnapshot.video_id == "UCsmall-v0", VideoSnapshot.source == "youtube_api"
+            )
+        ).one()
+        assert snap.views == 125_000
+        kinds = set(s.scalars(sa.select(RawRecord.kind).where(RawRecord.key == "UCsmall-v0")))
+    assert kinds == {"video_watch"}

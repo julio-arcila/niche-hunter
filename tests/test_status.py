@@ -662,3 +662,61 @@ def test_the_ramp_window_stops_at_the_last_definition_step(settings, engine):
 
     assert result.ok
     assert not any("ballast" in w for w in result.warnings), result.warnings
+
+
+def _watched(engine, channels, *, read):
+    """`channels` small member channels with four uploads each at ages 14-17 today,
+    optionally each carrying a reading for today."""
+    from nh.db.models import VideoSnapshot
+    from tests.conftest_features import add_channel, make_cluster
+
+    today = utcnow().date()
+    make_cluster(engine)
+    for c in range(channels):
+        channel = f"UCw{c:03d}"
+        ids = add_channel(
+            engine, channel, subs=1_000, videos=4, age_days=0, day=today - timedelta(days=14)
+        )
+        if read:
+            with session_scope(engine) as s:
+                for vid in ids:
+                    s.add(
+                        VideoSnapshot(
+                            video_id=vid,
+                            channel_id=channel,
+                            observed_date=today,
+                            views=5,
+                            source="youtube_rss",
+                            run_id="r",
+                        )
+                    )
+
+
+def test_an_uncovered_watchlist_warns_but_does_not_page(settings, engine):
+    """Measured on 2026-09-14 before the watchlist existed: 2,359 of 5,985 videos aged
+    14-17 had a reading that night — 39.4%. That is the pre-registered outcome being
+    censored by RSS feed position, and the gate must say so. A warning, not a failed
+    night: the reading window absorbs three short nights."""
+    _healthy(engine)
+    _watched(engine, 15, read=False)
+    result = check(engine, settings)
+
+    assert result.ok
+    assert any("watchlist" in w and "0 of 60" in w for w in result.warnings), result.warnings
+
+
+def test_a_covered_watchlist_is_silent(settings, engine):
+    _healthy(engine)
+    _watched(engine, 15, read=True)
+    result = check(engine, settings)
+
+    assert not any("watchlist" in w for w in result.warnings), result.warnings
+
+
+def test_a_small_watchlist_population_is_not_measured(settings, engine):
+    """Forty videos is not a population to take a percentage of."""
+    _healthy(engine)
+    _watched(engine, 10, read=False)
+    result = check(engine, settings)
+
+    assert not any("watchlist" in w for w in result.warnings), result.warnings
