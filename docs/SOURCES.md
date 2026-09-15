@@ -368,13 +368,14 @@ Every step is from
 developers.google.com (get-started/dev-token, api-policy/access-levels) unless
 labelled otherwise.
 
-1. **Create a manager (MCC) account.** Required, not optional: the developer
-   token lives only in a manager account's API Center, and "it cannot be a
-   Google Ads test manager account". Creation is free and self-service
-   (ads.google.com → tools → manager accounts) but wants an email address **not
-   previously associated with Google Ads**. The existing regular account is then
-   *linked under* the manager — it is not converted, and its zero-spend history
-   is untouched.
+1. ~~**Create a manager (MCC) account.**~~ **Create a regular Ads account under the
+   existing manager — Expert mode, no campaign, no billing** (corrected 2026-09-15; see
+   the paragraph above). A manager already exists and holds the developer token's API
+   Center; what it lacks is any client account, and the only regular account is closed
+   and unrecoverable, so there is nothing to link. From the account chooser: "Nueva
+   cuenta de Google Ads" → switch to Expert mode → create without a campaign. That
+   account then appears in Keyword Planner's "Selecciona una cuenta activa" picker and
+   is the one the API steps below are performed against.
 2. **Get the developer token** from the manager account's API Center by
    completing the API access form: accurate company details and a functioning
    website URL are required. The token is granted immediately, at **Explorer**
