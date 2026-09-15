@@ -23,7 +23,7 @@ import re
 import time
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from datetime import UTC, timedelta
+from datetime import UTC, date, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -36,6 +36,8 @@ from nh.collectors.quota import QuotaExhausted, QuotaLedger
 from nh.db.models import (
     Channel,
     ChannelSnapshot,
+    Cluster,
+    ClusterMember,
     Discovery,
     JobRun,
     NicheSeed,
@@ -152,6 +154,65 @@ def _raise_with_reason(response: requests.Response, endpoint: str) -> None:
     )
 
 
+#: The pre-registered outcome reads a video at its smallest age in [14, 17] (ADR-0059,
+#: reports/channel_reach_preregistration_2026-09-16.md). The watchlist targets exactly
+#: that window. Age 13 contributes nothing to the reading; a lost night inside the window
+#: is absorbed by the other three days.
+WATCH_MIN_AGE = 14
+WATCH_MAX_AGE = 17
+
+
+def watchlist_population(day: date) -> sa.Select:
+    """Long-form videos of small active-cluster member channels, aged 14-17 on `day`.
+
+    One definition, two consumers: the collector narrows it to "no reading yet today"
+    and caps it; `jobs.status` measures coverage against it. Kept in one place because a
+    population defined twice is a population that will disagree with itself.
+
+    "Small" is the openness cohort's own ceiling, `features.inputs.COHORT_MAX_SUBS`, on
+    MAX subs on or before `day`. Imported inside the function: `nh.features.demand`
+    imports `nh.collectors`, and a module-level import here would close that loop.
+    Membership is today's rather than as of `day`, deliberately — this decides what to
+    COLLECT, and reading a video that later leaves the cohort costs a fiftieth of a unit.
+    The frozen registration cohort, not this query, decides what is ANALYSED.
+    """
+    from nh.features.inputs import COHORT_MAX_SUBS, _midnight, _until
+
+    small = (
+        sa.select(ChannelSnapshot.channel_id)
+        .where(ChannelSnapshot.observed_date <= day)
+        .group_by(ChannelSnapshot.channel_id)
+        .having(sa.func.max(ChannelSnapshot.subs).between(1, COHORT_MAX_SUBS))
+    )
+    members = (
+        sa.select(ClusterMember.item_id)
+        .join(Cluster, Cluster.cluster_id == ClusterMember.cluster_id)
+        .where(
+            ClusterMember.item_type == "channel",
+            ClusterMember.is_noise.is_(False),
+            Cluster.active.is_(True),
+        )
+    )
+    return sa.select(Video.video_id).where(
+        Video.is_short.is_(False),
+        Video.published_at >= _midnight(day - timedelta(days=WATCH_MAX_AGE)),
+        Video.published_at < _until(day - timedelta(days=WATCH_MIN_AGE)),
+        Video.channel_id.in_(members),
+        Video.channel_id.in_(small),
+    )
+
+
+def read_on(day: date) -> sa.Exists:
+    """A reading for the correlated `Video` on `day`, from ANY source.
+
+    The outcome takes max views across sources that date, so one reading is enough and
+    an RSS snapshot counts exactly as an API one does.
+    """
+    return sa.exists().where(
+        VideoSnapshot.video_id == Video.video_id, VideoSnapshot.observed_date == day
+    )
+
+
 class YouTubeApiCollector(Collector):
     source = "youtube_api"
     description = "YouTube Data API v3 — discovery and enrichment."
@@ -258,8 +319,17 @@ class YouTubeApiCollector(Collector):
         (ADR-0012).
         """
         backlog = {v: c for v, c in self._unenriched_ids() if v not in seen}
-        if not backlog:
-            return
+        if backlog:
+            yield from self._drain_backlog(backlog)
+            if self.quota.remaining == 0:
+                return
+        # Last, after the backlog: a video with no duration is excluded from every
+        # format-sensitive metric tonight, while a watchlist id has three more nights
+        # inside its reading window.
+        yield from self._watchlist(seen | set(backlog))
+
+    def _drain_backlog(self, backlog: dict[str, str]) -> Iterable[Raw]:
+        """Enrich the unenriched backlog; mark what the API no longer serves."""
         self.log.info("backfilling %d unenriched videos", len(backlog))
 
         returned: set[str] = set()
@@ -286,6 +356,49 @@ class YouTubeApiCollector(Collector):
                     key=video_id,
                     payload={"video_id": video_id, "channel_id": channel_id},
                 )
+
+    def _watchlist_ids(self, exclude: set[str]) -> list[str]:
+        """Watchlist ids with no reading yet today, oldest first, capped.
+
+        Oldest first because age 17 is about to leave the reading window while age 14
+        has three more nights, so a capped night drops the ids that can still be caught.
+        "No reading yet today" is what makes this once per night however many runs reach
+        it: the primary run and the ADR-0057 sweep both call `_backfill`, whichever
+        arrives first writes the snapshot, and the other finds nothing left to read.
+        """
+        query = (
+            watchlist_population(self.observed_date)
+            .where(~read_on(self.observed_date))
+            .order_by(Video.published_at)
+            .limit(self.settings.yt_watchlist_max_ids)
+        )
+        with session_scope(self.engine) as session:
+            return [v for v in session.scalars(query) if v not in exclude]
+
+    def _watchlist(self, exclude: set[str]) -> Iterable[Raw]:
+        """Re-read the channel-reach watchlist (ADR-0059).
+
+        These ids are already enriched, so one the API does not return is deleted or
+        private and is simply absent from the outcome (rule 7). It is deliberately NOT
+        marked `video_missing`: that exists to stop the unenriched backlog re-asking
+        about a dead id forever, and a watchlist id leaves the window by age on its own.
+        """
+        ids = self._watchlist_ids(exclude)
+        if not ids:
+            return
+        self.log.info(
+            "watchlist: re-reading %d videos at ages %d-%d", len(ids), WATCH_MIN_AGE, WATCH_MAX_AGE
+        )
+        returned = 0
+        for item in self._enrich("videos", ids):
+            returned += 1
+            yield Raw(kind="video", key=item["id"], payload=item)
+        if returned < len(ids):
+            self.log.warning(
+                "watchlist: %d of %d ids not returned — deleted, private, or out of budget",
+                len(ids) - returned,
+                len(ids),
+            )
 
     def _unenriched_ids(self) -> list[tuple[str, str]]:
         """`(video_id, channel_id)` oldest-first, so a backlog too large for one

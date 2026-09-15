@@ -3382,3 +3382,84 @@ Keyword Planner UI CSV export — roughly half an hour, no approval needed, whic
 reason this project resumed at all (ADR-0029). `keyword_metrics` is append-only and the
 newest reading per term wins, so `nh kp ingest <csv>` is all the ingestion needed. Until
 someone does that, these confidences will keep falling, correctly.
+
+## ADR-0059 — The nightly re-reads videos at ages 14-17, so a 14-day outcome is not censored by feed position
+2026-09-15. Accepted. Adds a watchlist to the `youtube_api` enrichment pass and a coverage
+warning to `nh status --check`. No schema change, no migration, nothing collected is
+removed or redefined.
+
+### Why now, and why by 2026-09-19
+
+The channel-reach test (ADR-0060, registered next) reads a video's views at its smallest
+age in [14, 17]. The corpus could not supply that reading for most videos. An RSS feed
+serves a channel's newest 15 entries; once a channel posts fifteen newer uploads, the
+older one stops being refreshed and its series ends. So survival to day 14 is not random —
+it is decided by the channel's upload rate:
+
+| channel uploads in 18 days | survive to age 14 |
+|---|---|
+| ≤ 10 | ~95% |
+| 11–20 | 85% |
+| 21–50 | 7% |
+| > 50 | 0.4% |
+
+Measured on 2026-09-14, before this change: of the **5,985** long-form videos of small
+active-cluster member channels aged 14-17 that night, **2,359 had any reading — 39.4%**.
+Readings at those ages come almost entirely from RSS (31,611 RSS against 849 API since
+2026-09-10). And the censored channels differ on the predictor: cohort channels posting
+more than 20 videos per 18 days read `views_per_sub` 1.16 against 2.5 for those posting five
+or fewer, so losing them cuts off one tail of the distribution under test.
+
+The 2026-09-02 uploads — the first decision date's window — reach age 17 on 2026-09-19.
+A watchlist that starts later loses them for good.
+
+### What ships
+
+`youtube_api.watchlist_population(day)`: long-form (`is_short IS FALSE`) videos published
+in `[_midnight(day - 17), _until(day - 14))` — ages 14 to 17 by the feature layer's own
+date boundaries — whose channel is a non-noise member of an active cluster and whose MAX
+subscriber count on or before `day` is in `(0, COHORT_MAX_SUBS]`, the openness cohort's
+own ceiling, imported rather than copied. `_backfill` drains the unenriched backlog first,
+then reads that population, oldest first, capped at `yt_watchlist_max_ids` (15,000).
+
+Three details carry weight:
+
+- **"No reading yet today", from any source.** The outcome takes max views across
+  sources on the date, so an RSS snapshot counts exactly as an API one. The same test is
+  what makes the watchlist once-per-night: the primary run and the ADR-0057 sweep both
+  reach `_backfill`, whichever arrives first writes the snapshots, and the other finds
+  nothing left. Tested by running the pass twice and asserting the second buys nothing
+  while the population itself is unchanged.
+- **Oldest first.** Age 17 has one night left inside the window; age 14 has four. A
+  capped night gives up the ids that can still be caught tomorrow.
+- **Not `video_missing`.** A watchlist id the API does not return is gone or private and
+  is absent from the outcome (data rule 7). Marking it would repurpose a flag that exists
+  to stop the unenriched backlog asking about a dead id forever.
+
+Membership is today's, not as of the decision date, deliberately: this query decides what
+to *collect*, where a stray id costs a fiftieth of a unit. What is *analysed* is the frozen
+cohort in ADR-0060's registration, never this query.
+
+### Cost
+
+~6,000 ids is ~120 units a night at 1 unit per 50, against ~3,430 left after discovery. The
+15,000 cap is 300 units — room for clusters still filling at ~5% a night, and a ceiling if
+discovery ever floods. Separate from `yt_backfill_max_ids` so a large backlog night cannot
+starve the watchlist, or the reverse.
+
+### How it is watched
+
+`status._check_watchlist` measures from stored rows against the same
+`watchlist_population`, not from a flag the collector sets: of the population on the
+night's observed date, how many carry a reading for that date from any source. Below 0.9
+it **warns** — never pages, because the night collected and the window absorbs three short
+nights. Below 50 videos it says nothing. Expect it to warn on a manual `nh status --check`
+run before the first nightly that carries this change, at roughly the 39% measured above;
+that is the check reporting the problem this fixes.
+
+### What it does not do
+
+It does not decide who is in the test, does not touch any feature, and changes nothing a
+metric reads — the watchlist writes ordinary `youtube_api` video snapshots through the
+normal collector path. It cannot recover a reading for a video already past age 17 when it
+lands; the first decision date loses nothing only if the change is live by 2026-09-19.

@@ -62,6 +62,13 @@ JOB = "nightly"
 #: charging its quota to the day. `_check_sweep` is what watches it.
 SWEEP_JOB = "nightly:sweep"
 
+#: Below this, the channel-reach outcome is being censored again (ADR-0059). Deleted and
+#: private videos are the only legitimate misses, well under 1% of a window; 0.9 leaves
+#: room for them and still catches a capped, budget-cut or skipped night.
+WATCHLIST_MIN_COVERAGE = 0.9
+#: A handful of videos is not a population to measure coverage on.
+WATCHLIST_MIN_POPULATION = 50
+
 
 def quota_day(engine: Engine | None = None, settings: Settings | None = None) -> tuple[int, int]:
     """`(spent, budget)` for the CURRENT Pacific quota day, across every run.
@@ -255,6 +262,7 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
     _check_one_run_per_day(engine, result)
     _check_ballast_drift(engine, result)
     _check_sweep(engine, run_id, result)
+    _check_watchlist(engine, run_id, result)
     return result
 
 
@@ -391,6 +399,45 @@ def _check_sweep(engine: Engine | None, run_id: str, result: CheckResult) -> Non
                 f"the enrichment sweep finished {status} — tonight's RSS wave keeps "
                 f"is_short NULL until tomorrow's nightly (ADR-0057)"
             )
+
+
+def _check_watchlist(engine: Engine | None, run_id: str, result: CheckResult) -> None:
+    """Warn when the watched videos lack the reading the registered outcome needs.
+
+    Measured from stored rows against the collector's own population, not from a flag the
+    collector sets: of the long-form videos of small active-cluster members aged 14-17 on
+    the night's observed date, how many carry a snapshot for that date from ANY source.
+    A warning, never a page: the night collected, and the [14, 17] reading window absorbs
+    three short nights before any single video's reading is lost.
+    """
+    # Inside the function: nh.jobs.nightly imports this module and the collector both.
+    from nh.collectors.youtube_api import Video, read_on, watchlist_population
+
+    with session_scope(engine) as session:
+        started = session.scalar(
+            sa.select(sa.func.min(JobRun.started_at)).where(JobRun.run_id == run_id)
+        )
+        if started is None:
+            return
+        day = started.date()
+        ids = watchlist_population(day).subquery()
+        total = session.scalar(sa.select(sa.func.count()).select_from(ids)) or 0
+        if total < WATCHLIST_MIN_POPULATION:
+            return
+        read = (
+            session.scalar(
+                sa.select(sa.func.count())
+                .select_from(Video)
+                .where(Video.video_id.in_(sa.select(ids.c.video_id)), read_on(day))
+            )
+            or 0
+        )
+    if read / total < WATCHLIST_MIN_COVERAGE:
+        result.warnings.append(
+            f"channel-reach watchlist: {read} of {total} videos aged 14-17 have a reading "
+            f"on {day} ({read / total:.0%}) — the pre-registered 14-day outcome is being "
+            f"censored (ADR-0059)"
+        )
 
 
 def _read_stamps(

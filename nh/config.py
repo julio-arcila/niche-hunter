@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     #: 50 ids, 25,000 is 500 units — enough to clear the initial backlog in one
     #: night while capping the worst case if discovery ever floods the queue.
     yt_backfill_max_ids: int = 25_000
+    #: The channel-reach watchlist (ADR-0059): long-form videos of small member channels
+    #: at ages 14-17, re-read nightly so the pre-registered 14-day outcome is not censored
+    #: by RSS feed position. Measured 2026-09-15: ~8,400 ids at ages 13-17, so ~6,700 at
+    #: 14-17, ~135 units. 15,000 is 300 units — room for the clusters still filling at
+    #: 5%/night, and a hard ceiling if discovery ever floods. Separate from the backfill
+    #: cap so a large backlog night cannot starve the watchlist, or the reverse.
+    yt_watchlist_max_ids: int = 15_000
 
     # --- youtube rss -------------------------------------------------------
     rss_user_agent: str = "niche-hunter-rss/0.1 (+contact@example.com)"
