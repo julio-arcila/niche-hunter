@@ -22,6 +22,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 # `budget - _spent_today()`, summed across run_ids since midnight Pacific. Corrected
 # 2026-09-01 (ADR-0053's class; the sweep that fixed CLAUDE.md missed this echo).
 
+wait_for_network
 ping_hc /start
 log "nightly starting"
 

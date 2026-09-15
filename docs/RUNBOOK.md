@@ -129,6 +129,16 @@ the system next wakes**. Note the one caveat — a wake after 19:00 local puts t
 catch-up run past the UTC `observed_date` boundary, so it collects for *tomorrow*.
 Still better than nothing, but do not read a late run as having filled the gap.
 
+**The nightly waits for the network first (2026-09-15).** `wait_for_network` in
+`scripts/_common.sh` polls `googleapis.com` every 15 s for up to ten minutes before
+`nh nightly` starts — any HTTP answer counts, reachability is the question. Why: on
+2026-09-13 the Mac woke late (17:10, not 09:05 — a closed laptop wakes only on AC) and the
+first `search.list` died with `ConnectionError` before DNS was up. One collection lost,
+unrecoverably, for want of thirty seconds, and C1's clock reset to 1/30. Bounded, and the
+caller proceeds past the bound: a night that still cannot reach Google should fail loudly
+and page, not skip quietly. The wait cannot fix a late wake — only the `pmset` schedule
+and AC power do that — it fixes the seconds after one.
+
 ### Two backup destinations, and why the second one exists
 
 The iCloud copy and the database it protects are **one Apple ID apart**. A locked or
