@@ -499,10 +499,19 @@ Ships:
 **Explicitly not in this slice** (ADR-0055): cloud deploy, managed Postgres, IaC, a secret
 manager, monthly backtest re-runs — the pre-registration voids re-running the primary.
 
-**Exit:** `nh criteria --report` writes eight greens. Earliest **~2026-09-29**: C1 needs 30
-consecutive unattended nights and the clock restarts at 2026-08-31, because 2026-08-30 is a
-permanent hole. Everything buildable lands well before then; the remainder is waiting, which
-is exactly why it needs a command that says so rather than a slice header that reads open.
+**Exit:** `nh criteria --report` writes eight greens. Everything buildable landed by
+2026-09-04; the remainder is waiting, which is exactly why it needs a command that says so
+rather than a slice header that reads open.
+
+*Earliest date, as written 2026-08-31:* **~2026-09-29** — C1 needs 30 consecutive
+unattended nights and the clock restarted at 2026-08-31 because 2026-08-30 is a permanent
+hole. *Corrected 2026-09-15:* **~2026-10-14**. The clock reset on 2026-09-13, when the Mac
+woke late (17:10, not 09:05) and the first `search.list` died before the network was up —
+one failed collection, nothing lost, C1 back to 1/30. A date printed here goes stale the
+night any collector fails; `nh criteria` is the authority and this line is only its last
+reading. Two of the three unmet criteria are not waiting on the clock at all: C2 (the
+dead-man drill has never been run) and C7 (one of six source reviews) are each half an
+hour of the operator's time.
 
 ---
 
