@@ -353,8 +353,18 @@ policy changes what we do; only filing does.
 
 ### API access runbook — verified against Google's own docs, 2026-08-29
 
-The operator's account is a **regular** Ads account and no manager account
-exists, so the sequence below has not started. Every step is from
+~~The operator's account is a **regular** Ads account and no manager account
+exists, so the sequence below has not started.~~ **Both halves false — corrected
+2026-09-15, verified in the Ads UI on 2026-09-05.** A manager account exists, with
+**zero** client accounts linked ("No hay ninguna cuenta de cliente vinculada con esta de
+administrador"), and the only regular account is **closed and cannot be reactivated**
+("Esta cuenta está cerrada y no puede reactivarse" — the status panel offers no
+control). So step 1 below is not "create a manager": it is **create a regular account
+under the existing manager, in Expert mode, without a campaign** — and until one exists
+neither this API path nor the Keyword Planner UI export can start, which is why the KP
+reading has been frozen since 2026-07-31. The sentence above stood for ten days after it
+was known false; the offer to fix it was made on 2026-09-05 and not taken up until now.
+Every step is from
 developers.google.com (get-started/dev-token, api-policy/access-levels) unless
 labelled otherwise.
 

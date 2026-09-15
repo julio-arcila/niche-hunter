@@ -81,7 +81,7 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 - Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
-  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,035** (967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until this line, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
+  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,036** (967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until this line, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
   now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
   so a new phase silently extends the nightly gate (it reads FAIL until the next nightly
   runs the new one; `run_nightly.sh` runs the phases before the check, so no page).
@@ -262,7 +262,10 @@ reviewer. Summarize exploration briefly.
   That second row also broke `status.check`, whose per-source verdict was a dict
   comprehension over an unordered query — the sweep's `ok` masked a FAILED primary
   collection until `_worst_per_source` landed. Expect a one-time `inputs_n` jump on the
-  first night; Rule 3 fires only on falls, so it will not page.
+  first night; Rule 3 fires only on falls, so it will not page. `nh nightly`'s exit code
+  ignores the sweep too (2026-09-15): on 09-10 a sweep 403 exited 1, pushed an alert and
+  pinged /fail while the gate correctly passed the night. The exit code and the gate agree
+  now — `NightlyResult.ok` skips `SWEEP_STATUS_KEY`.
 - **`supply.trimmed_mean_views` exists and feeds NOTHING (ADR-0056).** It ships beside
   `median_views` on an identical pool — between/within **5.35 against 3.96** over nine
   clean nights (re-measured 2026-09-14; the 7.94 vs 3.36 this bullet first carried was

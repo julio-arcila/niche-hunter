@@ -94,3 +94,20 @@ def test_the_enrichment_sweep_is_skipped_when_rss_is_not_planned_at_all(settings
     from nh.jobs.nightly import _sweep_enrichment
 
     assert _sweep_enrichment("run", utcnow(), settings, _planned(youtube_api=True)) == {}
+
+
+def test_a_failed_sweep_does_not_fail_the_night():
+    """ADR-0057: a sweep failure means tonight's wave waits for tomorrow, which is what
+    existed before the sweep. On 2026-09-10 it exited 1, pushed an alert and pinged
+    /fail while the gate correctly passed the night — the exit code and the gate must
+    agree. A failed COLLECTOR still fails it."""
+    from datetime import UTC, datetime
+
+    from nh.jobs.nightly import SWEEP_STATUS_KEY, NightlyResult
+
+    good = {"youtube_api": "ok", "youtube_rss": "ok", SWEEP_STATUS_KEY: "failed"}
+    bad = {"youtube_api": "failed", "youtube_rss": "ok", SWEEP_STATUS_KEY: "ok"}
+    now = datetime.now(tz=UTC)
+
+    assert NightlyResult("r", now, [], good).ok is True
+    assert NightlyResult("r", now, [], bad).ok is False

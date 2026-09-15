@@ -182,6 +182,14 @@ Fourteen matches `nh prune`'s raw-payload retention, so the two windows move tog
 most of that growth is `raw_records` backfill that flattens once prune starts rotating feed
 payloads out at day 15.
 
+**And 14 → 7 on 2026-09-15.** The coupling to `nh prune` above is deliberately broken. The
+folder's total grows by roughly the window length times the nightly delta — measured that
+day at 2.7 GB of database and 13 files, 7.5 GB, heading for ~24 GB at fourteen and climbing
+~1.7 GB a night — and a restore more than a week back is what the weekly B2 copy is for.
+The default is in `scripts/backup_db.sh`; `NH_BACKUP_KEEP_DAYS` in `.env` still overrides
+it, and thirteen files on disk is how you can tell it was not. The first sweep at 7 drops
+the 08-30 through 09-06 states; every one of them is inside a B2 weekly.
+
 ### The backup, and why it is NOT on launchd
 
 The plist is written and correct (`scripts/launchd/com.niche-hunter.backup.plist`)

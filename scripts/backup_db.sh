@@ -29,7 +29,14 @@ DEST="${NH_BACKUP_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/niche-
 # `nh prune`'s raw-payload retention, so the two windows move together, and it
 # is the point past which the daily series stops earning its storage — the
 # weekly offsite copy below is what covers anything older.
-KEEP_DAYS="${NH_BACKUP_KEEP_DAYS:-14}"
+#
+# 7 since 2026-09-15 (Slice 8's "shorten the window", which read open until then).
+# Measured that day: the database is 2.7 GB and the folder held 13 files, 7.5 GB;
+# the window's total grows by roughly KEEP_DAYS times the nightly delta, so at 14
+# it was heading for ~24 GB and climbing ~1.7 GB/night. The coupling to `nh prune`
+# is deliberately broken: a restore more than seven days back uses the weekly B2
+# copy, which is what it is for. NH_BACKUP_KEEP_DAYS in .env still overrides this.
+KEEP_DAYS="${NH_BACKUP_KEEP_DAYS:-7}"
 # Weekly offsite copies retained. Four is a month of Sundays.
 B2_KEEP="${NH_B2_KEEP:-4}"
 
