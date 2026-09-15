@@ -283,8 +283,14 @@ reviewer. Summarize exploration briefly.
   trips. The second exists because the first was blind by construction:
   `anthropocene-anthropology` moved +62% across 2026-09-01..04 and went quiet at +4.6%
   with the trend running. Cause was one discovery query's arrivals, **not**
-  reclassification, so it does not implicate the lexicon. Both go quiet after 2026-09-14
-  when the cut reverts and the ballast set empties — designed, not broken.
+  reclassification, so it does not implicate the lexicon. On the revert night, 2026-09-14,
+  the per-night wire fires once on every cluster — designed, and it self-heals at 0 -> 0
+  the next night. **The ramp did NOT go quiet, and this bullet said it would.** Its window
+  reached back across the definition boundary and compared v3 counts (~137) to v2 zeros,
+  re-flagging the planned revert on 8 clusters — and would have every night until 09-19.
+  Fixed the same day: the ramp window is scoped to days sharing today's
+  `detail.definition`, which is Rule 2's own rule for what is comparable. From 09-15 both
+  are quiet; the claim is true one day later than written.
 - Known defects, unfixed: the `court-cases` successors have seeds and demand terms but
   **no lexicon**, so they can never gain members and stay retired. `winner_age_years`
   and `top10_concentration` were in `replay.BACKTEST_METRICS` while `video_snapshots` is
