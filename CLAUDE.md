@@ -81,7 +81,7 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 - Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
-  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,030** (967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until this line, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
+  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,035** (967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until this line, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
   now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
   so a new phase silently extends the nightly gate (it reads FAIL until the next nightly
   runs the new one; `run_nightly.sh` runs the phases before the check, so no page).

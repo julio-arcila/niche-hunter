@@ -51,6 +51,17 @@ baselines and comment sampling deferred as quota-expensive and not needed to
 start the snapshot clock.*
 
 - **Auth**: API key only for public data; no OAuth.
+- **Errors, and what they leave behind (2026-09-15)**: a non-200 is raised with Google's
+  `error.errors[0].reason` and `error.message` in the text — `403 accessNotConfigured on
+  videos: …` — never the request URL. Two reasons: `job_runs.error` stores `str(exc)`,
+  and until this date `raise_for_status()` and urllib3 both put the full URL there,
+  **`&key=<the API key>` included**, which the nightly backup then shipped offsite
+  (2026-09-13's failure stored the key). And the 2026-09-10 sweep 403 was stored as
+  1,156 characters of query string with the one word that said why in the body nobody
+  kept. Transport errors are re-raised with the key redacted. `rateLimitExceeded` and
+  `userRateLimitExceeded` — the per-minute ceilings Google lists as retryable — are
+  now retried with the same backoff as 429; `quotaExceeded`, the daily one, still stops
+  cleanly. Whether 09-10 was one of the transients is unknowable, for the reason above.
 - **Quota**: 10,000 units/day, resets midnight Pacific. Budget 9,500.
 - **Endpoints & cost**: `search.list` 100 · `videos.list` 1/50 ids ·
   `channels.list` 1/50 ids · `playlistItems.list` 1/50 items ·

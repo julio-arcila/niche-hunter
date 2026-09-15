@@ -105,6 +105,53 @@ def _chunks(items: Sequence[str], n: int = PAGE_SIZE) -> Iterator[Sequence[str]]
         yield items[i : i + n]
 
 
+#: YouTube's per-minute ceilings, which Google's error reference lists as retryable.
+#: `quotaExceeded` is the DAILY ceiling and is not — `_get` raises `QuotaExhausted` for
+#: it before this is consulted. Kept as a tuple rather than a substring test so a future
+#: reason cannot match by accident.
+TRANSIENT_403_REASONS: tuple[str, ...] = ("rateLimitExceeded", "userRateLimitExceeded")
+
+
+def _error_reason(response: requests.Response) -> tuple[str | None, str | None]:
+    """Google's `error.errors[0].reason` and `error.message`, or Nones if the body is not
+    the documented shape. Never raises: this runs on the failure path."""
+    try:
+        body = response.json()
+    except ValueError:  # not JSON — an HTML error page, a proxy, an empty body
+        return None, None
+    err = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(err, dict):
+        return None, None
+    errors = err.get("errors") or [{}]
+    first = errors[0] if isinstance(errors[0], dict) else {}
+    return first.get("reason"), err.get("message")
+
+
+def _raise_with_reason(response: requests.Response, endpoint: str) -> None:
+    """`raise_for_status`, with Google's `reason` in the message.
+
+    `job_runs.error` stores `f"{type(exc).__name__}: {exc}"`, and `raise_for_status`'s
+    text is the status line plus the full request URL — so the 2026-09-10 sweep failure
+    was stored as 1,156 characters of query string and the one word that would have
+    said WHY (`forbidden`? `accessNotConfigured`? a per-minute limit?) was in the body
+    nobody kept. Whether that night was a transient the retry above now absorbs is
+    unknowable for exactly this reason.
+    """
+    reason, message = _error_reason(response)
+    if reason is None and message is None:
+        # Not `raise_for_status()`: its text is the status line plus the full request
+        # URL, and the URL carries `key=<the API key>`. See `_get` for the ledger of
+        # where that ended up.
+        raise requests.HTTPError(
+            f"{response.status_code} {response.reason or 'error'} on {endpoint}",
+            response=response,
+        )
+    raise requests.HTTPError(
+        f"{response.status_code} {reason or 'unknown'} on {endpoint}: {message or ''}".strip(),
+        response=response,
+    )
+
+
 class YouTubeApiCollector(Collector):
     source = "youtube_api"
     description = "YouTube Data API v3 — discovery and enrichment."
@@ -337,22 +384,48 @@ class YouTubeApiCollector(Collector):
     def _get(self, endpoint: str, cost: int, **params: Any) -> dict[str, Any]:
         """Charges quota only on a 200. A retried or rejected call costs nothing."""
         params["key"] = self.settings.yt_api_key
+        last: tuple[int, str | None] = (0, None)
         for attempt in range(5):
-            response = requests.get(f"{API}/{endpoint}", params=params, timeout=30)
+            try:
+                response = requests.get(f"{API}/{endpoint}", params=params, timeout=30)
+            except requests.RequestException as exc:
+                # Re-raised, not swallowed — outside python.md's count. urllib3 phrases a
+                # transport failure with the full request URL, `&key=<the API key>`
+                # included, and `Collector.run` stores `str(exc)` in `job_runs.error`,
+                # which the nightly backup ships to iCloud and B2. 2026-09-13's failure
+                # stored the key that way. `from None` so the unredacted text is not
+                # carried along as the cause and printed by `log.exception`.
+                raise type(exc)(str(exc).replace(params["key"], "<redacted>")) from None
             if response.status_code == 200:
                 self.quota.spend(cost, endpoint)
                 return response.json()
-            if response.status_code == 403 and "quotaExceeded" in response.text:
+            reason = _error_reason(response)[0] if response.status_code == 403 else None
+            if reason == "quotaExceeded":
                 # Google's real daily ceiling, which is not the same number as our
-                # self-imposed budget. Stop cleanly; retrying only wastes time.
+                # self-imposed budget. Stop cleanly; retrying only wastes time. Exact
+                # match, like TRANSIENT_403_REASONS — this was a substring test on the
+                # raw body until 2026-09-15, one line above a comment arguing against
+                # substring tests.
                 raise QuotaExhausted(f"daily quota exceeded upstream at {self.quota.used} units")
-            if response.status_code in (429, 500, 503):
+            if response.status_code in (429, 500, 503) or reason in TRANSIENT_403_REASONS:
+                last = (response.status_code, reason)
                 time.sleep(2**attempt)
                 continue
-            response.raise_for_status()
+            _raise_with_reason(response, endpoint)
+        status, reason = last
+        if reason in TRANSIENT_403_REASONS:
+            # Same outcome as any exhausted retry — the caller marks the ledger spent and
+            # the run finishes with what it has — but the cause is the PER-MINUTE
+            # ceiling, and a log line blaming the daily quota sends the operator to the
+            # wrong place. Review caught this the day the transient retry was added.
+            raise QuotaExhausted(
+                f"{endpoint} rate-limited past {attempt + 1} retries ({reason}): YouTube's "
+                f"per-minute ceiling, not the daily quota; remaining queries skipped this "
+                f"run, tomorrow starts clean"
+            )
         raise QuotaExhausted(
-            f"{endpoint} throttled past {attempt + 1} retries — most likely the daily "
-            f"quota is spent upstream"
+            f"{endpoint} throttled past {attempt + 1} retries (HTTP {status}) — most likely "
+            f"the daily quota is spent upstream"
         )
 
     # -- normalize -----------------------------------------------------------

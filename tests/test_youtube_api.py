@@ -11,6 +11,7 @@ be repointed at it. Until then, treat shape (not logic) as unverified.
 from __future__ import annotations
 
 import pytest
+import requests
 import responses
 import sqlalchemy as sa
 
@@ -574,3 +575,115 @@ def test_the_sweeps_spend_counts_against_the_next_runs_budget(settings, engine):
 
     assert record.source == "youtube_api"
     assert _collector(settings, engine).quota.budget == settings.yt_quota_budget - record.quota_used
+
+
+# -- what an error leaves behind (2026-09-15) --------------------------------------
+
+
+@responses.activate
+def test_a_403_stores_googles_reason_not_the_query_string(settings, engine):
+    """The 2026-09-10 sweep failure was stored as 1,156 characters of request URL, and
+    the one word that said why was in the body nobody kept. Whether that night was a
+    transient the retry now absorbs is unknowable for exactly this reason."""
+    apply_seeds(engine, ONE_SEED)
+    responses.add(
+        responses.GET,
+        f"{API}/search",
+        status=403,
+        json={
+            "error": {
+                "message": "Access Not Configured. YouTube Data API has not been used.",
+                "errors": [{"reason": "accessNotConfigured", "domain": "usageLimits"}],
+            }
+        },
+    )
+    record = _collector(settings, engine).run()
+
+    assert record.status == "failed"
+    assert "accessNotConfigured" in record.error
+    assert "Access Not Configured" in record.error
+    assert "key=" not in record.error
+
+
+@responses.activate
+def test_a_per_minute_403_is_retried_like_a_429(settings, engine, monkeypatch):
+    """`userRateLimitExceeded` is YouTube's per-minute ceiling and Google lists it as
+    retryable; `quotaExceeded` is the daily one and stops cleanly. They share a status
+    code and used to share a fate."""
+    import nh.collectors.youtube_api as mod
+
+    monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
+    apply_seeds(engine, ONE_SEED)
+    responses.add(
+        responses.GET,
+        f"{API}/search",
+        status=403,
+        json={"error": {"errors": [{"reason": "userRateLimitExceeded"}]}},
+    )
+    _mock_api()  # the retry, and the rest of the night, succeed
+    record = _collector(settings, engine).run()
+
+    assert record.status == "ok", record.error
+    searches = [c for c in responses.calls if "/search" in c.request.url]
+    assert len(searches) >= 2, "the 403 was retried, not raised"
+
+
+@responses.activate
+def test_the_api_key_never_reaches_job_runs_error(settings, engine):
+    """urllib3 phrases a transport failure with the full request URL, key included, and
+    `job_runs.error` is backed up offsite every night. 2026-09-13 stored the key."""
+    apply_seeds(engine, ONE_SEED)
+    key = settings.yt_api_key
+    assert key, "the collector must be configured for this to mean anything"
+    responses.add(
+        responses.GET,
+        f"{API}/search",
+        body=requests.ConnectionError(
+            f"HTTPSConnectionPool: Max retries exceeded with url: /youtube/v3/search?q=x&key={key}"
+        ),
+    )
+    record = _collector(settings, engine).run()
+
+    assert record.status == "failed"
+    assert key not in record.error
+    assert "<redacted>" in record.error
+
+
+@responses.activate
+def test_a_non_json_error_body_still_omits_the_url(settings, engine):
+    """A proxy's HTML page or an empty 5xx body has no `reason` to extract; the fallback
+    must still not be `raise_for_status`, whose text is the URL."""
+    apply_seeds(engine, ONE_SEED)
+    responses.add(responses.GET, f"{API}/search", status=404, body="<html>not here</html>")
+    record = _collector(settings, engine).run()
+
+    assert record.status == "failed"
+    assert "404" in record.error and "search" in record.error
+    assert "key=" not in record.error
+
+
+@responses.activate
+def test_a_persistent_per_minute_403_names_its_own_ceiling(settings, engine, monkeypatch):
+    """Exhausting the retries lands in the same QuotaExhausted the callers turn into
+    "skip the rest of this run" — the right outcome — but the message used to blame the
+    daily quota, which sends the operator to the wrong console. Caught by review the day
+    the transient retry was added."""
+    import nh.collectors.youtube_api as mod
+    from nh.collectors.youtube_api import QuotaExhausted
+
+    monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
+    for _ in range(5):
+        responses.add(
+            responses.GET,
+            f"{API}/search",
+            status=403,
+            json={"error": {"errors": [{"reason": "userRateLimitExceeded"}]}},
+        )
+    collector = _collector(settings, engine)
+
+    with pytest.raises(QuotaExhausted) as raised:
+        collector._get("search", 100, q="x")
+    text = str(raised.value)
+    assert "userRateLimitExceeded" in text and "per-minute ceiling" in text
+    assert "most likely the daily" not in text
+    assert collector.quota.used == 0, "nothing was charged for five rejections"
