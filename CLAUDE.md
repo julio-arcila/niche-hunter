@@ -81,7 +81,7 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 - Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
-  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,029** (967 at Slice 7). **`PHASES` is
+  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,032** (967 at Slice 7; 1,029 on 2026-09-05; it read "green at 1,029" from 2026-09-15 00:00 until this line, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
   now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
   so a new phase silently extends the nightly gate (it reads FAIL until the next nightly
   runs the new one; `run_nightly.sh` runs the phases before the check, so no page).
@@ -287,6 +287,19 @@ reviewer. Summarize exploration briefly.
   staleness tests failed between 19:00 local and midnight — read as flaky for days. Same
   19:00 boundary `observed_date` has. If a test only fails in the evening, suspect a
   clock before suspecting the test.
+- **The test suite's operator calendar is pinned to `DAY` (2026-08-27), autouse, in
+  `tests/conftest.py`.** `inputs.ballast_active()` decides which definition is in force
+  from the wall clock, while every feature test computes against DAY. Nothing pinned the
+  clock, so the whole ballast surface passed by riding it — until 2026-09-15, the morning
+  after the sunset, when **twelve tests flipped v3 -> v2 with no code change**. The clock
+  is now one named read, `inputs.operator_today()` (local: the operator's calendar;
+  `criteria._today()` is UTC and a different question — do not merge them). Tests that
+  need the post-sunset world move `BALLAST_SUNSET` relative to DAY, as the sunset tests
+  already did; none may read the real date. `web/shared.py` reads the same predicate now,
+  which also closed its sunset-day off-by-one (`remaining < 0` vs `today < SUNSET`).
+  **And the reason it went unnoticed for a day:** three "suite green" reports on 09-14/15
+  rested on `pytest -q | tail -2`'s exit code — `tail`'s, not pytest's — and the ramp
+  merge landed on a false green. Read pytest's summary line; never a pipeline's exit.
 - **Two ballast warnings now, not one.** `BALLAST_DRIFT_SHARE` 0.05 per night catches a
   batch; `BALLAST_RAMP_SHARE` 0.10 over 7 **stored** days catches a flood no single night
   trips. The second exists because the first was blind by construction:

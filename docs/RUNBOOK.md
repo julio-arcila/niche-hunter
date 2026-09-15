@@ -795,6 +795,17 @@ mislead someone soonest.
 
 ### A test's verdict depends on live collection state
 
+**Realised 2026-09-15, for the calendar rather than the corpus.** `inputs.ballast_active()`
+read `date.today()`; every feature test computed against `DAY = 2026-08-27`; nothing pinned
+the clock. The morning after `BALLAST_SUNSET` twelve tests flipped from v3 to v2 with no
+code change — in `test_features_noise`, `test_features_supply`, `test_api`, `test_gates`,
+`test_web`. Fixed by making the read a named function, `inputs.operator_today()`, and
+pinning it to `DAY` in an autouse fixture (`tests/conftest.py::operator_calendar`), with
+`test_the_suite_clock_is_pinned_to_day` as the guard. The rule that follows: **a test that
+needs a later world moves the constant relative to DAY; it never reads the real date.**
+It sat red for a day because the suite was being reported green from `pytest | tail`'s
+exit code — read the summary line.
+
 `tests/test_deferrals.py::test_no_deferral_is_silently_unblocked_today` evaluates
 `fires()`, and `fires()` with `kind="query"` runs against **the live database** when no
 engine is passed. Reproduced 2026-08-28: the nightly fired mid-suite, added 1,317 RSS

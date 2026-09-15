@@ -575,6 +575,15 @@ def test_nothing_calls_the_ballast_subquery_around_the_switch():
     assert found == allowed, f"unexpected _ballast_channels call site(s): {sorted(found - allowed)}"
 
 
+def test_the_suite_clock_is_pinned_to_day():
+    """If this fails, the autouse `operator_calendar` fixture is gone and every ballast
+    test is riding the wall clock again — which is how twelve of them went red on
+    2026-09-15 without a line of code changing. DAY precedes BALLAST_SUNSET, so v3 is the
+    suite's default and the sunset tests reach v2 by moving the constant, never the date."""
+    assert inputs.operator_today() == DAY
+    assert inputs.ballast_active() is True
+
+
 def test_a_run_cannot_cross_the_sunset_half_way_through(engine, monkeypatch):
     """`pinned_ballast` resolves once and holds (ADR-0050).
 
