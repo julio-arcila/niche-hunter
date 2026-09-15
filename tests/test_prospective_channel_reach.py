@@ -203,6 +203,8 @@ def test_frozen_predictors_are_the_registered_quantities(engine):
     assert row.ln_median == pytest.approx(math.log(3_000))
     assert row.ln_subs == pytest.approx(math.log(1_000))
     assert row.n_elig == 5
+    # a control in H1 and H2: videos aged 20..24 days at t, so the median age is 22
+    assert row.catalogue_age == pytest.approx(22.0)
 
 
 def test_a_zero_median_is_absent_and_counted_never_scored(engine):

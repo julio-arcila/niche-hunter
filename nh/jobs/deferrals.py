@@ -77,12 +77,16 @@ DEFERRALS: tuple[Deferral, ...] = (
     Deferral(
         metric="channel-emergence 90-day panel — its own pre-registration",
         blocker=(
-            "not registered: subscriber growth is not instrumented by channel-reach's T0, so it "
-            "needs its own design. The first t+90 is 2026-11-30, and a registration after its "
-            "outcome exists is not a registration"
+            "sequenced behind the channel-reach verdict (2026-10-02), so its design can use what that "
+            "read teaches; nothing else blocks it. HARD DEADLINE 2026-11-30, the first t+90: a "
+            "registration after its outcome exists is void, and this register has no overdue "
+            "state — an entry still reading unblocked after that date is a missed test"
         ),
+        # 2026-10-02, not 10-31: `fires()` reports a passed date as UNBLOCKED, so 10-31 would
+        # have announced an already-actionable task a month late, and kept saying unblocked
+        # past the deadline that voids it. Found by review before the registration merged.
         kind="date",
-        trigger="2026-10-31",
+        trigger="2026-10-02",
         consumer="the only read in this project that speaks to emergence rather than persistence",
         cost="a design and a registration, before 2026-11-30; the frozen cohort already exists",
     ),

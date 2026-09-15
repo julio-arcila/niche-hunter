@@ -123,7 +123,12 @@ construction. The report states H2's registered low power among its caveats, bef
 2. **Frozen membership.** `cluster_members` has no history; the cohort's cluster
    assignment is as of 2026-09-15, not as a nightly at t would have stored it. Measured
    churn is small (0 channels left the cohort between 09-01 and 09-08) and unmeasurable in
-   general.
+   general. Two further reads are as of today rather than as of t, both named by review
+   before any outcome existed: the cluster set is today's `Cluster.active`, and
+   `eligible_videos` reads `is_short` at its enriched value today, so a video that was
+   unenriched at t and enriched afterwards is in the frozen eligible set where a nightly at t
+   would have left it out — ADR-0057's replay-versus-stored gap, largest at t = 09-01.
+   Neither carries outcome information, and both are fixed into the frozen key.
 3. **Censoring.** Before the watchlist, six in ten 14-17-day readings were missing, and
    missing non-randomly by upload rate. Nights the watchlist did not run are recorded in the
    commit that adds the report — the report itself is rendered once, by code.
@@ -190,3 +195,19 @@ no outcome reading exists for any upload in either window.**
   outcome reading. The 90-day panel moves to its own registration.
 
 **Direction.** Every change makes a false PASS harder, not easier.
+
+**2026-09-15, after review of the registered commit. State of the data: no outcome reading
+exists for any upload in either window — a 2026-09-02 upload is 13 days old on 2026-09-15,
+so not even that day's nightly can have collected one.**
+
+- *Disclosure, not design.* Review named two as-of-now reads beside the membership caveat —
+  today's `Cluster.active`, and `is_short` read at its enriched value — now in caveat 2. The
+  frozen key, the predictors, the outcome, the statistic, the floors and the sha256 above are
+  unchanged.
+- *A test, not a change.* `catalogue_age`, a control in H1 and H2, had no assertion on its
+  value; one was added and verified by mutation. No code a read executes changed.
+- *The 90-day panel's reminder* now unblocks on 2026-10-03 instead of 2026-11-01 and states
+  its hard deadline, because the register reports a passed date as unblocked and has no
+  overdue state.
+
+**Direction.** Disclosure and verification only; nothing about how a PASS is reached moved.
