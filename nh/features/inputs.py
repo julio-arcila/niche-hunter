@@ -13,7 +13,8 @@ must never see a row that did not exist at the decision date.
 
 The exception, precisely, because a rule that quietly stops being true has lost its
 force — the same reasoning `.claude/rules/python.md` applies to its bare-except
-count. `ballast_active()` (ADR-0050) reads `date.today()` to decide whether ADR-0047's
+count. `ballast_active()` (ADR-0050) reads `operator_today()`, the module's one wall-clock
+read, to decide whether ADR-0047's
 exclusion is still in force. It is **not** a leak: it cannot let a feature see a row
 that postdates `day`, because it only ever switches a whole *definition* on or off,
 the same class of change as moving `BALLAST_DECIDED`, and `supply.definition()` stamps
@@ -322,6 +323,22 @@ BALLAST_RAMP_DAYS = 7
 _PINNED: bool | None = None
 
 
+def operator_today() -> date:
+    """The operator's calendar — the ONE wall-clock read that decides a definition.
+
+    Local date, deliberately: it is the calendar the operator sets `BALLAST_SUNSET` by.
+    (`jobs.criteria._today()` is UTC, because everything IT compares against is UTC; the
+    two are different clocks for different questions, and neither should call the other.)
+
+    An indirection, so a test can pin it. `ballast_active()` used to call `date.today()`
+    inline while every feature test computed against a fixed DAY, and nothing pinned the
+    clock — so the whole ballast surface passed by riding it, until 2026-09-15, the morning
+    after the sunset, when twelve tests flipped from v3 to v2 with no code change. The
+    suite pins this to its DAY in `tests/conftest.py`; an explicit `today=` still wins.
+    """
+    return date.today()
+
+
 def ballast_active(today: date | None = None) -> bool:
     """Whether ADR-0047's exclusion applies at all (ADR-0050).
 
@@ -341,7 +358,7 @@ def ballast_active(today: date | None = None) -> bool:
         return _PINNED
     if BALLAST_VALIDATED is not None:
         return BALLAST_VALIDATED
-    return (today or date.today()) < BALLAST_SUNSET
+    return (today or operator_today()) < BALLAST_SUNSET
 
 
 @contextmanager

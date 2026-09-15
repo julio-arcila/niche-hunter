@@ -12,8 +12,6 @@ rendering library out of the nightly.
 
 from __future__ import annotations
 
-from datetime import date
-
 import streamlit as st
 
 from nh.api import basis as basis_mod
@@ -62,11 +60,16 @@ def ballast_banner() -> None:
     sample is labelled, so displayed values will step that day. `inputs.py` maintains an
     inventory of exactly one clock read; adding a second here to compute the same fact
     would make that inventory wrong.
+
+    That sentence was false as written until 2026-09-15: this function read
+    `date.today()` itself, and its branch was `remaining < 0` where `ballast_active()` is
+    `today < BALLAST_SUNSET` — so on the sunset day the backend had reverted while the
+    page still showed "on a clock". Found by review on 2026-09-14. The branch is now the
+    predicate itself, and the day count comes from the same `operator_today()`.
     """
     if feature_inputs.BALLAST_VALIDATED is not None:
         return
-    remaining = (feature_inputs.BALLAST_SUNSET - date.today()).days
-    if remaining < 0:
+    if not feature_inputs.ballast_active():
         st.warning(
             f"**Supply definition reverted to `v2-on-niche`** on "
             f"{feature_inputs.BALLAST_SUNSET}: ADR-0047's ballast exclusion was never "
@@ -74,6 +77,7 @@ def ballast_banner() -> None:
             f"comparable across the step."
         )
         return
+    remaining = (feature_inputs.BALLAST_SUNSET - feature_inputs.operator_today()).days
     st.info(
         f"**`supply.*` is on a clock.** ADR-0047 excludes 585 ballast channels. Held "
         f"against the SAME day's corpus, `history-of-ideas on_niche_share` reads 0.0758 "

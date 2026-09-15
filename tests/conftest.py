@@ -34,6 +34,27 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "create_connection", _blocked)
 
 
+@pytest.fixture(autouse=True)
+def operator_calendar(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the operator's calendar to the suite's DAY.
+
+    `inputs.ballast_active()` decides which definition is in force from the wall clock,
+    while every feature test computes against a fixed DAY. Nothing pinned the clock, so
+    the whole ballast surface passed by riding it — until 2026-09-15, the morning after
+    `BALLAST_SUNSET`, when twelve tests flipped from v3 to v2 with no code change. That is
+    the RUNBOOK's "a test's verdict depends on live state" defect, realised on the day it
+    could first bite.
+
+    Tests that need the post-sunset world move `BALLAST_SUNSET` relative to DAY, as the
+    sunset tests already do. None may read the real date. An explicit `today=` argument
+    still wins, as does `pinned_ballast()`.
+    """
+    from nh.features import inputs
+    from tests.conftest_features import DAY
+
+    monkeypatch.setattr(inputs, "operator_today", lambda: DAY)
+
+
 @pytest.fixture
 def settings(tmp_path) -> Settings:
     return Settings(database_url=f"sqlite:///{tmp_path / 'test.db'}", yt_api_key="test-key")
