@@ -660,3 +660,30 @@ def test_a_non_json_error_body_still_omits_the_url(settings, engine):
     assert record.status == "failed"
     assert "404" in record.error and "search" in record.error
     assert "key=" not in record.error
+
+
+@responses.activate
+def test_a_persistent_per_minute_403_names_its_own_ceiling(settings, engine, monkeypatch):
+    """Exhausting the retries lands in the same QuotaExhausted the callers turn into
+    "skip the rest of this run" — the right outcome — but the message used to blame the
+    daily quota, which sends the operator to the wrong console. Caught by review the day
+    the transient retry was added."""
+    import nh.collectors.youtube_api as mod
+    from nh.collectors.youtube_api import QuotaExhausted
+
+    monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
+    for _ in range(5):
+        responses.add(
+            responses.GET,
+            f"{API}/search",
+            status=403,
+            json={"error": {"errors": [{"reason": "userRateLimitExceeded"}]}},
+        )
+    collector = _collector(settings, engine)
+
+    with pytest.raises(QuotaExhausted) as raised:
+        collector._get("search", 100, q="x")
+    text = str(raised.value)
+    assert "userRateLimitExceeded" in text and "per-minute ceiling" in text
+    assert "most likely the daily" not in text
+    assert collector.quota.used == 0, "nothing was charged for five rejections"

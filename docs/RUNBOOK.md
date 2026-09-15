@@ -137,7 +137,11 @@ first `search.list` died with `ConnectionError` before DNS was up. One collectio
 unrecoverably, for want of thirty seconds, and C1's clock reset to 1/30. Bounded, and the
 caller proceeds past the bound: a night that still cannot reach Google should fail loudly
 and page, not skip quietly. The wait cannot fix a late wake — only the `pmset` schedule
-and AC power do that — it fixes the seconds after one.
+and AC power do that — it fixes the seconds after one. One edge is real and named rather
+than waved at: a wake between about 18:50 and 19:00 local followed by the full ten-minute
+wait crosses the `observed_date` boundary above, and that night collects for tomorrow. The
+late wake alone would have done the same a few minutes later, so the wait creates no loss
+it did not already face — but it can widen that window by up to ten minutes.
 
 ### Two backup destinations, and why the second one exists
 

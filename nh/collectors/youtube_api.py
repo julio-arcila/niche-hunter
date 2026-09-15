@@ -127,10 +127,6 @@ def _error_reason(response: requests.Response) -> tuple[str | None, str | None]:
     return first.get("reason"), err.get("message")
 
 
-def _is_transient_403(response: requests.Response) -> bool:
-    return response.status_code == 403 and _error_reason(response)[0] in TRANSIENT_403_REASONS
-
-
 def _raise_with_reason(response: requests.Response, endpoint: str) -> None:
     """`raise_for_status`, with Google's `reason` in the message.
 
@@ -388,6 +384,7 @@ class YouTubeApiCollector(Collector):
     def _get(self, endpoint: str, cost: int, **params: Any) -> dict[str, Any]:
         """Charges quota only on a 200. A retried or rejected call costs nothing."""
         params["key"] = self.settings.yt_api_key
+        last: tuple[int, str | None] = (0, None)
         for attempt in range(5):
             try:
                 response = requests.get(f"{API}/{endpoint}", params=params, timeout=30)
@@ -402,17 +399,33 @@ class YouTubeApiCollector(Collector):
             if response.status_code == 200:
                 self.quota.spend(cost, endpoint)
                 return response.json()
-            if response.status_code == 403 and "quotaExceeded" in response.text:
+            reason = _error_reason(response)[0] if response.status_code == 403 else None
+            if reason == "quotaExceeded":
                 # Google's real daily ceiling, which is not the same number as our
-                # self-imposed budget. Stop cleanly; retrying only wastes time.
+                # self-imposed budget. Stop cleanly; retrying only wastes time. Exact
+                # match, like TRANSIENT_403_REASONS — this was a substring test on the
+                # raw body until 2026-09-15, one line above a comment arguing against
+                # substring tests.
                 raise QuotaExhausted(f"daily quota exceeded upstream at {self.quota.used} units")
-            if response.status_code in (429, 500, 503) or _is_transient_403(response):
+            if response.status_code in (429, 500, 503) or reason in TRANSIENT_403_REASONS:
+                last = (response.status_code, reason)
                 time.sleep(2**attempt)
                 continue
             _raise_with_reason(response, endpoint)
+        status, reason = last
+        if reason in TRANSIENT_403_REASONS:
+            # Same outcome as any exhausted retry — the caller marks the ledger spent and
+            # the run finishes with what it has — but the cause is the PER-MINUTE
+            # ceiling, and a log line blaming the daily quota sends the operator to the
+            # wrong place. Review caught this the day the transient retry was added.
+            raise QuotaExhausted(
+                f"{endpoint} rate-limited past {attempt + 1} retries ({reason}): YouTube's "
+                f"per-minute ceiling, not the daily quota; remaining queries skipped this "
+                f"run, tomorrow starts clean"
+            )
         raise QuotaExhausted(
-            f"{endpoint} throttled past {attempt + 1} retries — most likely the daily "
-            f"quota is spent upstream"
+            f"{endpoint} throttled past {attempt + 1} retries (HTTP {status}) — most likely "
+            f"the daily quota is spent upstream"
         )
 
     # -- normalize -----------------------------------------------------------
