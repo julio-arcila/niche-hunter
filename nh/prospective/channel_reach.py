@@ -47,7 +47,7 @@ REPORTS = {
 #: person sets in the commit that registers the test — never a file or an environment
 #: variable the code reads, on the `EXPOSITION_VALIDATED` pattern. `None` means
 #: unregistered, and `read()` refuses.
-REGISTERED_KEY_SHA256: str | None = None
+REGISTERED_KEY_SHA256: str | None = "1cb64d0acf07b50d5594389812c7725851adaabf3e38da2a0b6df2d28786e5f2"
 
 SEED = 20260916
 UPLOAD_WINDOW_DAYS = 7

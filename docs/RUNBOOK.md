@@ -578,7 +578,7 @@ uv run nh prospective channel-reach read primary    # on or after 2026-10-02, af
 | report exists | a registered read is rendered once |
 
 **The interim read cannot pass**, and nothing about the design may change after it. If a night
-the watchlist should have run is missing from `job_runs`, name it in the report; do not re-run
+the watchlist should have run is missing from `job_runs`, record it in the commit that adds the report (the report is rendered once, by code); do not re-run
 anything. `freeze` is not a routine command: it ran once, at registration, and refuses an existing
 file.
 
