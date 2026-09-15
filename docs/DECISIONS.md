@@ -3484,3 +3484,69 @@ It does not decide who is in the test, and it changes nothing a metric reads: it
 `Video` row, so nothing clustering or a feature reads from `videos` moves. (This sentence
 was false in the first version, which did re-upsert; see "Snapshot only".) It cannot recover a reading for a video already past age 17 when it
 lands; the first decision date loses nothing only if the change is live by 2026-09-19.
+
+## ADR-0060 — A pre-registered channel-grain test, gated: H1 reach persistence, then H2 breakout
+2026-09-15. Accepted. Registers `reports/channel_reach_preregistration_2026-09-15.md`. Adds
+`nh/prospective/`, the stratified statistics in `nh/backtest/stats.py`, and
+`nh prospective channel-reach {freeze,read}`. Changes no scorecard, no gate on `scorecards`,
+no feature, and writes no row.
+
+### Why a test, and why at channel grain
+
+ADR-0029's only lift condition on anything ranked is *"a new pre-registered test passes on
+the new grain"*. The operator will not wait months. Ten live niches cannot be that grain —
+detectable rho 0.667 at n = 10 by the repository's own power rule, and `report.verdict`
+returns INCONCLUSIVE below 20. Channels can: roughly 1,000 small discovered channels,
+snapshotted nightly, including the ones that fail. It is the grain
+`reports/source_audit_2026-08-28.md` already prescribed.
+
+### The design, and the design it replaced
+
+The approved design tested whether a channel's best past video, relative to its median,
+predicts its next uploads' 14-day views, with the median among the controls. A
+falsification simulation at dispersion fitted to the frozen cohort showed it **passing by
+construction**: rho +0.107 and a 40% PASS rate under no effect. The median is estimated
+from the same videos as the predictor's denominator, and partialling a control on its own
+noise manufactures a correlation. An earlier simulation at half the real dispersion had put
+the bias at +0.011; it was miscalibrated and is superseded. That design is retired.
+
+The unbiased alternatives were measured before choosing: splitting the videos removed the
+bias and the power; dropping the median control removed the bias and kept a little. So the
+operator chose a gated pair:
+
+- **T0**, instrument: the outcome tracks a channel's own level, or the read is
+  INCONCLUSIVE — INSTRUMENT.
+- **H1**: `views_per_sub`, given subscribers, catalogue age and video count — a small channel
+  outperforming its audience keeps doing so at 14 days. Simulated false-pass rate 2% with no
+  persistence, 100% power where level persists. Narrow, and registered as narrow.
+- **H2**, only if H1 passes: `breakout_magnitude` on the same unbiased controls. Simulated
+  power 5% even for a strong effect: an H2 FAIL is weak evidence, an H2 PASS strong.
+
+Fixed-sequence gatekeeping holds the chance of any false PASS at 0.05 without splitting it.
+
+### What a result licenses
+
+- **H1 PASS**: a ranked list of channels by `views_per_sub`, behind
+  `CHANNEL_REACH_H1_VALIDATED: bool | None` in `nh/api/gates.py` — a constant a person sets
+  in the commit that writes the result, on the `EXPOSITION_VALIDATED` pattern.
+- **H2 PASS**: ranking by `breakout_magnitude` as well, behind `CHANNEL_REACH_H2_VALIDATED`.
+- **Anything else**: nothing ranked.
+
+No result touches `scorecard_citable`, `gap`, or Gate E's null. Every comparison is within a
+cluster, so no result says a niche is open.
+
+### What makes it hold
+
+- **The frozen key.** Predictors at 2026-09-01 and 2026-09-08 are written once to
+  `reports/channel_reach_cohort_draw_key_2026-09-15.jsonl` (the `_draw_key_` stem keeps
+  `nh/api/reports.py` from serving it). Its sha256 is `REGISTERED_KEY_SHA256` in
+  `nh/prospective/channel_reach.py`, set in the registering commit; `read()` refuses when the
+  constant is unset or the file differs.
+- **No early outcome.** `read()` refuses until the read date's nightly has collected, judged
+  from the latest `observed_date`, not the clock. There is no flag that skips it.
+- **Registered before any outcome exists.** The first outcome reading is a 2026-09-02 upload
+  at age 14, collected at the 2026-09-16 nightly.
+- **Censoring handled first.** ADR-0059's watchlist exists for this test.
+
+Reads: interim 2026-09-25 (cannot pass), verdict 2026-10-02, both as dated deferrals in
+`nh deferrals`. The 90-day emergence panel is a separate registration, due before 2026-11-30.

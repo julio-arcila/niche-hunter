@@ -558,6 +558,30 @@ same commit — it is a human's verdict about the bar, deliberately not a file t
 code reads, because completing the labels and passing the bar are different
 events.
 
+## The channel-reach reads (ADR-0060)
+
+Two scheduled reads, each rendered once, each refusing anything that would void the
+registration in `reports/channel_reach_preregistration_2026-09-15.md`:
+
+```bash
+uv run nh prospective channel-reach read interim    # on or after 2026-09-25, after the nightly
+uv run nh prospective channel-reach read primary    # on or after 2026-10-02, after the nightly
+```
+
+`nh deferrals` unblocks each on its day. What refuses, and why it must not be worked around:
+
+| refusal | means |
+|---|---|
+| `NotRegistered` | `REGISTERED_KEY_SHA256` is unset — nothing was registered |
+| `KeyMismatch` | the frozen draw key on disk is not the one the registration recorded |
+| `TooEarly` | the read date's nightly has not collected yet; some outcomes do not exist |
+| report exists | a registered read is rendered once |
+
+**The interim read cannot pass**, and nothing about the design may change after it. If a night
+the watchlist should have run is missing from `job_runs`, record it in the commit that adds the report (the report is rendered once, by code); do not re-run
+anything. `freeze` is not a routine command: it ran once, at registration, and refuses an existing
+file.
+
 ## Storage
 
 Raw feed payloads are gzipped and pruned after `NH_RAW_RETENTION_DAYS` (14),

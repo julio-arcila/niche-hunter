@@ -81,7 +81,7 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 - Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
-  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,046** (967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until this line, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
+  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,081** (967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until this line, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
   now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
   so a new phase silently extends the nightly gate (it reads FAIL until the next nightly
   runs the new one; `run_nightly.sh` runs the phases before the check, so no page).
@@ -316,6 +316,16 @@ reviewer. Summarize exploration briefly.
   ids. It decides what is *collected*; the frozen registration cohort decides what is
   *analysed*. The first decision date's uploads reach age 17 on **2026-09-19** — the
   watchlist must be collecting by then or they are lost.
+- **A pre-registered channel-grain test is running (ADR-0060) — read it, do not re-run it.**
+  Gated: T0 instrument, then H1 (`views_per_sub` persists at 14 days, given subscribers),
+  then H2 (`breakout_magnitude`) only if H1 passes. Registered 2026-09-15, before any outcome
+  existed. The first design — breakout with the median as a control — **passed by construction
+  40% of the time in simulation** and was retired before registration; that is the lesson to
+  keep: a control estimated from the same sample as the predictor manufactures a correlation.
+  Reads: interim **2026-09-25** (cannot pass), verdict **2026-10-02**, via
+  `nh prospective channel-reach read`. It refuses an unregistered or altered key and any read
+  before its date is collected. An H1 PASS licenses a ranked list of **channels** only; it never
+  touches `scorecards` or ranks a niche. H2 was registered as low-power: its FAIL means little.
 - **Two ballast warnings now, not one.** `BALLAST_DRIFT_SHARE` 0.05 per night catches a
   batch; `BALLAST_RAMP_SHARE` 0.10 over 7 **stored** days catches a flood no single night
   trips. The second exists because the first was blind by construction:
