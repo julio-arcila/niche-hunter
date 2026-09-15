@@ -1082,9 +1082,12 @@ to one number: the lexicon's false-negative rate on the excluded rows.
 from decided-noise rows on ballast channels, bar a 95% Wilson **upper** bound <= 0.10.
 Until it is labelled, **`inputs.BALLAST_SUNSET = 2026-09-14`**: past that date, with
 `BALLAST_VALIDATED` still `None`, `not_ballast` becomes a true-everywhere clause and
-`supply.definition()` stamps `v2-on-niche` — verified to return history-of-ideas to
-0.0758 with the numerator unmoved at 230. **Quote no share metric from these clusters
-without saying which side of that switch it came from.**
+`supply.definition()` stamps `v2-on-niche`. (2026-08-31: verified to return
+history-of-ideas to 0.0758 with the numerator unmoved at 230 — on that day's corpus.)
+(2026-09-14: it fired. history-of-ideas reads **0.0626 = 354 / 5,651**; what returned was
+the definition, and the value is the day's corpus, three times larger by then. The
+denominator went 1,806 -> 5,651 overnight. See ADR-0054's addendum.) **Quote no share
+metric from these clusters without saying which side of that switch it came from.**
 
 ## Relevance -- the rule every supply number now depends on
 

@@ -101,12 +101,18 @@ reviewer. Summarize exploration briefly.
   seeds 20260831 and 20260901) should a rater ever appear; nothing about the instrument
   decayed. **A model labelling them is still not evidence** — ADR-0041's objection is
   unchanged and two samples were already spent that way.
-- **So ballast reverts on 2026-09-14 and that is the expected outcome, not a failure.**
-  `ballast_active()` goes False, `supply.definition()` stamps `v2-on-niche`, and
-  `history-of-ideas on_niche_share` returns to 0.0758 — verified end to end, no migration,
-  no lost history. Rule 2 fires that night and names the cause; `nh status --check` warns
-  on the ballast delta. Expect both. The eight scorer-dependent metrics and the whole
-  `scorecards` row stay withheld from every surface indefinitely.
+- **Ballast reverted on 2026-09-14, as designed.** `ballast_active()` went False,
+  `supply.definition()` stamped `v2-on-niche`, Rule 2 fired on all ten clusters and
+  `nh status --check` warned on the delta for all ten — no migration, no lost history.
+  **This bullet said `history-of-ideas on_niche_share` "returns to 0.0758". It reads
+  0.0626 = 354 / 5,651.** What returned was the *definition*; the value under a definition
+  is a property of the day's corpus, not of the definition. 0.0758 was 230 / 3,033 — the
+  v2 twin of the 08-31 A/B, verified on that day's corpus — and the corpus has since
+  tripled (7,298 video rows against 2,433 on 08-29). The denominator went 1,806 -> 5,651
+  overnight as 3,845 ballast videos came back in; the numerator moved 338 -> 354. The
+  claim was true when written and could never have been the number that landed. The
+  eight scorer-dependent metrics and the whole `scorecards` row stay withheld from every
+  surface indefinitely.
 - **BUT THIS NO LONGER BLOCKS ANYTHING (ADR-0045).** The requirement now fires when an
   exposition score is CITED — a scorecard row for an active exposition cluster carrying a
   non-NULL `value`/`sustainability`/`opportunity` — not while the score merely exists. The

@@ -2942,6 +2942,33 @@ cannot detect a bias it shares. Two samples were spent that way and neither is e
 Declining to gather evidence is a decision; substituting non-evidence for it is not the
 same decision, and this ADR authorises only the first.
 
+### Addendum, 2026-09-14 — the sunset fired; what returned was the definition, not the number
+
+It happened exactly as this ADR said, with one word wrong. `ballast_active()` went False,
+`supply.definition()` stamped `v2-on-niche` on all ten clusters, Rule 2 fired on all ten,
+`nh status --check` warned on the delta for all ten, no migration, no lost history. And
+`history-of-ideas on_niche_share` did **not** "return to 0.0758". It reads **0.0626**.
+
+| day | definition | on-niche / decided | value |
+|---|---|---|---|
+| 2026-08-29 | v2 | 154 / 1,971 | 0.0781 — the last stored v2 row |
+| 2026-08-31 | v3 | 230 / 1,012 | 0.2273 — the A/B's v2 twin on the same corpus: 230 / 3,033 = **0.0758** |
+| 2026-09-13 | v3 | 338 / 1,806 | 0.1872 |
+| **2026-09-14** | **v2** | **354 / 5,651** | **0.0626** |
+
+The denominator tripled overnight — 3,845 ballast videos came back in — on a corpus three
+times the size of the one 0.0758 was verified against (7,298 video rows now, 2,433 on
+08-29). The sentence collapsed two things: the *definition* returning, which is what the
+sunset does and what "verified end to end" actually verified, and the *value* returning,
+which nothing guarantees because a value under a definition is a property of the day's
+corpus. The same collapse is why three different "v2 numbers" for this one cluster exist in
+the docs (0.0758, 0.0781, 0.0626), all correct, all on different days. This is the
+`Measured:`-lines-carry-a-date rule from the head of METRICS.md applied to a prediction:
+a predicted value needs the corpus it was predicted on, or it reads as a promise.
+
+Nothing about the decision changes. The reversion is the conservative branch ADR-0050
+pre-committed to; the labelling stays closed; the samples stay drawn.
+
 ## ADR-0055 — Production criterion 4 is met by a characterised null; Slice 8 is rescoped
 2026-08-31. Accepted. Amends the "Definition of done" table in `docs/ROADMAP.md` and rewrites
 Slice 8's entry. Changes no code behaviour.
