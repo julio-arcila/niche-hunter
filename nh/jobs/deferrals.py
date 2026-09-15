@@ -45,6 +45,48 @@ class Deferral:
 #: Ordered roughly by how close each is to firing.
 DEFERRALS: tuple[Deferral, ...] = (
     Deferral(
+        metric="channel-reach INTERIM read (ADR-0060) — t=2026-09-01 only, cannot pass",
+        blocker=(
+            "the 2026-09-01 decision date's uploads (09-02..09-08) are not all 17 days old until "
+            "the 2026-09-25 nightly has collected; `channel_reach.read` refuses before that, "
+            "judged from the latest observed_date rather than the clock"
+        ),
+        kind="date",
+        # The LAST day still blocked: `fires()` is `today > trigger`, the read is due ON 09-25.
+        trigger="2026-09-24",
+        consumer="reports/channel_reach_interim_2026-09-25.md — labelled INTERIM, never a verdict",
+        cost=(
+            "minutes: `uv run nh prospective channel-reach read interim` after the 09-25 nightly. "
+            "Rendered once. Nothing may change after it: the void clause names this read."
+        ),
+    ),
+    Deferral(
+        metric="channel-reach PRIMARY read (ADR-0060) — the verdict on H1, and H2 behind the gate",
+        blocker=(
+            "the 2026-09-08 decision date's uploads (through 09-15) are not all 17 days old until "
+            "the 2026-10-02 nightly has collected"
+        ),
+        kind="date",
+        trigger="2026-10-01",
+        consumer=(
+            "reports/channel_reach_2026-10-02.md; on H1 PASS, `CHANNEL_REACH_H1_VALIDATED` in "
+            "nh/api/gates.py set by a person in the commit that writes the result"
+        ),
+        cost="minutes to read; the gate constant and any list surface are a later slice",
+    ),
+    Deferral(
+        metric="channel-emergence 90-day panel — its own pre-registration",
+        blocker=(
+            "not registered: subscriber growth is not instrumented by channel-reach's T0, so it "
+            "needs its own design. The first t+90 is 2026-11-30, and a registration after its "
+            "outcome exists is not a registration"
+        ),
+        kind="date",
+        trigger="2026-10-31",
+        consumer="the only read in this project that speaks to emergence rather than persistence",
+        cost="a design and a registration, before 2026-11-30; the frozen cohort already exists",
+    ),
+    Deferral(
         metric="relevance rule — independent human validation",
         blocker=(
             "held-out precision 0.781 was measured against labels written by the "

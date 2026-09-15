@@ -333,3 +333,106 @@ def test_an_uncomputable_control_yields_no_verdict():
 
     assert controlled.rho is None
     assert controlled.p_value is None
+
+
+# --- channel grain (ADR-0060) ------------------------------------------------------
+
+
+def test_block_ranks_put_every_block_on_one_scale():
+    from nh.backtest.stats import block_ranks
+
+    r = block_ranks([10, 20, 30, 1, 2, 3, 4, 5], ["a"] * 3 + ["b"] * 5)
+    assert sum(r[:3]) / 3 == pytest.approx(0.5) and sum(r[3:]) / 5 == pytest.approx(0.5)
+
+
+def test_residuals_vanish_on_an_exact_linear_fit():
+    from nh.backtest.stats import residuals
+
+    x = [1.0, 2.0, 3.0, 4.0, 5.0]
+    assert all(abs(e) < 1e-9 for e in residuals([2 * v + 3 for v in x], [x]))
+
+
+def test_block_level_differences_cannot_create_a_correlation():
+    """Clusters differ wildly in level; ranking within block removes that, so a predictor
+    tracking only which cluster a channel belongs to correlates with nothing."""
+    import random
+
+    from nh.backtest.stats import stratified_partial_spearman
+
+    rng = random.Random(1)
+    x, y, blocks, ctrl = [], [], [], []
+    for b, level in enumerate((0, 100, 1000)):
+        for _ in range(40):
+            x.append(level + rng.random())
+            y.append(level + rng.random())
+            blocks.append(str(b))
+            ctrl.append(rng.random())
+    assert abs(stratified_partial_spearman(x, y, [ctrl], blocks)) < 0.15
+
+
+def test_a_control_sharing_the_predictors_noise_manufactures_a_correlation():
+    """Why the channel-reach design does not control for ln_median. The predictor is
+    max - median of a sample; the control is that same median; the outcome depends on the
+    TRUE level. No effect exists, yet partialling the noisy control correlates the two —
+    and removing the control removes the artefact."""
+    import random
+    import statistics
+
+    from nh.backtest.stats import stratified_partial_spearman
+
+    rng = random.Random(7)
+    x, y, blocks, shared, independent = [], [], [], [], []
+    for b in range(6):
+        for _ in range(150):
+            level = rng.gauss(4, 1.8)
+            videos = [level + rng.gauss(0, 1.0) for _ in range(rng.randint(5, 15))]
+            med = statistics.median(videos)
+            x.append(max(videos) - med)
+            y.append(statistics.fmean(level + rng.gauss(0, 1.0) for _ in range(2)))
+            blocks.append(str(b))
+            shared.append(med)
+            independent.append(level + rng.gauss(0, 1.9))
+    with_shared = stratified_partial_spearman(x, y, [shared], blocks)
+    without = stratified_partial_spearman(x, y, [independent], blocks)
+    assert with_shared > 0.06, "the artefact this test documents did not appear"
+    assert abs(without) < 0.04
+
+
+def test_a_within_block_association_is_found_and_the_null_is_deterministic():
+    import random
+
+    from nh.backtest.stats import evaluate_stratified
+
+    rng = random.Random(2)
+    per_date = []
+    for d in ("d1", "d2"):
+        rows = []
+        for b in range(4):
+            for u in range(30):
+                x = rng.gauss(0, 1)
+                rows.append(
+                    (f"b{b}u{u}", f"b{b}", x, 0.6 * x + rng.gauss(0, 1), (rng.gauss(0, 1),))
+                )
+        per_date.append((d, rows))
+    first = evaluate_stratified(per_date, seed=20260916, draws=200)
+    assert first == evaluate_stratified(per_date, seed=20260916, draws=200)
+    assert first[0] > 0.3 and first[1] < 0.05
+
+
+def test_the_lift_is_one_for_an_ordinary_top_decile_and_two_when_it_doubles():
+    import random
+
+    from nh.backtest.stats import top_decile_lift
+
+    rng = random.Random(3)
+
+    def data(bonus):
+        rows = []
+        for u in range(100):
+            c = rng.gauss(0, 1)
+            y = c + (math.log(2) if bonus and u >= 90 else 0.0) + rng.gauss(0, 0.01)
+            rows.append((f"u{u}", "b", float(u), y, (c,)))
+        return [("d1", rows)]
+
+    assert top_decile_lift(data(False)) == pytest.approx(1.0, abs=0.02)
+    assert top_decile_lift(data(True)) == pytest.approx(2.0, rel=0.1)

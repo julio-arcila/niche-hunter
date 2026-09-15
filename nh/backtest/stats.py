@@ -345,3 +345,148 @@ def _bootstrap_ci(
         values[max(0, int(tail * len(values)) - 1)],
         values[min(len(values) - 1, int((1 - tail) * len(values)))],
     )
+
+
+# --- channel grain: stratified partial rank correlation (ADR-0060) -----------------
+
+#: (unit, block, predictor, outcome, controls) — one channel at one decision date.
+Row = tuple[str, str, float, float, tuple[float, ...]]
+MIN_STRATIFIED_ROWS = 5
+
+
+def _solve(a: list[list[float]], b: list[float]) -> list[float] | None:
+    """Gauss-Jordan with partial pivoting; None when the system is singular."""
+    n = len(b)
+    m = [[*row, b[i]] for i, row in enumerate(a)]
+    for col in range(n):
+        pivot = max(range(col, n), key=lambda r: abs(m[r][col]))
+        if abs(m[pivot][col]) < 1e-12:
+            return None
+        m[col], m[pivot] = m[pivot], m[col]
+        for r in range(n):
+            if r != col and m[r][col]:
+                factor = m[r][col] / m[col][col]
+                for k in range(col, n + 1):
+                    m[r][k] -= factor * m[col][k]
+    return [m[i][n] / m[i][i] for i in range(n)]
+
+
+def residuals(y: list[float], columns: list[list[float]]) -> list[float] | None:
+    """OLS residuals of `y` on an intercept and `columns`; None when singular."""
+    x = [[1.0, *(col[i] for col in columns)] for i in range(len(y))]
+    k = len(x[0])
+    xtx = [[sum(r[i] * r[j] for r in x) for j in range(k)] for i in range(k)]
+    xty = [sum(r[i] * v for r, v in zip(x, y, strict=True)) for i in range(k)]
+    beta = _solve(xtx, xty)
+    if beta is None:
+        return None
+    return [v - sum(b * c for b, c in zip(beta, r, strict=True)) for r, v in zip(x, y, strict=True)]
+
+
+def block_ranks(values: list[float], blocks: list[str]) -> list[float]:
+    """Average-tie ranks within each block, divided by (n_block + 1).
+
+    Every block then has mean 0.5, so clusters of 16 and 45 channels share one scale and
+    pool, and a predictor that only tracks which cluster a channel is in cannot correlate.
+    """
+    out = [0.0] * len(values)
+    for block in set(blocks):
+        idx = [i for i, b in enumerate(blocks) if b == block]
+        for i, r in zip(idx, ranks([values[i] for i in idx]), strict=True):
+            out[i] = r / (len(idx) + 1)
+    return out
+
+
+def stratified_partial_spearman(
+    x: list[float], y: list[float], controls: list[list[float]], blocks: list[str]
+) -> float | None:
+    """Rank within block, residualise both ranks on the control ranks, correlate.
+
+    With no controls this is the pooled within-block Spearman. A control that shares
+    estimation noise with the predictor manufactures a correlation here — the registered
+    channel-reach design was changed for exactly that reason (ADR-0060).
+    """
+    if len(x) < MIN_STRATIFIED_ROWS:
+        return None
+    rc = [block_ranks(c, blocks) for c in controls]
+    ex = residuals(block_ranks(x, blocks), rc)
+    ey = residuals(block_ranks(y, blocks), rc)
+    return None if ex is None or ey is None else pearson(ex, ey)
+
+
+def _stratified_rho(rows: list[Row], outcomes: list[float]) -> float | None:
+    controls = [list(c) for c in zip(*(r[4] for r in rows), strict=True)]
+    return stratified_partial_spearman(
+        [r[2] for r in rows], outcomes, controls, [r[1] for r in rows]
+    )
+
+
+def evaluate_stratified(
+    per_date: list[tuple[str, list[Row]]], *, seed: int = SEED, draws: int = DRAWS
+) -> tuple[float | None, float | None, list[float | None]]:
+    """Mean of per-date stratified rhos, and its within-block permutation p-value.
+
+    One permutation of unit labels per replication, within each block, applied to every
+    date — Gate E's global scheme, blocked. Outcomes move; predictor and controls stay
+    with their unit. A unit whose partner is absent at a date is dropped, never matched
+    to something else, as `_relabelled` does.
+    """
+    by_date = [_stratified_rho(rows, [r[3] for r in rows]) for _, rows in per_date]
+    usable = [v for v in by_date if v is not None]
+    if not usable:
+        return None, None, by_date
+    observed = mean(usable)
+    labels: dict[str, set[str]] = {}
+    for _, rows in per_date:
+        for unit, block, *_ in rows:
+            labels.setdefault(block, set()).add(unit)
+    ordered = {b: sorted(u) for b, u in sorted(labels.items())}
+    rng = random.Random(seed)
+    extreme = completed = 0
+    for _ in range(draws):
+        mapping: dict[str, str] = {}
+        for units in ordered.values():
+            shuffled = units[:]
+            rng.shuffle(shuffled)
+            mapping.update(zip(units, shuffled, strict=True))
+        values = []
+        for _, rows in per_date:
+            y_of = {r[0]: r[3] for r in rows}
+            kept = [(r, y_of[mapping[r[0]]]) for r in rows if mapping[r[0]] in y_of]
+            if len(kept) >= MIN_STRATIFIED_ROWS:
+                value = _stratified_rho([k[0] for k in kept], [k[1] for k in kept])
+                if value is not None:
+                    values.append(value)
+        if values:
+            completed += 1
+            extreme += abs(mean(values)) >= abs(observed)
+    p_value = (extreme + 1) / (completed + 1) if completed else None
+    return observed, p_value, by_date
+
+
+def top_decile_lift(per_date: list[tuple[str, list[Row]]]) -> float | None:
+    """exp(mean residual) of the outcome over the top within-(date, block) decile of the
+    predictor. Residuals from OLS on the controls plus block and date fixed effects.
+
+    What a reader of a ranked list gets from its top, in the outcome's own units — the
+    registered effect floor, because at channel grain significance alone is cheap.
+    """
+    rows = [r for _, rs in per_date for r in rs]
+    dates = [d for d, rs in per_date for _ in rs]
+    if len(rows) < MIN_STRATIFIED_ROWS:
+        return None
+    controls = [list(c) for c in zip(*(r[4] for r in rows), strict=True)]
+    blocks = sorted({r[1] for r in rows})
+    effects = [[1.0 if r[1] == b else 0.0 for r in rows] for b in blocks[1:]]
+    effects += [[1.0 if d == day else 0.0 for d in dates] for day in sorted(set(dates))[1:]]
+    res = residuals([r[3] for r in rows], controls + effects)
+    if res is None:
+        return None
+    groups: dict[tuple[str, str], list[int]] = {}
+    for i, (r, d) in enumerate(zip(rows, dates, strict=True)):
+        groups.setdefault((d, r[1]), []).append(i)
+    picked: list[int] = []
+    for idx in groups.values():
+        top = max(1, math.ceil(0.1 * len(idx)))
+        picked += sorted(idx, key=lambda i: (-rows[i][2], rows[i][0]))[:top]
+    return math.exp(mean(res[i] for i in picked))

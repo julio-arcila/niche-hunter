@@ -960,6 +960,59 @@ def backtest_score(
     typer.secho(f"{label} — {reason}", fg=colour)
 
 
+prospective_app = typer.Typer(
+    no_args_is_help=True,
+    help="Pre-registered prospective tests on the live corpus. Read-only.",
+)
+app.add_typer(prospective_app, name="prospective")
+channel_reach_app = typer.Typer(no_args_is_help=True, help="The channel-reach test (ADR-0060).")
+prospective_app.add_typer(channel_reach_app, name="channel-reach")
+
+
+@channel_reach_app.command("freeze")
+def channel_reach_freeze(
+    out: Path = typer.Option(
+        None, help="Where the draw key goes; defaults to the registered path."
+    ),
+) -> None:
+    """Freeze the cohort's predictors at both decision dates, once.
+
+    Refuses an existing file: a frozen cohort is written once, and its sha256 is what the
+    registration records.
+    """
+    from nh.db.session import session_scope
+    from nh.prospective import channel_reach as cr
+
+    path = out or cr.KEY_PATH
+    with session_scope(None) as session:
+        rows = cr.freeze(session)
+    sha = cr.write_key(rows, path)
+    typer.echo(f"{len(rows)} rows, {len({r.channel_id for r in rows})} channels -> {path}")
+    typer.echo(f"sha256 {sha}")
+
+
+@channel_reach_app.command("read")
+def channel_reach_read(which: str = typer.Argument(..., help="interim | primary")) -> None:
+    """Render a scheduled read, once.
+
+    Refuses an unregistered test, an altered draw key, a read whose date has not been
+    collected, and a report that already exists. There is no flag that skips any of that.
+    """
+    from nh.db.session import session_scope
+    from nh.prospective import channel_reach as cr
+
+    if which not in cr.READS:
+        raise typer.BadParameter(f"expected one of {sorted(cr.READS)}")
+    path = cr.REPORTS[which]
+    if path.exists():
+        typer.echo(f"{path} exists; a registered read is rendered once")
+        raise typer.Exit(1)
+    with session_scope(None) as session:
+        body = cr.read(session, which)
+    path.write_text(body)
+    typer.echo(f"wrote {path}")
+
+
 kp_app = typer.Typer(no_args_is_help=True, help="Keyword Planner — manual CSV import.")
 app.add_typer(kp_app, name="kp")
 

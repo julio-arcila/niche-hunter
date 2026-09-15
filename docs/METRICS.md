@@ -1323,3 +1323,120 @@ Two names removed from this list rather than implemented:
   blocked. Its natural form is "share of top videos from channels younger than T
   years", and T is exactly the cutoff `winner_age_years` was deliberately built
   without. Implementing it would reintroduce the thing that entry tells you not to.
+
+## Channel grain — the channel-reach test (ADR-0060)
+
+*Definitions fixed 2026-09-15 06:34 local, before any predictor distribution was computed and before any outcome reading existed (a 2026-09-02 upload is first 14 days old at the 2026-09-16 nightly). Roles and controls revised the same morning, still before any outcome, on the falsification simulation recorded in the registration's amendment log.*
+
+
+These are not `features_daily` metrics. They are per-channel quantities computed by
+`nh/prospective/channel_reach.py` for one pre-registered test, frozen to
+`reports/channel_reach_cohort_draw_key_2026-09-15.jsonl` at registration, and never
+stored per cluster-day. Data rule 6 (confidence on every feature) governs
+`features_daily`; each entry below states its own sample size instead.
+
+Every predictor is read at a decision date `t` through the production inputs, unchanged
+(`inputs.cohort`, `inputs.eligible_videos`, `inputs.latest_subs`), inside
+`inputs.pinned_ballast(False)`. None of those joins carries a ballast clause, so the pin
+changes nothing and a test asserts that.
+
+### channel.breakout_magnitude
+```
+Formula      : ln( max(v) / median(v) ) over v = the channel's eligible video views at
+               t (inputs.eligible_videos: long-form, published <= t-14d, MAX views over
+               snapshots with observed_date <= t, newest FEED_DEPTH=15). >= 0 by
+               construction. median(v) == 0 -> ABSENT, never infinity and never 0.
+               The magnitude openness._breakouts computes and discards at
+               openness.py:80: the same comparison against the channel's own median,
+               kept as a continuous number instead of a 5x yes/no.
+Unit         : channel c in inputs.cohort(session, cluster, t) — visible subs in
+               (0, COHORT_MAX_SUBS], >= COHORT_MIN_VIDEOS eligible videos, order=date
+               discovery lineage on or before t.
+Sample size  : n_elig, 5..15.
+Role         : H2's predictor — tested only if H1 passes (fixed-sequence gate).
+Controls     : ln_subs, catalogue_age, n_elig. NOT ln_median, and the reason is measured:
+               ln_median is estimated from the same 5-15 videos as this predictor's
+               denominator, so partialling it on its own noise manufactures a
+               correlation. Simulated at dispersion fitted to the frozen cohort
+               (2026-09-15: within-channel log-views sigma 1.0, level sd 1.84), the design
+               WITH ln_median read rho +0.107 under no effect and passed the 1.25 lift
+               floor in 40% of seeds. Without it: rho +0.004, 0% false passes.
+Power        : low, and registered as low. The same simulation detected even a strong
+               planted breakout persistence in 5% of seeds at ~720 channel-dates: with
+               heavy-tailed views a channel's best-to-median ratio is mostly chance. A
+               FAIL here is weak evidence of absence; a PASS would be strong evidence.
+Failure mode : also captures an upward trajectory — recent videos above an older
+               median — so a positive result cannot separate "a breakout persists" from
+               "the channel is trending". Lifetime views favour older videos, and
+               catalogue_age is the control for that, not a correction.
+```
+
+### channel.views_per_sub
+```
+Formula      : median(v) / subs, v as above, subs = inputs.latest_subs at t (MAX subs
+               on or before t; a hidden count is absent and the channel is not in the
+               cohort at all).
+Role         : H1's predictor — the first hypothesis. Controls ln_subs, catalogue_age,
+               n_elig. Claim: a small channel whose videos outperform its subscriber
+               count keeps outperforming it at 14 days. None of the controls shares the
+               median's estimation noise, so there is no construction bias (simulated
+               false-pass rate 2% in a world with no persistence).
+               A narrow claim, stated as narrow: given ln_subs it is close to "past views
+               predict future views". Simulated 100% power wherever a channel's level
+               persists. Its value is that a pass licenses a ranked watchlist of channels
+               punching above their size as measured, not assumed.
+```
+
+### channel.catalogue_age
+```
+Formula      : median over the eligible videos of (t - date(published_at)) in days.
+Role         : control. A median of lifetime views over videos aged ~42-227 days is not
+               comparable to a 14-day reading without it.
+```
+
+### T0 — the instrument
+```
+Predictor    : ln_median, ranked within cluster, no controls.
+Role         : the outcome must track a channel's own level at all. If it does not, the
+               outcome is broken and the read is INCONCLUSIVE — INSTRUMENT, never FAIL.
+               Replaces views_per_sub in that role once views_per_sub became H1.
+```
+
+### Controls, fixed with the predictors
+```
+ln_median    : ln(median(v)); absent when median(v) == 0. T0's predictor; a control in no
+               hypothesis (see channel.breakout_magnitude, "Controls").
+ln_subs      : ln(subs).
+n_elig       : len(v), 5..15. The max of more draws is larger; this is the control.
+```
+
+### outcome.next_reach_14d
+```
+Formula      : mean over U of ln(1 + views_14(u)), where
+               U = the channel's long-form videos (is_short IS FALSE) with published_at
+                   in [inputs._until(t), inputs._until(t + 7d)) — civil days t+1..t+7;
+               views_14(u) = MAX non-NULL views across all sources on the SMALLEST
+                   observed_date d with date(published_at)+14 <= d <=
+                   date(published_at)+17 on which u has a snapshot with non-NULL views.
+                   (Tightened 2026-09-15 06:4x, still before any data: a snapshot whose
+                   views are NULL is not a reading, and must not become the "smallest
+                   day" and turn a later real reading into an absence.)
+               ln(1 + views), not ln(views): a video measured at 0 views on day 14 is a
+               flop, which is exactly the negative class this test exists to have.
+               Dropping it would be absent-read-as-no-value in reverse.
+               Mean over U, not max: max is count-dependent and upload count differs by
+               channel. A ratio to the channel's median is kept ONLY as a labelled
+               secondary: it shares median(v) with both predictors and correlates with
+               them by construction.
+Absent       : a channel with no upload in U, or no u with a reading -> absent (rule 7).
+               A u with is_short NULL at read time (gone before enrichment) is excluded
+               as unknown format, never counted long-form.
+Sample size  : n_uploads = |U|, n_read = |u with a reading|; both recorded per row.
+Window       : readings exist from 2026-09-16 (09-02 uploads at age 14) through
+               2026-10-02 (09-15 uploads at age 17).
+Censoring    : RSS stops refreshing a video after fifteen newer uploads. ADR-0059's
+               watchlist re-reads small-member videos at ages 14-17 nightly; before it,
+               only 39.4% of such videos had a reading on 2026-09-14.
+Failure mode : outcome survivorship — videos deleted before day 14, failing feeds, and
+               any four-night collection gap remove readings non-randomly.
+```
