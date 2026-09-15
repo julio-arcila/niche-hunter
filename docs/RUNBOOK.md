@@ -434,7 +434,7 @@ both failure shapes:
 | warning | window | fires at | catches |
 |---|---|---|---|
 | `ballast channels moved A -> B` | one night | `BALLAST_DRIFT_SHARE` 0.05 | a batch tipping in at once — a lexicon regression |
-| `ballast channels ramped A -> B` | up to `BALLAST_RAMP_DAYS` (7) **stored** days | `BALLAST_RAMP_SHARE` 0.10 | a slow flood no single night trips |
+| `ballast channels ramped A -> B` | up to `BALLAST_RAMP_DAYS` (7) **stored** days, ending at the last `detail.definition` step | `BALLAST_RAMP_SHARE` 0.10 | a slow flood no single night trips |
 
 The second exists because the first was blind by construction and the blindness was
 realised: `anthropocene-anthropology` went 56 -> 91 channels across 2026-09-01..04,
@@ -458,8 +458,17 @@ members would be the lexicon** — and only the second would justify touching a 
 which needs human negative evidence, not a machine's read of its own failures.
 
 Both thresholds are on the DELTA, never the level — `history-of-ideas` sits at 126 of
-205 by construction. And both go quiet after 2026-09-14, when the cut reverts and the
-ballast set empties; that is designed, not broken.
+205 by construction.
+
+**On a definition step they behave differently, and the difference was learned the hard
+way.** The per-night wire fires once on every cluster the night of a step (2026-09-14's
+revert did exactly that — 10 warnings, matching Rule 2's 10 alerts) and self-heals at
+0 -> 0 the next night. The ramp is scoped to days sharing today's `detail.definition`, so
+it says nothing across a step at all. It was not, at first: this section said "both go
+quiet after 2026-09-14", and on 2026-09-14 the ramp compared v3 counts to v2 zeros and
+re-flagged the planned revert on 8 clusters, with five more nights of the same ahead.
+Fixed that day. If a `ramped` warning ever names a `from` day on the far side of a
+definition step, the scoping has regressed.
 
 ## The evidence surface
 

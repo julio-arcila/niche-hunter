@@ -311,6 +311,17 @@ Measured     : 2026-09-04, over 2026-09-01..04, ten active clusters, log10 scale
                moves smoothly. That is a property of the estimator against THIS
                pool's dynamics, so re-measure it after the 2026-09-14 revert rather
                than assuming it survives.
+               RE-MEASURED 2026-09-14, over 2026-09-05..13 -- nine stored nights, one
+               definition, enrichment lag closed by ADR-0057. Trimmed mean: between
+               0.473, within 0.088, ratio 5.35, rank rho 0.988 (min 0.976). Median:
+               0.374, 0.095, 3.96, 0.973 (min 0.952). The lead is real and 1.35x, not
+               2.4x. The 09-04 figures above are correct for the four nights they name
+               and superseded: they included the enrichment lag, which was the
+               median's worst failure mode, so closing it improved the median most
+               (3.36 -> 3.96). "Halved" did not survive (about 7%). The remaining
+               lead is mostly between-cluster spread -- separation, not noise
+               reduction -- which is the Level note below restated. ADR-0056
+               addendum has the full table.
 Level        : 2026-09-04, ten active clusters, computed live. This reads MUCH HIGHER
                than median_views on the same rows -- 2.2x (history-of-ideas) to 32.3x
                (macro-economy), median 8.4x. That is not a bug and not a correction:
@@ -320,13 +331,18 @@ Level        : 2026-09-04, ten active clusters, computed live. This reads MUCH H
                the same one. The spread of that multiple across clusters IS the +35%
                between-cluster separation below -- the two facts are one fact.
                The obvious follow-on -- trim harder -- is deliberately NOT taken: the
-               conventions are copied from the diagnostic that measured 7.94, and
-               changing them would leave this entry citing a number its code no longer
-               produces. A different trim needs its own measurement first.
-Caveat       : four nights, all of them inside the post-ADR-0051 convergence
-               transient, and rank stability over four overlapping nights is a weak
-               statistic. Re-check both figures once the window past 2026-09-14 has
-               filled. This metric ships to be measured, not because it is trusted.
+               conventions are copied from the diagnostic that measured 7.94 (since
+               re-measured at 5.35; see Measured), and changing them would leave this
+               entry citing a number its code no longer produces. A different trim
+               needs its own measurement first.
+Caveat       : (2026-09-04) four nights, all inside the post-ADR-0051 convergence
+               transient -- discharged by the 2026-09-14 re-measurement above, which
+               is why that re-measurement exists. (2026-09-14) what remains open is
+               whether the residual wobble is cohort churn or signal: seven of ten
+               clusters still fill faster than the pre-registered 2%/night, so the two
+               cannot be told apart yet. Re-measure from ~2026-09-21 on post-revert
+               nights only. This metric ships to be measured, not because it is
+               trusted; that has not changed.
 ```
 
 ### openness.breakthrough_rate_cohort
@@ -1066,9 +1082,12 @@ to one number: the lexicon's false-negative rate on the excluded rows.
 from decided-noise rows on ballast channels, bar a 95% Wilson **upper** bound <= 0.10.
 Until it is labelled, **`inputs.BALLAST_SUNSET = 2026-09-14`**: past that date, with
 `BALLAST_VALIDATED` still `None`, `not_ballast` becomes a true-everywhere clause and
-`supply.definition()` stamps `v2-on-niche` — verified to return history-of-ideas to
-0.0758 with the numerator unmoved at 230. **Quote no share metric from these clusters
-without saying which side of that switch it came from.**
+`supply.definition()` stamps `v2-on-niche`. (2026-08-31: verified to return
+history-of-ideas to 0.0758 with the numerator unmoved at 230 — on that day's corpus.)
+(2026-09-14: it fired. history-of-ideas reads **0.0626 = 354 / 5,651**; what returned was
+the definition, and the value is the day's corpus, three times larger by then. The
+denominator went 1,806 -> 5,651 overnight. See ADR-0054's addendum.) **Quote no share
+metric from these clusters without saying which side of that switch it came from.**
 
 ## Relevance -- the rule every supply number now depends on
 

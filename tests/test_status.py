@@ -224,12 +224,21 @@ def test_no_keyword_planner_rows_at_all_is_silent(settings, engine):
 # video rows from some denominators with no stored record of how big the cut was.
 
 
-def _feature(engine, cluster_id, day, name="on_niche_share", run_id=RUN_ID, ballast=None):
+def _feature(
+    engine,
+    cluster_id,
+    day,
+    name="on_niche_share",
+    run_id=RUN_ID,
+    ballast=None,
+    definition="v3-non-ballast-members",
+    active=True,
+):
     from nh.db.models import FeatureDaily
 
-    detail = {"definition": "v3-non-ballast-members"}
+    detail = {"definition": definition}
     if ballast is not None:
-        detail["ballast"] = {"active": True, "n": 10, "channels": ballast, "rows": ballast * 12}
+        detail["ballast"] = {"active": active, "n": 10, "channels": ballast, "rows": ballast * 12}
     with session_scope(engine) as s:
         s.add(
             FeatureDaily(
@@ -600,3 +609,56 @@ def test_a_failed_sweep_warns_but_does_not_page(settings, engine):
 
     assert result.ok, "the night collected; only the sweep did not"
     assert any("sweep" in w for w in result.warnings)
+
+
+def test_the_ramp_does_not_duplicate_a_definition_step(settings, engine):
+    """The revert night, 2026-09-14. Rule 2 names the step and the per-night wire warns on
+    it — CLAUDE.md says to expect both. The ramp must NOT also report it: warning three
+    times about one planned event is how a check stops being read. Values either side of a
+    `detail.definition` step are not comparable, which is Rule 2's own rule, so the ramp
+    window is scoped to today's definition and holds one day here."""
+    from datetime import date
+
+    _healthy(engine)
+    _members(engine, "history-of-ideas", 273)
+    for day in range(10, 14):
+        _feature(engine, "history-of-ideas", date(2026, 9, day), ballast=137)
+    _feature(
+        engine,
+        "history-of-ideas",
+        date(2026, 9, 14),
+        ballast=0,
+        definition="v2-on-niche",
+        active=False,
+    )
+    result = check(engine, settings)
+
+    assert any("moved 137 -> 0" in w for w in result.warnings), "the per-night wire, as documented"
+    assert not any("ramped" in w for w in result.warnings), "one step, reported once"
+
+
+def test_the_ramp_window_stops_at_the_last_definition_step(settings, engine):
+    """Two nights after the revert, the five-more-nights defect exactly. The first version
+    of the ramp anchored on the oldest STAMPED day in the window, which reached back across
+    the 09-14 boundary to v3 rows at ~137 channels, and compared them to v2 rows at 0 — so it
+    re-flagged the planned revert on 8 clusters every night until the last v3 day scrolled
+    out on 09-19. Scoped to today's definition, three v2 days at 0 is a ramp of 0."""
+    from datetime import date
+
+    _healthy(engine)
+    _members(engine, "history-of-ideas", 273)
+    for day in range(10, 14):
+        _feature(engine, "history-of-ideas", date(2026, 9, day), ballast=137)
+    for day in range(14, 17):
+        _feature(
+            engine,
+            "history-of-ideas",
+            date(2026, 9, day),
+            ballast=0,
+            definition="v2-on-niche",
+            active=False,
+        )
+    result = check(engine, settings)
+
+    assert result.ok
+    assert not any("ballast" in w for w in result.warnings), result.warnings

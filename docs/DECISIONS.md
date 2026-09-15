@@ -2942,6 +2942,33 @@ cannot detect a bias it shares. Two samples were spent that way and neither is e
 Declining to gather evidence is a decision; substituting non-evidence for it is not the
 same decision, and this ADR authorises only the first.
 
+### Addendum, 2026-09-14 — the sunset fired; what returned was the definition, not the number
+
+It happened exactly as this ADR said, with one word wrong. `ballast_active()` went False,
+`supply.definition()` stamped `v2-on-niche` on all ten clusters, Rule 2 fired on all ten,
+`nh status --check` warned on the delta for all ten, no migration, no lost history. And
+`history-of-ideas on_niche_share` did **not** "return to 0.0758". It reads **0.0626**.
+
+| day | definition | on-niche / decided | value |
+|---|---|---|---|
+| 2026-08-29 | v2 | 154 / 1,971 | 0.0781 — the last stored v2 row |
+| 2026-08-31 | v3 | 230 / 1,012 | 0.2273 — the A/B's v2 twin on the same corpus: 230 / 3,033 = **0.0758** |
+| 2026-09-13 | v3 | 338 / 1,806 | 0.1872 |
+| **2026-09-14** | **v2** | **354 / 5,651** | **0.0626** |
+
+The denominator tripled overnight — 3,845 ballast videos came back in — on a corpus three
+times the size of the one 0.0758 was verified against (7,298 video rows now, 2,433 on
+08-29). The sentence collapsed two things: the *definition* returning, which is what the
+sunset does and what "verified end to end" actually verified, and the *value* returning,
+which nothing guarantees because a value under a definition is a property of the day's
+corpus. The same collapse is why three different "v2 numbers" for this one cluster exist in
+the docs (0.0758, 0.0781, 0.0626), all correct, all on different days. This is the
+`Measured:`-lines-carry-a-date rule from the head of METRICS.md applied to a prediction:
+a predicted value needs the corpus it was predicted on, or it reads as a promise.
+
+Nothing about the decision changes. The reversion is the conservative branch ADR-0050
+pre-committed to; the labelling stays closed; the samples stay drawn.
+
 ## ADR-0055 — Production criterion 4 is met by a characterised null; Slice 8 is rescoped
 2026-08-31. Accepted. Amends the "Definition of done" table in `docs/ROADMAP.md` and rewrites
 Slice 8's entry. Changes no code behaviour.
@@ -3145,6 +3172,44 @@ if missed — `features.run.METRICS`, `api.basis`, `api.drilldown.REGISTRY`,
 `api.gates.SCORER_DEPENDENT` and `scoring.rules.DEFINITION_WATCHED`. Membership in
 SCORER_DEPENDENT was not asserted but DERIVED: `test_gates.py` re-ran every metric at two
 relevance thresholds and confirmed this one moves.
+
+### Addendum, 2026-09-14 — re-measured over nine clean nights, the lead is real and half the size
+
+The table above was four nights, and it said so. Nine stored nights are now available on a
+single definition (`v3-non-ballast-members`, 2026-09-05..13) with the enrichment lag closed
+by ADR-0057. Same statistics, same ten clusters, same rows for both estimators, log10 for
+the view-level figures:
+
+| estimator | between | within | ratio | rank rho (min) |
+|---|---|---|---|---|
+| median (stored) | 0.374 | 0.095 | **3.96** | 0.973 (0.952) |
+| 10%-per-tail trimmed mean | 0.473 | 0.088 | **5.35** | 0.988 (0.976) |
+
+**The trimmed mean still wins on identical rows, but by 1.35x, not 2.4x.** Three things the
+first measurement got wrong, in order of how much they mattered:
+
+1. **The four nights included the enrichment lag.** The median's worst failure mode was
+   whole discovery waves entering the pool a night late and crossing the midpoint at once.
+   ADR-0057 landed the same day as this ADR and removed it. So the median improved most —
+   3.36 → 3.96, rank rho 0.935 → 0.973 — and part of the trimmed mean's lead had been
+   compensation for a lag that no longer exists.
+2. **"Halving within-cluster wobble" did not survive.** 0.088 against 0.095 is about 7%.
+3. **The residual lead is mostly between-cluster spread** — 0.473 against 0.374 — which is
+   separation, not noise reduction. That was already the point of the `Level` note in
+   METRICS.md: this reads 2.2x–32x the median because it is a different quantity, and the
+   spread of that multiple across clusters is the whole of its between-cluster advantage.
+
+What held: the Caveat block ("four nights, all inside the transient, re-check both figures
+once the window past 2026-09-14 has filled"), which is the reason this addendum exists
+rather than a reader finding the gap. And the non-decision: `scorecards.supply` still ranks
+`median_views`, and at 1.35x on a metric that feeds nothing there is even less reason to
+revisit it than there was at 2.4x.
+
+Not yet separable: how much of the remaining wobble is cohort churn versus signal. Seven of
+ten clusters are still filling faster than the 2%/night the pre-registered rule requires
+(trading 5.8%, anthropocene 5.8%, geopolitics 5.2%, macro-economy 4.1%, ai-and-software
+3.3%, logic 3.1%, metaphysical-battles 2.1%). Re-measure from ~2026-09-21 on post-revert
+nights only.
 
 ## ADR-0057 — The nightly enriches what RSS found tonight, instead of tomorrow
 2026-09-04. Accepted. Adds a second, discovery-free `youtube_api` pass after the collector

@@ -302,10 +302,13 @@ BALLAST_DRIFT_SHARE = 0.05
 #: PROVISIONAL, and say so rather than let it harden: three transitions is a thin basis,
 #: and all of them sit inside the post-ADR-0051 convergence transient, where clusters are
 #: still filling at 8-12%/night with exits near zero. Re-derive it from the same query
-#: once the window past 2026-09-14 has filled. Note also that the revert on that date
-#: ends the ballast cut, so what this watches becomes an empty set until some future
-#: validated-ballast state — it is not dead code, but it will read 0 for a while, and
-#: that is the designed outcome and not a fault.
+#: once the window past 2026-09-14 has filled. The revert on that date ended the ballast
+#: cut, so what this watches is an empty set until some future validated-ballast state —
+#: not dead code, but reading 0 for a while by design. The window is scoped to days
+#: sharing today's `detail.definition` (see `status._check_ballast_ramp`): the first
+#: version was not, and on 2026-09-14 it compared v3 counts to v2 zeros and re-flagged the
+#: planned revert on 8 clusters. A comment here said it "will read 0"; it read 0 only for
+#: the one day inside the window that was v2.
 BALLAST_RAMP_SHARE = 0.10
 
 #: Stored feature days, never calendar days — 2026-08-30 collected nothing, and a window

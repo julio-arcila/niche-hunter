@@ -393,10 +393,33 @@ def _check_sweep(engine: Engine | None, run_id: str, result: CheckResult) -> Non
             )
 
 
+def _read_stamps(
+    rows: list,
+) -> tuple[set[tuple[date, str]], dict[tuple[date, str], int], dict[tuple[date, str], str | None]]:
+    """Every (day, cluster) seen; the ballast channel count where stamped; the definition.
+
+    `definition` is read the way Rule 2 reads it, `(detail or {}).get("definition")`, so
+    the two checks agree on what a step is. A stamped row without a definition is
+    unwritable — both `BALLAST_STAMPED` metrics write the two keys into one dict — so
+    there is deliberately no guard for it.
+    """
+    seen: set[tuple[date, str]] = set()
+    stamped: dict[tuple[date, str], int] = {}
+    definition: dict[tuple[date, str], str | None] = {}
+    for day, cluster_id, _name, detail in rows:
+        seen.add((day, cluster_id))
+        definition[(day, cluster_id)] = (detail or {}).get("definition")
+        ballast = (detail or {}).get("ballast")
+        if isinstance(ballast, dict) and ballast.get("channels") is not None:
+            stamped[(day, cluster_id)] = int(ballast["channels"])
+    return seen, stamped, definition
+
+
 def _check_ballast_ramp(
     result: CheckResult,
     days: list[date],
     stamped: dict[tuple[date, str], int],
+    definition: dict[tuple[date, str], str | None],
     members: dict[str, int],
 ) -> None:
     """Warn on cumulative ballast movement the per-night wire cannot see.
@@ -408,6 +431,16 @@ def _check_ballast_ramp(
     the level, and says nothing when the window holds fewer than three days: two days
     is what the nightly wire already covers, and warning twice about one step teaches
     the operator to skim.
+
+    The window is scoped to days sharing TODAY's `detail.definition`. Values either side
+    of a definition step are not comparable — that is Rule 2's rule
+    (`scoring.rules.definition_step`), and a ramp check that ignored it would re-report
+    every planned step as a flood. The first version did exactly that: on 2026-09-14 the
+    ballast cut reverted, `channels` went ~137 -> 0 on every cluster, and this anchored on
+    a v3 day and warned on 8 of 10 clusters — and would have every night until the last
+    v3 day scrolled out on 09-19. `definition` rather than `ballast.active`, because a
+    future definition bump with no active change is reachable and would re-fire the same
+    defect one step later.
     """
     if len(days) < 3:
         return
@@ -420,8 +453,11 @@ def _check_ballast_ramp(
         # a window reaching past it holds days that carry no ballast at all. Anchoring on
         # days[-1] would make this check silently unfireable for its first week, which is
         # the failure mode where a check reads green because it never runs.
+        today_def = definition.get((today, cluster_id))
         anchored = [
-            (d, stamped[(d, cluster_id)]) for d in reversed(days) if (d, cluster_id) in stamped
+            (d, stamped[(d, cluster_id)])
+            for d in reversed(days)
+            if (d, cluster_id) in stamped and definition.get((d, cluster_id)) == today_def
         ]
         if len(anchored) < 3:
             continue
@@ -445,6 +481,10 @@ def _check_ballast_drift(engine: Engine | None, result: CheckResult) -> None:
     first day any row has it, so a check that demanded it would fail every run until then
     and be silenced rather than fixed. A day where SOME rows carry it and others do not is
     a different thing — that means the stamp was dropped, and it warns.
+
+    Deliberately NOT scoped to a definition, unlike `_check_ballast_ramp`: a definition
+    step moves the count once, this reports it once, and the next night compares two
+    days on the same side. CLAUDE.md says to expect it on 2026-09-14, and it did.
     """
     with session_scope(engine) as session:
         days = _feature_days(session, BALLAST_RAMP_DAYS)
@@ -463,18 +503,12 @@ def _check_ballast_drift(engine: Engine | None, result: CheckResult) -> None:
             ).all()
         )
 
-    stamped: dict[tuple[date, str], int] = {}
-    seen: set[tuple[date, str]] = set()
-    for day, cluster_id, _name, detail in rows:
-        seen.add((day, cluster_id))
-        ballast = (detail or {}).get("ballast")
-        if isinstance(ballast, dict) and ballast.get("channels") is not None:
-            stamped[(day, cluster_id)] = int(ballast["channels"])
+    seen, stamped, definition = _read_stamps(rows)
 
     today = days[0]
     _warn_on_a_dropped_stamp(result, today, seen, stamped)
 
-    _check_ballast_ramp(result, days, stamped, members)
+    _check_ballast_ramp(result, days, stamped, definition, members)
 
     if len(days) < 2:
         return

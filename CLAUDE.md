@@ -101,12 +101,18 @@ reviewer. Summarize exploration briefly.
   seeds 20260831 and 20260901) should a rater ever appear; nothing about the instrument
   decayed. **A model labelling them is still not evidence** — ADR-0041's objection is
   unchanged and two samples were already spent that way.
-- **So ballast reverts on 2026-09-14 and that is the expected outcome, not a failure.**
-  `ballast_active()` goes False, `supply.definition()` stamps `v2-on-niche`, and
-  `history-of-ideas on_niche_share` returns to 0.0758 — verified end to end, no migration,
-  no lost history. Rule 2 fires that night and names the cause; `nh status --check` warns
-  on the ballast delta. Expect both. The eight scorer-dependent metrics and the whole
-  `scorecards` row stay withheld from every surface indefinitely.
+- **Ballast reverted on 2026-09-14, as designed.** `ballast_active()` went False,
+  `supply.definition()` stamped `v2-on-niche`, Rule 2 fired on all ten clusters and
+  `nh status --check` warned on the delta for all ten — no migration, no lost history.
+  **This bullet said `history-of-ideas on_niche_share` "returns to 0.0758". It reads
+  0.0626 = 354 / 5,651.** What returned was the *definition*; the value under a definition
+  is a property of the day's corpus, not of the definition. 0.0758 was 230 / 3,033 — the
+  v2 twin of the 08-31 A/B, verified on that day's corpus — and the corpus has since
+  tripled (7,298 video rows against 2,433 on 08-29). The denominator went 1,806 -> 5,651
+  overnight as 3,845 ballast videos came back in; the numerator moved 338 -> 354. The
+  claim was true when written and could never have been the number that landed. The
+  eight scorer-dependent metrics and the whole `scorecards` row stay withheld from every
+  surface indefinitely.
 - **BUT THIS NO LONGER BLOCKS ANYTHING (ADR-0045).** The requirement now fires when an
   exposition score is CITED — a scorecard row for an active exposition cluster carrying a
   non-NULL `value`/`sustainability`/`opportunity` — not while the score merely exists. The
@@ -258,8 +264,11 @@ reviewer. Summarize exploration briefly.
   collection until `_worst_per_source` landed. Expect a one-time `inputs_n` jump on the
   first night; Rule 3 fires only on falls, so it will not page.
 - **`supply.trimmed_mean_views` exists and feeds NOTHING (ADR-0056).** It ships beside
-  `median_views` on an identical pool — between/within 7.94 against 3.36 — because the
-  pool arrives in lumps and a median steps when one crosses the midpoint. It reads
+  `median_views` on an identical pool — between/within **5.35 against 3.96** over nine
+  clean nights (re-measured 2026-09-14; the 7.94 vs 3.36 this bullet first carried was
+  four nights that included the enrichment lag, and closing that lag helped the median
+  most) — because the pool arrives in lumps and a median steps when one crosses the
+  midpoint. The lead is 1.35x, not 2.4x, and mostly between-cluster spread. It reads
   2.2x-32x the median: heavy tails, a *different quantity*, not a better estimate of the
   same one. `scorecards.supply` still ranks `median_views` and that non-decision is
   recorded, not accidental — the choice could not be made on Gate E evidence anyway,
@@ -283,8 +292,14 @@ reviewer. Summarize exploration briefly.
   trips. The second exists because the first was blind by construction:
   `anthropocene-anthropology` moved +62% across 2026-09-01..04 and went quiet at +4.6%
   with the trend running. Cause was one discovery query's arrivals, **not**
-  reclassification, so it does not implicate the lexicon. Both go quiet after 2026-09-14
-  when the cut reverts and the ballast set empties — designed, not broken.
+  reclassification, so it does not implicate the lexicon. On the revert night, 2026-09-14,
+  the per-night wire fires once on every cluster — designed, and it self-heals at 0 -> 0
+  the next night. **The ramp did NOT go quiet, and this bullet said it would.** Its window
+  reached back across the definition boundary and compared v3 counts (~137) to v2 zeros,
+  re-flagging the planned revert on 8 clusters — and would have every night until 09-19.
+  Fixed the same day: the ramp window is scoped to days sharing today's
+  `detail.definition`, which is Rule 2's own rule for what is comparable. From 09-15 both
+  are quiet; the claim is true one day later than written.
 - Known defects, unfixed: the `court-cases` successors have seeds and demand terms but
   **no lexicon**, so they can never gain members and stay retired. `winner_age_years`
   and `top10_concentration` were in `replay.BACKTEST_METRICS` while `video_snapshots` is

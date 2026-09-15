@@ -42,7 +42,8 @@ GROUP = "supply"
 #: Share of `trimmed_mean_views`' pool dropped from EACH tail — 0.10 per tail is 20% of
 #: the pool. Per tail rather than total, and on raw views rather than log views, because
 #: those are the conventions of the diagnostic that measured the 7.94 between/within
-#: ratio; a plausible variant here would inherit a number it did not produce.
+#: ratio (re-measured 5.35 vs 3.96 over 2026-09-05..13, ADR-0056 addendum); a plausible
+#: variant here would inherit a number it did not produce.
 TRIM_FRACTION = 0.10
 #: Four weeks. Long enough to smooth a lumpy publishing schedule, short enough to
 #: track a niche that is heating up.
@@ -389,7 +390,9 @@ def trimmed_mean_views(session: Session, cluster_id: str, day: date) -> FeatureR
     second eligibility rule would make the comparison meaningless. The pool is fed in
     nightly lumps by discovery waves, and a median jumps when a wave crosses the
     midpoint while a trimmed mean integrates over the bulk: measured over
-    2026-09-01..04, between/within 7.94 against the median's 3.36.
+    2026-09-01..04, between/within 7.94 against the median's 3.36 — and re-measured
+    2026-09-14 over nine clean nights at 5.35 against 3.96, once ADR-0057 had closed the
+    lag that was hurting the median most (ADR-0056 addendum).
 
     It feeds nothing. `scorecards.supply` still ranks `median_views`, and whether that
     ever changes is a separate decision (ADR-0056) that this deliberately does not take.
