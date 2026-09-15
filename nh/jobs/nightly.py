@@ -23,6 +23,11 @@ from nh.db.types import utcnow
 from nh.jobs.phases import run_phases
 from nh.jobs.status import SWEEP_JOB
 
+#: The key `_sweep_enrichment` reports under in `NightlyResult.statuses`. Distinct from
+#: every collector source so a sweep failure is visible without clobbering the primary
+#: `youtube_api` status — and excluded from `NightlyResult.ok`, see there.
+SWEEP_STATUS_KEY = "youtube_api:sweep"
+
 log = logging.getLogger(__name__)
 
 
@@ -42,7 +47,18 @@ class NightlyResult:
 
     @property
     def ok(self) -> bool:
-        return all(s in {"ok", "skipped"} for s in self.statuses.values())
+        """Every collector and phase finished, the enrichment sweep excepted.
+
+        A failed sweep is not a failed night (ADR-0057): tonight's RSS wave keeps
+        `is_short` NULL until tomorrow, which is the behaviour that existed before the
+        sweep did. `status._check_sweep` warns on it. Until 2026-09-15 this counted it —
+        so on 2026-09-10 a sweep 403 exited 1, pushed an alert and pinged /fail while
+        `nh status --check` correctly passed the night. The exit code and the gate now
+        agree.
+        """
+        return all(
+            s in {"ok", "skipped"} for k, s in self.statuses.items() if k != SWEEP_STATUS_KEY
+        )
 
 
 def plan(only: list[str] | None = None, settings: Settings | None = None) -> list[PlannedRun]:
@@ -98,12 +114,12 @@ def _sweep_enrichment(
     log.info(
         "%-8s %-16s quota=%s raw=%s upserts=%s",
         record.status,
-        "youtube_api:sweep",
+        SWEEP_STATUS_KEY,
         record.quota_used,
         record.raw_written,
         record.rows_upserted,
     )
-    return {"youtube_api:sweep": record.status}
+    return {SWEEP_STATUS_KEY: record.status}
 
 
 def run_nightly(
