@@ -57,7 +57,11 @@ start the snapshot clock.*
   It exists because RSS stops refreshing a video after fifteen newer uploads, which left
   only 39.4% of 14-17-day-old videos with a reading on 2026-09-14. A video with any
   snapshot that night, from any source, is skipped — which also makes it once per night
-  across the primary run and the sweep. Re-reads are snapshot-only (raw kind
+  across the primary run and the sweep, **for every id that answers**. One the API
+  declines gets no snapshot, so the sweep asks it again: measured 09-15..09-17, the
+  primary pass read 6,273 / 6,890 / 7,392 and the sweep then re-asked the 169 / 186 / 213
+  dead ones, ~5 units. That is why the sweep's line reads "0 of N" and why, since
+  2026-09-17, it is INFO — coverage lives in `nh status`, not in this log. Re-reads are snapshot-only (raw kind
   `video_watch`): the `Video` row is never re-upserted, so an edited title cannot reach
   clustering.
 - **Errors, and what they leave behind (2026-09-15)**: a non-200 is raised with Google's

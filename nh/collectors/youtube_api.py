@@ -366,9 +366,18 @@ class YouTubeApiCollector(Collector):
 
         Oldest first because age 17 is about to leave the reading window while age 14
         has three more nights, so a capped night drops the ids that can still be caught.
-        "No reading yet today" is what makes this once per night however many runs reach
-        it: the primary run and the ADR-0057 sweep both call `_backfill`, whichever
-        arrives first writes the snapshot, and the other finds nothing left to read.
+        "No reading yet today" is what makes this once per night for every id that
+        ANSWERS: the primary run and the ADR-0057 sweep both call `_backfill`, whichever
+        arrives first writes the snapshot, and the other finds it already read.
+
+        What it does not cover is an id the API declines — deleted or private. That one
+        never gets a snapshot, so it is still in this query when the sweep arrives and is
+        asked a second time. Deliberate, at a fiftieth of a unit each (measured 2026-09-17:
+        213 ids, 5 units) and worth it, because the alternative is durable state saying
+        "dead" that a briefly-private video would be wrongly stuck behind. It is also why
+        the sweep's watchlist pass routinely reads 0 of N: by then the only ids left are
+        the ones that already declined. That is a quiet night, not a failed one — see
+        `_watchlist`, which is careful not to call it a failure.
         """
         query = (
             watchlist_population(self.observed_date)
@@ -397,11 +406,29 @@ class YouTubeApiCollector(Collector):
         for item in self._enrich("videos", ids):
             returned += 1
             yield Raw(kind="video_watch", key=item["id"], payload=item)
-        if returned < len(ids):
+        missing = len(ids) - returned
+        if not missing:
+            return
+        # Two different events, and merging them cost a real misreading on 2026-09-17:
+        # the sweep's "213 of 213 ids not returned" read as a total failure of a pass
+        # that had in fact read 7,392 of 7,605 half an hour earlier. An id the API
+        # declines is deleted or private — expected, self-limiting, and already visible
+        # as coverage in `status._check_watchlist`, which measures stored rows rather
+        # than trusting this line. An id left UNASKED because the ledger stopped is the
+        # actionable one: quota that ran out tonight can lose a reading for good. Same
+        # split, same signal, as `_drain_backlog` above.
+        if self.quota.remaining == 0:
             self.log.warning(
-                "watchlist: %d of %d ids not returned — deleted, private, or out of budget",
-                len(ids) - returned,
+                "watchlist: budget ran out; up to %d of %d ids left unasked tonight",
+                missing,
                 len(ids),
+            )
+        else:
+            self.log.info(
+                "watchlist: read %d of %d; %d gone (deleted or private)",
+                returned,
+                len(ids),
+                missing,
             )
 
     def _unenriched_ids(self) -> list[tuple[str, str]]:

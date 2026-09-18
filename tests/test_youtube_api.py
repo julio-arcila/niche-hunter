@@ -728,9 +728,13 @@ def _watch_world(engine, *, read_tonight=False):
             )
 
 
-def _serve_videos(engine):
+def _serve_videos(engine, dead: set[str] | None = None):
     """Answer /videos with each requested id's own channel and publish date, so the
-    enrichment upsert cannot move a video out of the population and fake a pass."""
+    enrichment upsert cannot move a video out of the population and fake a pass.
+
+    `dead` is omitted from the response the way the real API omits a deleted or private
+    id: 200, no error, the id simply absent from `items`.
+    """
     import json
     from urllib.parse import parse_qs, urlparse
 
@@ -741,6 +745,8 @@ def _serve_videos(engine):
         items = []
         with session_scope(engine) as s:
             for vid in ids:
+                if vid in (dead or set()):
+                    continue
                 row = s.get(Video, vid)
                 snippet = {
                     **VIDEO_ITEM["snippet"],
@@ -862,6 +868,60 @@ def test_only_ids_confirmed_tonight_are_excluded_not_ids_attempted(settings, eng
     list(collector._backfill(seen={"UCsmall-v0", "UCsmall-v1"}, read_tonight={"UCsmall-v0"}))
 
     assert set(_requested()) == {"UCsmall-v1", "UCsmall-v2", "UCsmall-v3"}
+
+
+@responses.activate
+def test_a_declined_id_is_asked_again_by_the_sweep_and_is_not_logged_as_a_failure(
+    settings, engine, caplog
+):
+    """The real shape of a night, which every other test here misses because its fake
+    API returns everything asked for.
+
+    A deleted or private id never gets a snapshot, so "no reading yet today" leaves it in
+    the population and the ADR-0057 sweep asks again — by which point it is the ONLY id
+    left, and the pass reads 0 of 1. Measured on 2026-09-17 as "213 of 213 ids not
+    returned", which read as a dead collector and was not one: the primary pass had read
+    7,392 of 7,605 half an hour earlier. So the line must not be a warning. The budget
+    case must still be, and `test_a_budget_that_runs_out_mid_watchlist_warns` holds it.
+    """
+    import logging
+
+    _watch_world(engine)
+    _serve_videos(engine, dead={"UCsmall-v3"})
+
+    _night_collector(settings, engine).run()
+    first = set(_requested())
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="nh.collectors.youtube_api"):
+        _night_collector(settings, engine).run()
+
+    assert first == {"UCsmall-v0", "UCsmall-v1", "UCsmall-v2", "UCsmall-v3"}
+    assert _requested()[-1:] == ["UCsmall-v3"], "the sweep re-asks exactly the dead id"
+    watch = [r for r in caplog.records if r.message.startswith("watchlist: read")]
+    assert [r.levelno for r in watch] == [logging.INFO], watch
+    assert "gone (deleted or private)" in watch[0].getMessage()
+
+
+@responses.activate
+def test_a_budget_that_runs_out_mid_watchlist_warns(settings, engine, caplog):
+    """The other half of the split, and the actionable one: an id the ledger stopped us
+    asking about has no reading and may leave its window unread. That is quota to look
+    at tonight, not an id that died on its own."""
+    import logging
+
+    _watch_world(engine)
+    _serve_videos(engine)
+    collector = _night_collector(settings, engine)
+    collector.quota.budget = collector.quota.used  # nothing left to spend
+
+    with caplog.at_level(logging.INFO, logger="nh.collectors.youtube_api"):
+        list(collector._watchlist(set()))
+
+    warned = [
+        r for r in caplog.records if "watchlist" in r.message and r.levelno >= logging.WARNING
+    ]
+    assert len(warned) == 1, caplog.records
+    assert "left unasked" in warned[0].getMessage()
 
 
 @responses.activate

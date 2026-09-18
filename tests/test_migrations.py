@@ -97,3 +97,26 @@ def test_downgrade_survives_a_populated_database(fresh):
         from nh.db.models import SeedTerm
 
         assert connection.execute(select(func.count()).select_from(SeedTerm)).scalar() > 0
+
+
+def test_a_migration_does_not_mute_the_applications_loggers(fresh):
+    """Alembic's `fileConfig` disables every logger that already exists unless told not
+    to, and `env.py` runs it on any in-process `command.upgrade`.
+
+    This cost half an afternoon on 2026-09-17. `Collector.__init__` creates
+    `nh.collectors.<source>` lazily, so whether a logger was alive when a migration ran
+    depended on file order: the suite's first two log assertions passed alone, passed in
+    their own file, passed in either half of the suite, and failed only in the whole one,
+    with an empty `caplog` and no other symptom. Nothing in `nh/` runs alembic
+    in-process, so no nightly line was ever lost — but a suite that cannot observe a log
+    line cannot hold one, which is why there were no log assertions to break until now.
+    """
+    import logging
+
+    _, config = fresh
+    logger = logging.getLogger("nh.collectors.canary")
+    assert not logger.disabled
+
+    command.upgrade(config, "head")
+
+    assert not logger.disabled, "alembic's fileConfig muted an existing nh logger"

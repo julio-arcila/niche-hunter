@@ -3485,6 +3485,29 @@ It does not decide who is in the test, and it changes nothing a metric reads: it
 was false in the first version, which did re-upsert; see "Snapshot only".) It cannot recover a reading for a video already past age 17 when it
 lands; the first decision date loses nothing only if the change is live by 2026-09-19.
 
+### Addendum 2026-09-17 — "the other finds nothing left" was true only of ids that answer
+
+Three nights in, the observed shape is not the one written above. An id the API **declines**
+— deleted or private — never gets a snapshot, so it is still in the "no reading yet today"
+query when the sweep arrives, and by then it is the only kind of id left. Every night since
+09-15 the sweep's watchlist pass has therefore read 0 of N and logged
+`watchlist: N of N ids not returned`, at WARNING: 169, then 186, then 213. The primary pass
+on those same nights read 6,273 / 6,890 / 7,392.
+
+Nothing was broken, and the re-ask is kept — 213 ids is 5 units, and the alternative is
+durable state saying "dead" that a briefly-private video would be stuck behind. What was
+broken is the **line**, which merged two events that want opposite responses, and it cost a
+real misreading on 2026-09-17: the 100% figure was read as a dead collector while coverage
+was in fact 97%. Now split on the signal `_drain_backlog` already used — ids the API declined
+are INFO (`watchlist: read R of N; M gone`), a budget that stopped us asking is WARNING
+(`left unasked tonight`), because only the second can lose a reading for good. Held by
+`test_a_declined_id_is_asked_again_by_the_sweep_and_is_not_logged_as_a_failure`, which is
+also the first watchlist test whose fake API declines an id — every earlier one returned
+everything asked for, which is exactly why the prose above could be written and pass.
+
+The coverage number was never in doubt: `status._check_watchlist` measures stored rows and
+reads 97%, and it is what should be believed over any line the collector logs about itself.
+
 ## ADR-0060 — A pre-registered channel-grain test, gated: H1 reach persistence, then H2 breakout
 2026-09-15. Accepted. Registers `reports/channel_reach_preregistration_2026-09-15.md`. Adds
 `nh/prospective/`, the stratified statistics in `nh/backtest/stats.py`, and
