@@ -310,7 +310,16 @@ reviewer. Summarize exploration briefly.
   definition — long-form, active-cluster member, MAX subs ≤ `COHORT_MAX_SUBS` — read by both
   the collector and `status._check_watchlist`, which warns below 0.9 coverage. A video with
   a reading that night from **any** source is skipped, which is also what makes it once
-  per night across the primary run and the sweep. **Re-reads are snapshot-only** (raw
+  per night across the primary run and the sweep — **for every id that answers.** One the
+  API declines never gets a snapshot, so it is still there when the sweep arrives and is
+  asked again, by which point it is all that is left: the sweep reads 0 of N every night
+  (169, 186, 213 on 09-15/16/17) while the primary pass those same nights read 6,273 /
+  6,890 / 7,392. That line was a WARNING until 2026-09-17 and was read here as a dead
+  collector while coverage was **97%**. It is now INFO; the WARNING is kept for the case
+  that can actually lose a reading — ids the ledger left unasked, measured from what
+  `_enrich` sent rather than inferred from the ledger afterwards. Coverage lives in
+  `nh status`, which counts stored rows; believe it over anything the collector says about
+  itself. **Re-reads are snapshot-only** (raw
   kind `video_watch`): re-upserting the row would let a title edited since capture reach
   clustering. ~130 units a night, capped at 15,000
   ids. It decides what is *collected*; the frozen registration cohort decides what is
