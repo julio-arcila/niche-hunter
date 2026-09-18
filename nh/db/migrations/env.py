@@ -11,7 +11,16 @@ from nh.db.session import make_engine
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # `disable_existing_loggers=False` is not cosmetic. The default, True, sets
+    # `disabled = True` on every logger that already exists when this runs — and
+    # `Collector.__init__` creates `nh.collectors.<source>` lazily, so which loggers
+    # that hits depends on what ran first. In the test suite it meant a migration
+    # silently muted `nh.*` for the rest of the session: the first two log assertions
+    # ever written here passed alone, passed in their own file, passed in either half
+    # of the suite, and failed only in the whole one (2026-09-17). Nothing in `nh/`
+    # runs alembic in-process, so no nightly ever lost a line to this — but a test that
+    # cannot see a log line is a test that cannot hold one.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

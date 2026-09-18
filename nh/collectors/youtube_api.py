@@ -366,9 +366,18 @@ class YouTubeApiCollector(Collector):
 
         Oldest first because age 17 is about to leave the reading window while age 14
         has three more nights, so a capped night drops the ids that can still be caught.
-        "No reading yet today" is what makes this once per night however many runs reach
-        it: the primary run and the ADR-0057 sweep both call `_backfill`, whichever
-        arrives first writes the snapshot, and the other finds nothing left to read.
+        "No reading yet today" is what makes this once per night for every id that
+        ANSWERS: the primary run and the ADR-0057 sweep both call `_backfill`, whichever
+        arrives first writes the snapshot, and the other finds it already read.
+
+        What it does not cover is an id the API declines — deleted or private. That one
+        never gets a snapshot, so it is still in this query when the sweep arrives and is
+        asked a second time. Deliberate, at a fiftieth of a unit each (measured 2026-09-17:
+        213 ids, 5 units) and worth it, because the alternative is durable state saying
+        "dead" that a briefly-private video would be wrongly stuck behind. It is also why
+        the sweep's watchlist pass routinely reads 0 of N: by then the only ids left are
+        the ones that already declined. That is a quiet night, not a failed one — see
+        `_watchlist`, which is careful not to call it a failure.
         """
         query = (
             watchlist_population(self.observed_date)
@@ -393,15 +402,37 @@ class YouTubeApiCollector(Collector):
         self.log.info(
             "watchlist: re-reading %d videos at ages %d-%d", len(ids), WATCH_MIN_AGE, WATCH_MAX_AGE
         )
+        asked: set[str] = set()
         returned = 0
-        for item in self._enrich("videos", ids):
+        for item in self._enrich("videos", ids, asked=asked):
             returned += 1
             yield Raw(kind="video_watch", key=item["id"], payload=item)
-        if returned < len(ids):
+        unasked = len(ids) - len(asked)
+        declined = len(asked) - returned
+        # Two different events, and merging them cost a real misreading on 2026-09-17:
+        # the sweep's "213 of 213 ids not returned" read as a total failure of a pass
+        # that had in fact read 7,392 of 7,605 half an hour earlier. An id the API
+        # declines is deleted or private — expected, self-limiting, and already visible
+        # as coverage in `status._check_watchlist`, which measures stored rows rather
+        # than trusting this line. An id left UNASKED because the ledger stopped is the
+        # actionable one: quota that ran out tonight can lose a reading for good.
+        #
+        # Split on what `_enrich` actually sent, not on `quota.remaining == 0` as
+        # `_drain_backlog` does: review found that a final batch answering in full and
+        # spending the last unit is indistinguishable, under that test, from one never
+        # sent — so it would raise the alarm this exists to stop. The coarse test stays
+        # where it is because there it errs the other way, skipping a `video_missing`
+        # mark so the id is simply re-asked tomorrow.
+        if unasked:
             self.log.warning(
-                "watchlist: %d of %d ids not returned — deleted, private, or out of budget",
-                len(ids) - returned,
-                len(ids),
+                "watchlist: budget ran out; %d of %d ids left unasked tonight", unasked, len(ids)
+            )
+        if declined:
+            self.log.info(
+                "watchlist: read %d of %d; %d gone (deleted or private)",
+                returned,
+                len(asked),
+                declined,
             )
 
     def _unenriched_ids(self) -> list[tuple[str, str]]:
@@ -482,7 +513,18 @@ class YouTubeApiCollector(Collector):
             if not token:
                 return
 
-    def _enrich(self, endpoint: str, ids: list[str]) -> Iterator[dict[str, Any]]:
+    def _enrich(
+        self, endpoint: str, ids: list[str], asked: set[str] | None = None
+    ) -> Iterator[dict[str, Any]]:
+        """`asked`, when given, collects the ids this actually put to the API.
+
+        A caller cannot otherwise tell "the API declined this id" from "the ledger
+        stopped before we reached it" — both simply fail to come back. Inferring it from
+        `quota.remaining == 0` afterwards is close but not exact: a final batch that
+        answers in full and happens to spend the last unit looks identical to one that
+        was never sent. Filled only after a charged 200, so an id in `asked` was really
+        asked about.
+        """
         part, fields = _PARTS[endpoint]
         for batch in _chunks(ids):
             if not self.quota.can_afford(LIST_COST):
@@ -496,6 +538,8 @@ class YouTubeApiCollector(Collector):
                 self.log.warning("stopping %s enrichment: %s", endpoint, exc)
                 self.quota.exhaust()
                 return
+            if asked is not None:
+                asked.update(batch)
             yield from data.get("items", [])
 
     def _get(self, endpoint: str, cost: int, **params: Any) -> dict[str, Any]:
