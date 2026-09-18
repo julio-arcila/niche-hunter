@@ -3498,12 +3498,20 @@ Nothing was broken, and the re-ask is kept — 213 ids is 5 units, and the alter
 durable state saying "dead" that a briefly-private video would be stuck behind. What was
 broken is the **line**, which merged two events that want opposite responses, and it cost a
 real misreading on 2026-09-17: the 100% figure was read as a dead collector while coverage
-was in fact 97%. Now split on the signal `_drain_backlog` already used — ids the API declined
-are INFO (`watchlist: read R of N; M gone`), a budget that stopped us asking is WARNING
+was in fact 97%. Now split on what `_enrich` actually sent — ids the API declined are INFO
+(`watchlist: read R of N; M gone`), a budget that stopped us asking is WARNING
 (`left unasked tonight`), because only the second can lose a reading for good. Held by
 `test_a_declined_id_is_asked_again_by_the_sweep_and_is_not_logged_as_a_failure`, which is
 also the first watchlist test whose fake API declines an id — every earlier one returned
 everything asked for, which is exactly why the prose above could be written and pass.
+
+The first version of the split inferred "left unasked" from `quota.remaining == 0` after the
+loop, mirroring `_drain_backlog`. Review found that a final batch which answers in full and
+happens to spend the last unit is indistinguishable, under that test, from one never sent —
+so it would raise exactly the alarm this change exists to stop. `_enrich` now takes an
+`asked` set and fills it after each charged 200, which is the only place that knows. The
+coarse test stays in `_drain_backlog`: there it errs the other way, skipping a `video_missing`
+mark so the id is re-asked tomorrow, which costs a request rather than a false alarm.
 
 The coverage number was never in doubt: `status._check_watchlist` measures stored rows and
 reads 97%, and it is what should be believed over any line the collector logs about itself.

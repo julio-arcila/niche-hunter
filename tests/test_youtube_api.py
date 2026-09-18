@@ -903,6 +903,35 @@ def test_a_declined_id_is_asked_again_by_the_sweep_and_is_not_logged_as_a_failur
 
 
 @responses.activate
+def test_a_last_batch_that_spends_the_final_unit_is_not_a_budget_warning(settings, engine, caplog):
+    """Review's finding on the first version of this split, which inferred "left unasked"
+    from `quota.remaining == 0` after the fact.
+
+    Here every id IS asked, the last batch answers, and it happens to spend the ledger to
+    exactly zero — while one id comes back declined. The coarse test cannot tell that
+    from a batch never sent, so it would fire the budget alarm that this whole change
+    exists to stop firing. `_enrich(asked=...)` reports what it actually sent, so the
+    night reads as what it is: quiet."""
+    import logging
+
+    _watch_world(engine)
+    _serve_videos(engine, dead={"UCsmall-v3"})
+    collector = _night_collector(settings, engine)
+    collector.quota.budget = collector.quota.used + 1  # exactly one videos.list page
+
+    with caplog.at_level(logging.INFO, logger="nh.collectors.youtube_api"):
+        list(collector._watchlist(set()))
+
+    assert collector.quota.remaining == 0, "the premise: the ledger is spent"
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == [], (
+        caplog.records
+    )
+    assert "watchlist: read 3 of 4; 1 gone (deleted or private)" in [
+        r.message for r in caplog.records
+    ]
+
+
+@responses.activate
 def test_a_budget_that_runs_out_mid_watchlist_warns(settings, engine, caplog):
     """The other half of the split, and the actionable one: an id the ledger stopped us
     asking about has no reading and may leave its window unread. That is quota to look
