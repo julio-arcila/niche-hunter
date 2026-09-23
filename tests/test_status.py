@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import sqlalchemy as sa
+
 from nh.collectors.registry import REGISTRY
 from nh.db.models import JobRun
 from nh.db.session import session_scope
@@ -670,7 +672,12 @@ def _watched(engine, channels, *, read):
     from nh.db.models import VideoSnapshot
     from tests.conftest_features import add_channel, make_cluster
 
-    today = utcnow().date()
+    # The run's own start day, read back from `job_runs` exactly as `_check_watchlist` and
+    # `_check_previous_day` read it — not `utcnow().date()` a second time. Two clock reads
+    # microseconds apart agree in practice and disagree at UTC midnight, and a fixture whose
+    # world depends on that is the class of test the pinned calendar exists to prevent.
+    with session_scope(engine) as s:
+        today = s.scalar(sa.select(sa.func.min(JobRun.started_at))).date()
     make_cluster(engine)
     # Yesterday collected. `add_channel` writes its readings on the upload day, fourteen
     # days back, and nothing else — a world with a hole where the previous night should be,
