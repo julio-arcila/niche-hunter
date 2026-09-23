@@ -81,7 +81,7 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 - Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
-  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,081** (967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until this line, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
+  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,085** (measured 2026-09-22 on main, pytest's own summary line, exit 0; this line said 1,081 until then. 967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until 09-15, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
   now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
   so a new phase silently extends the nightly gate (it reads FAIL until the next nightly
   runs the new one; `run_nightly.sh` runs the phases before the check, so no page).
@@ -172,6 +172,12 @@ reviewer. Summarize exploration briefly.
   moving more than 5% of member channels night-over-night is a **warning**, on the delta
   and never the level (history-of-ideas is 126 of 205 by construction). A missing stamp is
   tolerated on a day where no row has one, and warned on when only some rows do.
+  **And on a missing day (ADR-0061, 2026-09-22):** the day before the latest run's own
+  start day must hold a `video_snapshots` row, or the gate FAILS — once per gap, silent at
+  bootstrap, read from `job_runs.started_at` and never from a clock. Until then every check
+  asked only whether the LATEST run collected, and 2026-09-21 — a day no run collected for
+  — would have read green had 09-20's discovery not also failed. A `degraded` source
+  (ADR-0062: the RSS pass stopped at its day boundary with feeds unpolled) is a problem too.
 - **Every change on 2026-08-31 removed negative evidence from a denominator and none
   added any**, which is the independent review's structural finding and is not repaired
   by any of ADR-0050/0051. The class that would have LOWERED shares — tightening an
@@ -219,7 +225,12 @@ reviewer. Summarize exploration briefly.
 - **The quota budget IS effectively per-day, and this bullet said the opposite until
   2026-09-01.** `QuotaLedger` is per-run, but `YouTubeApiCollector.__init__` seeds it with
   `budget - _spent_today()`, where `_spent_today` sums `job_runs.quota_used` since midnight
-  **America/Los_Angeles** across every run_id. Tested since Slice 1
+  **America/Los_Angeles** across every run_id. **Correction 2026-09-22: that midnight is
+  anchored to `self.observed_at` — the run's START — not to the clock** (`youtube_api.py`,
+  `_spent_today`). So "effectively per-day" is really per-day-of-run-start: a run that
+  crosses Pacific midnight keeps budgeting against the previous day's spend, which is a
+  budget Google has already reset. It under-spends, so it is safe; it is not the per-day
+  ledger this bullet implied, and a run that crosses the boundary spends less than it could. Tested since Slice 1
   (`test_todays_earlier_spend_is_deducted_from_this_runs_budget`, whose docstring records
   the suite going red at 00:50 Pacific because an earlier version of the test used "an hour
   ago" instead of anchoring to Pacific midnight). So a manual `nh nightly` plus the 09:10
@@ -238,8 +249,20 @@ reviewer. Summarize exploration briefly.
 - **A scheduled wake fires at 09:05**, five minutes before the nightly — installed
   2026-09-01, `pmset repeat wakeorpoweron MTWRFSU 09:05:00`, confirmed in `pmset -g sched`.
   launchd replays a fire slept *through*; this covers the Mac asleep ALL DAY, which is how
-  2026-08-30 was lost and is the only realised failure this system has had. **It is what
-  ADR-0055 shipped instead of a cloud deploy.** Caveat: a closed laptop wakes only on AC.
+  2026-08-30 was lost. **It is what ADR-0055 shipped instead of a cloud deploy.** Caveat: a
+  closed laptop wakes only on AC. **Two corrections, 2026-09-22.** First, "replays" is
+  incomplete: launchd replays a fire only when no instance of the label is running. A run
+  still executing at the next 09:10 **absorbs** that fire — dropped, not queued — and every
+  row it goes on to write is stamped with the run's START day, because `nightly.run_nightly`
+  fixes `observed_at` once. That is how 2026-09-21 was lost: the 09-20 run froze with the
+  lid closed on battery and finished at 10:02 the next morning, 24h40m long. Second, this
+  bullet said 08-30 "is the only realised failure this system has had"; it was when written,
+  and there are now **three** — 08-30 (a fire slept through, on cron), 09-13 (a late wake
+  ran before DNS was up), 09-20/21 (a run outlived its day and absorbed the next fire).
+  ADR-0061 makes the third visible the next morning, ADR-0062 stops the RSS pass crossing
+  its day, ADR-0063 runs the nightly under `caffeinate` and leaves self-abort open — three
+  sibling branches written 2026-09-22 with this bullet, each true of `main` only once its
+  branch merges; `git log --grep ADR-006` says which have.
 - **The nightly runs from launchd** (`com.niche-hunter.nightly`, 09:10), not cron:
   cron silently skips a fire the Mac sleeps through and never retries it, which is
   how 2026-08-30 was lost for good. The backup and disk check stay in cron, because
@@ -321,7 +344,9 @@ reviewer. Summarize exploration briefly.
   `nh status`, which counts stored rows; believe it over anything the collector says about
   itself. **Re-reads are snapshot-only** (raw
   kind `video_watch`): re-upserting the row would let a title edited since capture reach
-  clustering. ~130 units a night, capped at 15,000
+  clustering. **~152-158 units a night and growing** with the cohort (measured 2026-09-22;
+  this bullet said ~130 until then, which was true of the first nights and is not a
+  constant — the population ages in), capped at 15,000
   ids. It decides what is *collected*; the frozen registration cohort decides what is
   *analysed*. The first decision date's uploads reach age 17 on **2026-09-19** — the
   watchlist must be collecting by then or they are lost.

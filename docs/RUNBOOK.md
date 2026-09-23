@@ -77,8 +77,12 @@ Installed **2026-09-01**, five minutes before the 09:10 nightly.
 
 launchd already replays a fire the Mac slept *through* on wake, which is why the nightly
 moved off cron. The case it does not cover is a Mac asleep **all day** — nobody opens the
-lid, nothing wakes it, and the day is simply gone. That is exactly how 2026-08-30 was lost,
-and it is the only realised failure mode this system has had.
+lid, nothing wakes it, and the day is simply gone. That is exactly how 2026-08-30 was lost.
+This paragraph said that was "the only realised failure mode this system has had"; it was
+when written, and there are now three — 08-30, 09-13 (the late wake before DNS, below), and
+09-20/21 (a run that outlived its day, next section). And "replays" is incomplete: launchd
+replays a fire only when no instance of the label is running. A run still executing at 09:10
+absorbs that fire — dropped, not queued. Corrected 2026-09-22.
 
 **This is what Slice 8 shipped instead of deploying to a cloud** (ADR-0055). One command
 against a migration whose principal risk was to the one artifact that cannot be re-collected.
@@ -95,6 +99,46 @@ What is still uncovered, and is now written down rather than assumed: the Mac be
 `channel_snapshots` per missed day. Wikipedia backfills itself on the next run
 (`_resume_from`, history to 2015), Trends is shape-only, and RSS survives short gaps inside
 its 15-entry window. So an absence costs the supply series and nothing else.
+
+### A run that outlives its day — the 2026-09-20/21 loss
+
+The third realised failure, and a new class: not a fire that never happened, but a run
+that never finished. What happened, from `logs/nightly.log` and `job_runs`:
+
+| when (local) | what |
+|---|---|
+| 09-20 09:22 | nightly starts, 12 minutes late, after a DarkWake (maintenance wake, screen dark) |
+| 09-20 09:42 | `youtube_api` dies on a connection reset — the Mac is going to sleep, lid closed, on battery |
+| 09-20 09:43 → 09-21 08:42 | RSS pass frozen; on each maintenance wake it polls a few feeds, most fail at DNS, **385 feeds are charged a `fail_count`** |
+| 09-21 09:10 | launchd fires; the label is still running; **the fire is dropped, not queued** |
+| 09-21 08:42 → 10:02 | operator opens the lid; RSS finishes, the sweep and the four phases run |
+
+`nightly.run_nightly` sets `started = utcnow()` **once** and hands it to every collector and
+phase as `observed_at`, so every row written on the morning of 09-21 is stamped
+`observed_date = 2026-09-20`: 101,589 RSS readings, most of them taken a day after the
+stamp says. No `video_snapshots` row carries 2026-09-21, and none ever will. A 24h40m run.
+
+**Why nothing saw it.** `nh status --check` asked whether the LATEST run collected, and it
+had. The gate went red that morning only because 09-20's discovery had also failed; with a
+healthy API pass the missing day would have read green.
+
+**What changed** (ADR-0061, ADR-0062, ADR-0063 — three sibling branches written 2026-09-22,
+each true of `main` only once merged; check `git log --grep ADR-006`): the gate fails on a previous day with
+no snapshot rows; the RSS pass stops at its run's own day boundary — 19:00 local, UTC
+midnight — and reports `degraded` for the feeds it did not reach, without charging them a
+failure; and `nh nightly` runs under `caffeinate`. What did **not** change: a run still
+executing at 09:10 still absorbs the fire, and the sweep and phases still run past the
+boundary — see "Keeping the Mac awake" below for the open self-abort question.
+
+**If you see it again** — `FAIL no video_snapshots row carries <day>` — the day is gone.
+Do not re-run for it: a catch-up run stamps its own start day, and the first reading of a
+day is the one that survives. Read the log for what froze, and check `feed_state` for
+channels charged failures they did not earn:
+`select count(*) from feed_state where fail_count >= 3` before and after the night.
+
+The three realised failures, so the list stays honest: **2026-08-30** (cron skipped a fire
+the Mac slept through), **2026-09-13** (a late wake ran the nightly before DNS was up),
+**2026-09-20/21** (a run froze across the day and absorbed the next fire).
 
 ### The nightly, and why launchd
 
