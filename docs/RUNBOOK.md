@@ -143,6 +143,51 @@ wait crosses the `observed_date` boundary above, and that night collects for tom
 late wake alone would have done the same a few minutes later, so the wait creates no loss
 it did not already face — but it can widen that window by up to ten minutes.
 
+### Keeping the Mac awake for the run — and what that cannot do (2026-09-22)
+
+`run_nightly.sh` runs `nh nightly` under `caffeinate -i -s` (ADR-0063). Two assertions:
+`-i` prevents *idle* sleep and is honoured on battery; `-s` prevents system sleep and is
+honoured **only on AC**. `caffeinate` exits with the wrapped command's status, so
+`collect_rc` is unchanged.
+
+Why `-i` is the one that matters here: `pmset -g custom` shows **`sleep 1` on battery**.
+After the 09:05 wake, an untouched Mac on battery can begin dozing within minutes of the run
+starting, and a DarkWake — a maintenance wake, screen dark, which is how the 2026-09-20 run
+came to start at 09:22 — goes back to sleep as soon as nothing holds it. A frozen process
+does not fail; it waits, and its rows keep the day it started with.
+
+**What `caffeinate` cannot do, honestly:**
+
+- **A closed lid.** Lid-close sleep is not idle sleep. No assertion prevents it on battery,
+  and on AC only clamshell mode (external display and keyboard attached) does. 2026-09-20
+  was a closed lid on battery; `caffeinate` would not have prevented it. If the machine
+  lives closed, it must live plugged in — the same rule the scheduled wake already imposes.
+- **The next fire.** launchd will not start a second instance of `com.niche-hunter.nightly`
+  while one is running, and it does not queue the missed fire. A run still executing at
+  09:10 **absorbs** the next day's collection, and every row it goes on to write is stamped
+  with its own START day (`nightly.run_nightly` fixes `observed_at` once). That is the
+  mechanism that lost 2026-09-21, and `caffeinate` only makes it less likely, not impossible.
+- **A network that dies while the Mac dozes.** On 09-20, 385 feeds were charged a
+  `fail_count` for DNS failures during maintenance wakes. ADR-0062 stops that past the day
+  boundary; inside the day it can still happen.
+
+What now catches the case anyway: `nh status --check` fails on a day with no snapshot rows
+(ADR-0061), and the RSS pass stops at its run's own day boundary rather than writing
+yesterday's stamp on today's readings (ADR-0062).
+
+**Open question — should a run that reaches 09:10 abort itself?** Not decided, and not
+invented here. The repository's own priorities argue for it: snapshots are the one thing
+that cannot be recomputed, the sweep and the phases can be (`nh compute`, ADR-0014), and a
+run past its day boundary is by then writing readings under the wrong stamp. Against it:
+an aborted run leaves a day with no features, no scorecards and no rules pass until someone
+recomputes by hand; `nh criteria` C1 and the channel-reach watchlist window (ADR-0059) both
+read the phases' output; and what a run should do with the day's *partial* collection is
+not written anywhere. The mechanism is small — a deadline check between collectors and
+before the phases in `nightly.py`, on the hook ADR-0062 added to the base class, or a
+`timeout` around `nh nightly` in this script — the policy is not. Decide it in an ADR;
+until then a run that overruns is visible the next morning, and that is all that is
+promised.
+
 ### Two backup destinations, and why the second one exists
 
 The iCloud copy and the database it protects are **one Apple ID apart**. A locked or

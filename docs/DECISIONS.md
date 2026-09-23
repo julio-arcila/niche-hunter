@@ -3581,3 +3581,64 @@ cluster, so no result says a niche is open.
 
 Reads: interim 2026-09-25 (cannot pass), verdict 2026-10-02, both as dated deferrals in
 `nh deferrals`. The 90-day emergence panel is a separate registration, due before 2026-11-30.
+
+## ADR-0063 — The nightly runs under `caffeinate`; whether an overrunning run should abort itself is recorded as open
+2026-09-22. Accepted for the wrapper; **open** for the self-abort. Changes
+`scripts/run_nightly.sh` and the RUNBOOK. No Python, no schema, no test — the change is one
+process wrapper whose behaviour is the operating system's.
+
+### What happened, in the part this ADR addresses
+
+The 2026-09-20 nightly started at 09:22 after a DarkWake — a maintenance wake, screen
+dark. `pmset -g custom` on this machine reads `sleep 1` on battery. Nothing held the Mac
+awake, the lid was closed, and the run was frozen for most of a day, waking with each
+maintenance cycle and finishing only when the operator opened the lid on 09-21. The run
+was still executing at 09:10 on 09-21; launchd does not start a second instance of a
+running label and does not queue the fire, so 09-21 was never collected. ADR-0061 sees
+that loss the next morning; ADR-0062 stops the RSS pass writing yesterday's stamp on
+today's readings; this ADR is about not freezing in the first place.
+
+### The wrapper
+
+`caffeinate -i -s uv run nh nightly`. `-i` holds a PreventUserIdleSystemSleep assertion,
+honoured on battery, which is the one that answers `sleep 1`; `-s` holds
+PreventSystemSleep, honoured only on AC, which covers the case the scheduled wake already
+requires (a closed Mac wakes only on AC, so a closed Mac is a plugged-in Mac or it is not
+collecting at all). `caffeinate` exits with the wrapped command's status — verified,
+`caffeinate -i sh -c 'exit 3'` returns 3 — so `collect_rc` and everything gated on it is
+unchanged. Only `nh nightly` is wrapped: the check, the prune and the digest are seconds.
+
+### What it does not do, stated so nobody reads more into it
+
+- A **closed lid** is not idle sleep. No assertion prevents it on battery, and on AC only
+  clamshell mode does. 09-20 was a closed lid on battery, and this wrapper would not have
+  saved it. The RUNBOOK says so.
+- The **next fire** is still absorbed by a run that is executing at 09:10, and every row
+  that run goes on to write is stamped with its start day. The wrapper lowers the odds of
+  a frozen run; it does not change what launchd does with one.
+- It does nothing for a **network that is down** while the machine is awake — that is
+  `wait_for_network`'s job, and ADR-0062's for the RSS pass.
+
+This is the second time a one-line power-management change stands in for a larger one
+(ADR-0055's scheduled wake was the first). It is chosen for the same reason: the risk to
+the one artefact that cannot be re-collected is smallest when the mechanism is the
+operating system's and nothing in `nh/` changes.
+
+### Open: should a run still executing at 09:10 abort rather than absorb the fire?
+
+**Not decided here, deliberately.** The case for it can be made from the repository's own
+documents: snapshots are the only thing that cannot be recomputed (data rule 4); the
+sweep and the four phases can be (`nh compute`, ADR-0014); and a run past its day boundary
+is, from that point, writing readings under the wrong `observed_date`. The case against it
+is also real: an aborted run leaves a day with no features, no scorecards and no rules
+pass until someone recomputes by hand, `nh criteria` C1 reads that day as attended, the
+channel-reach watchlist (ADR-0059) reads the phases' population, and nothing written down
+says what a run should do with a day's *partial* collection — keep it under the day's
+stamp, or not. Those are the operator's trade-offs, not the repository's.
+
+The mechanism, whichever way it goes, is small: a `past_deadline()` check between
+collectors and before the sweep and phases in `nightly.py` — the hook ADR-0062 put in the
+base class — or a `timeout` around `nh nightly` in `run_nightly.sh` set to end before
+09:10. Until it is decided, what is promised is only this: an overrun is visible the
+next morning (ADR-0061), the RSS pass does not cross its day (ADR-0062), and the Mac does
+not doze off on its own account (this ADR).
