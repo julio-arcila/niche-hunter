@@ -171,9 +171,11 @@ does not fail; it waits, and its rows keep the day it started with.
   `fail_count` for DNS failures during maintenance wakes. ADR-0062 stops that past the day
   boundary; inside the day it can still happen.
 
-What now catches the case anyway: `nh status --check` fails on a day with no snapshot rows
-(ADR-0061), and the RSS pass stops at its run's own day boundary rather than writing
-yesterday's stamp on today's readings (ADR-0062).
+What catches the case anyway, once their branches merge (ADR-0061 and ADR-0062 were
+written the same day on sibling branches of this change — verify with `git log --grep
+ADR-006` rather than trusting this sentence): `nh status --check` fails on a day with no
+snapshot rows (ADR-0061), and the RSS pass stops at its run's own day boundary rather than
+writing yesterday's stamp on today's readings (ADR-0062).
 
 **Open question — should a run that reaches 09:10 abort itself?** Not decided, and not
 invented here. The repository's own priorities argue for it: snapshots are the one thing

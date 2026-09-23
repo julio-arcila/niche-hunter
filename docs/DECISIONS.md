@@ -3587,6 +3587,12 @@ Reads: interim 2026-09-25 (cannot pass), verdict 2026-10-02, both as dated defer
 `scripts/run_nightly.sh` and the RUNBOOK. No Python, no schema, no test — the change is one
 process wrapper whose behaviour is the operating system's.
 
+**Sibling branches.** ADR-0061 (`status-sees-a-missing-day`), ADR-0062 (`rss-run-deadline`)
+and this one (`nightly-under-caffeinate`) were written the same day on three branches off
+the same commit and refer to each other. Each is true of `main` only once its own branch
+has merged; a reader of `main` should check `git log --grep ADR-006` before trusting a
+cross-reference here as a description of the tree.
+
 ### What happened, in the part this ADR addresses
 
 The 2026-09-20 nightly started at 09:22 after a DarkWake — a maintenance wake, screen
