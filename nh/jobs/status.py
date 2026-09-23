@@ -167,6 +167,9 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
     the run as a whole must have written at least one snapshot. A ported source
     left unconfigured is a problem, not a legitimate skip — that is the failure
     mode this exists to catch.
+
+    And the day BEFORE this run's day must hold snapshot rows (`_check_previous_day`,
+    ADR-0061): "the latest run collected" cannot see a day that no run collected for.
     """
     settings = settings or get_settings()
     with session_scope(engine) as session:
@@ -191,6 +194,21 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
     result = CheckResult(run_id)
     by_source = _worst_per_source(rows)
 
+    _check_sources(rows, by_source, settings, result)
+    _check_kp_staleness(engine, result)
+    _check_quota_headroom(engine, settings, result)
+    _check_one_run_per_day(engine, result)
+    _check_ballast_drift(engine, result)
+    _check_sweep(engine, run_id, result)
+    _check_watchlist(engine, run_id, result)
+    _check_previous_day(engine, run_id, result)
+    return result
+
+
+def _check_sources(
+    rows: list, by_source: dict[str, tuple], settings: Settings, result: CheckResult
+) -> None:
+    """Every ported, configured source and every phase must have finished `ok`."""
     # `s.manual` excluded deliberately: a manual source has no network fetch the
     # nightly could run, so its absence from a nightly run says nothing about the
     # night's health. Its freshness is the operator's job and is visible in
@@ -232,18 +250,22 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
     for source in sorted(set(by_source) - known):
         result.warnings.append(f"{source} writes job_runs but no check covers it")
 
-    # A manual source cannot fail a nightly it never joins, so staleness is the only
-    # way it degrades — and it degrades silently, because every KP metric keeps
-    # returning the last export's numbers with full confidence.
-    #
-    # A WARNING, never a problem: the export is refreshed by hand and ADR-0030 already
-    # excludes manual sources from the ported-source gate above. Paging someone at 03:00
-    # because a human has not opened a browser in ten weeks would train them to ignore
-    # the gate.
-    #
-    # No rows at all produces no warning. Absence is already carried by the metrics
-    # (they return NULL with a reason) and by the deferral register; warning here as
-    # well would fire on every fresh database and on every fixture.
+
+def _check_kp_staleness(engine: Engine | None, result: CheckResult) -> None:
+    """Warn when the hand-refreshed Keyword Planner export has plainly been forgotten.
+
+    A manual source cannot fail a nightly it never joins, so staleness is the only way it
+    degrades — and it degrades silently, because every KP metric keeps returning the last
+    export's numbers with full confidence.
+
+    A WARNING, never a problem: the export is refreshed by hand and ADR-0030 already
+    excludes manual sources from the ported-source gate. Paging someone at 03:00 because a
+    human has not opened a browser in ten weeks would train them to ignore the gate.
+
+    No rows at all produces no warning. Absence is already carried by the metrics (they
+    return NULL with a reason) and by the deferral register; warning here as well would
+    fire on every fresh database and on every fixture.
+    """
     with session_scope(engine) as session:
         newest = session.scalar(sa.select(sa.func.max(KeywordMetric.observed_date)))
     if newest is not None:
@@ -254,6 +276,9 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
                 f"`nh kp ingest` a fresh export"
             )
 
+
+def _check_quota_headroom(engine: Engine | None, settings: Settings, result: CheckResult) -> None:
+    """Warn when the Pacific quota day is mostly spent — a same-day re-run has happened."""
     spent, budget = quota_day(engine, settings)
     if budget and spent >= budget * QUOTA_WARN_SHARE:
         result.warnings.append(
@@ -261,11 +286,56 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
             f"a re-run today has {max(budget - spent, 0):,} units of headroom"
         )
 
-    _check_one_run_per_day(engine, result)
-    _check_ballast_drift(engine, result)
-    _check_sweep(engine, run_id, result)
-    _check_watchlist(engine, run_id, result)
-    return result
+
+def _check_previous_day(engine: Engine | None, run_id: str, result: CheckResult) -> None:
+    """The day before this run's day must hold snapshot rows. None is a FAILED night.
+
+    Every check above asks whether the LATEST run collected. None asks whether a day is
+    missing — and a day can go missing while the latest run looks fine. 2026-09-21 did:
+    the 09-20 nightly started late, its API pass died, the Mac slept clamshell-on-battery,
+    and the run resumed when the operator woke the machine on 09-21, finishing at 10:02.
+    Every row it wrote that morning is stamped `observed_date = 2026-09-20`, because
+    `nightly.run_nightly` fixes `observed_at` once at start (ADR-0061). launchd will not
+    start a second instance of a label still running, so the 09-21 fire never happened, and
+    no `video_snapshots` row carries 2026-09-21. Had 09-20's discovery not ALSO failed, the
+    gate would have read green while a day of the compounding asset was already gone.
+
+    A **problem**, not a warning: the missing day cannot be re-fetched — no source serves
+    history — so it is exactly the class the gate exists for. It fires once per gap: the
+    next night's "previous day" is the day that just collected, so the page clears itself
+    without anyone silencing it.
+
+    The day is the run's own start day, read from `job_runs.started_at` — the same instant
+    every collector stamps as `observed_date` — and NOT the clock. `observed_date` is UTC,
+    so the boundary is 19:00 local; `criteria._today()` is UTC and `inputs.operator_today()`
+    is local, and both are different questions from "which day did this run collect for".
+    Reading the run's own stamp means there is no clock to get wrong and nothing for the
+    test suite's pinned calendar to ride on.
+
+    Bootstrap: silent while no snapshot row is older than the previous day. A fresh
+    database, or a run on its first or second night, has no prior day to be missing.
+    """
+    with session_scope(engine) as session:
+        started = session.scalar(
+            sa.select(sa.func.min(JobRun.started_at)).where(JobRun.run_id == run_id)
+        )
+        if started is None:
+            return
+        previous = started.date() - timedelta(days=1)
+        first = session.scalar(sa.select(sa.func.min(VideoSnapshot.observed_date)))
+        if first is None or first >= previous:
+            return
+        rows = session.scalar(
+            sa.select(sa.func.count())
+            .select_from(VideoSnapshot)
+            .where(VideoSnapshot.observed_date == previous)
+        )
+    if not rows:
+        result.problems.append(
+            f"no video_snapshots row carries {previous} — that day is lost and cannot be "
+            f"re-fetched; check logs/nightly.log for the run that should have collected it "
+            f"(a run that outlives its own day stamps everything with its start day, ADR-0061)"
+        )
 
 
 def _feature_days(session, n: int = 2) -> list[date]:
