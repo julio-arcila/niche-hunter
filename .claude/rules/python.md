@@ -18,10 +18,10 @@
 
   | site | boundary |
   |---|---|
-  | `collectors/base.py:230` (`Collector.run`) | a whole source |
+  | `collectors/base.py:258` (`Collector.run`) | a whole source |
   | `collectors/trends.py:159` | one item within a source |
   | `collectors/wikipedia.py:155` | one item within a source |
-  | `collectors/youtube_rss.py:144` | one item within a source |
+  | `collectors/youtube_rss.py:172` | one item within a source |
   | `jobs/phases.py:93` | one phase |
 
   Three further `except Exception` sites exist and are deliberately **not** in that

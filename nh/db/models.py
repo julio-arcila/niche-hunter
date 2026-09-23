@@ -61,7 +61,7 @@ class JobRun(Base):
     run_id: Mapped[str] = mapped_column(sa.String(36), index=True)
     job: Mapped[str] = mapped_column(sa.String(64))  # "nightly", "hourly_hot"
     source: Mapped[str] = mapped_column(sa.String(32), index=True)
-    status: Mapped[str] = mapped_column(sa.String(16))  # running|ok|failed|skipped
+    status: Mapped[str] = mapped_column(sa.String(16))  # running|ok|degraded|failed|skipped
     started_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
     quota_used: Mapped[int | None] = mapped_column(sa.Integer)

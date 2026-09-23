@@ -16,6 +16,13 @@ Last 15 entries only, no pagination: a channel uploading more than 15 times
 between polls loses the overflow permanently. Unofficial endpoint, so politeness
 *is* the rate limit — conditional GETs, bounded workers, jitter, and a circuit
 breaker after repeated failures.
+
+The pass stops at its run's own day boundary (`Collector.deadline`, ADR-0062): a
+reading is taken on the day it is stamped, or it is not taken. Until 2026-09-22 the
+only bound was the per-request TIMEOUT_S, and a run frozen with a sleeping Mac wrote
+a whole night of readings the next morning under the previous day's `observed_date`.
+Feeds not reached are skipped without a `fail_count`, counted, and the run is recorded
+`degraded`.
 """
 
 from __future__ import annotations
@@ -100,10 +107,23 @@ class YouTubeRssCollector(Collector):
             self.log.warning("no channels to poll — run the youtube_api collector first")
             return
         self.log.info("polling %d feeds with %d workers", len(targets), self.settings.rss_workers)
+        skipped: list[str] = []
         with ThreadPoolExecutor(self.settings.rss_workers) as pool:
-            futures = [pool.submit(self._poll, target) for target in targets]
+            futures = {pool.submit(self._poll, target): target for target in targets}
             for future in as_completed(futures):
-                yield future.result()
+                raw = future.result()
+                if raw is None:
+                    skipped.append(futures[future].channel_id)
+                    continue
+                yield raw
+        if skipped:
+            # Logged AND recorded: `degraded` reaches `job_runs.status` and `.error`, so
+            # the gate and `nh status` see it without anyone reading this log (ADR-0062).
+            self.degraded = (
+                f"deadline {self.deadline.isoformat()} reached: "
+                f"{len(skipped)} of {len(targets)} feeds not polled"
+            )
+            self.log.warning("%s — first: %s", self.degraded, ", ".join(skipped[:5]))
 
     def _targets(self) -> list[_Target]:
         """Every known channel not currently circuit-broken."""
@@ -120,8 +140,16 @@ class YouTubeRssCollector(Collector):
             ).all()
         return [_Target(*row) for row in rows]
 
-    def _poll(self, target: _Target) -> Raw:
-        """Runs on a worker thread. Never raises: one dead feed must not end the run."""
+    def _poll(self, target: _Target) -> Raw | None:
+        """Runs on a worker thread. Never raises: one dead feed must not end the run.
+
+        Returns None — no request sent, no `Raw`, no `feed_state` row touched — once the
+        run is past its day boundary (ADR-0062). A skipped feed did nothing wrong, so it
+        must not take a step toward `FAIL_LIMIT`; the run reports the gap instead.
+        """
+        if self.past_deadline():
+            self.log.debug("feed %s skipped: past the run's deadline", target.channel_id)
+            return None
         time.sleep(random.uniform(*self.settings.rss_jitter_s))
         headers = {"User-Agent": self.settings.rss_user_agent}
         if target.etag:

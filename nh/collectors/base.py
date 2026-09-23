@@ -27,7 +27,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, ClassVar
 
 from sqlalchemy.engine import Engine
@@ -117,6 +117,11 @@ class Collector(ABC):
         self.observed_at = observed_at or utcnow()
         self.quota = QuotaLedger(self.quota_budget)
         self.log = logging.getLogger(f"nh.collectors.{self.source}")
+        #: Set by `fetch()` when the run finished with a KNOWN gap — the reason, in words.
+        #: `run()` then records `degraded` rather than `ok` (ADR-0062). Distinct from a
+        #: failure: nothing raised, every row written is good, and the collector can say
+        #: exactly what it did not do. None means complete.
+        self.degraded: str | None = None
 
     # -- subclass surface ---------------------------------------------------
 
@@ -136,6 +141,22 @@ class Collector(ABC):
     @property
     def observed_date(self) -> date:
         return self.observed_at.date()
+
+    @property
+    def deadline(self) -> datetime:
+        """The last instant a reading of this run may be taken: UTC midnight after
+        `observed_date`, which is 19:00 local (ADR-0062).
+
+        Derived from `observed_at` — the same instant every row is stamped from — rather
+        than from a wall-clock cap, so it encodes the invariant itself: a row stamped
+        `observed_date = D` was observed on D. On 2026-09-20 a run froze with the Mac
+        asleep and wrote 101,589 readings the next morning under the previous day's stamp.
+        """
+        return datetime.combine(self.observed_date + timedelta(days=1), time.min, tzinfo=UTC)
+
+    def past_deadline(self) -> bool:
+        """Owned by `fetch()`; `normalize()` must stay pure and never read a clock."""
+        return utcnow() >= self.deadline
 
     def _stamp(self, model: type[Base], values: dict[str, Any]) -> dict[str, Any]:
         """Inject provenance and the observation day. A collector physically
@@ -226,7 +247,14 @@ class Collector(ABC):
                     if len(pending_raw) >= FLUSH_EVERY:
                         self._flush(session, pending_raw, pending, stats)
                 self._flush(session, pending_raw, pending, stats)
-                record.status = "ok"
+                if self.degraded:
+                    # Everything flushed is good; what is missing is named. A gap the
+                    # collector KNOWS about must not read as a clean night (ADR-0062).
+                    record.status = "degraded"
+                    record.error = self.degraded[:4000]
+                    self.log.warning("%s degraded: %s", self.source, self.degraded)
+                else:
+                    record.status = "ok"
             except Exception as exc:
                 # Discards only the in-flight batch; everything _flush committed stands.
                 session.rollback()
