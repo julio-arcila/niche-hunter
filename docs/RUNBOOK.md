@@ -123,7 +123,8 @@ had. The gate went red that morning only because 09-20's discovery had also fail
 healthy API pass the missing day would have read green.
 
 **What changed** (ADR-0061, ADR-0062, ADR-0063 — three sibling branches written 2026-09-22,
-each true of `main` only once merged; check `git log --grep ADR-006`): the gate fails on a previous day with
+all three merged into `main` the same night, 2026-09-23 ~00:20 local; the first nightly to
+run with them is 09-23's): the gate fails on a previous day with
 no snapshot rows; the RSS pass stops at its run's own day boundary — 19:00 local, UTC
 midnight — and reports `degraded` for the feeds it did not reach, without charging them a
 failure; and `nh nightly` runs under `caffeinate`. What did **not** change: a run still
@@ -215,9 +216,9 @@ does not fail; it waits, and its rows keep the day it started with.
   `fail_count` for DNS failures during maintenance wakes. ADR-0062 stops that past the day
   boundary; inside the day it can still happen.
 
-What catches the case anyway, once their branches merge (ADR-0061 and ADR-0062 were
-written the same day on sibling branches of this change — verify with `git log --grep
-ADR-006` rather than trusting this sentence): `nh status --check` fails on a day with no
+What catches the case anyway (ADR-0061 and ADR-0062 were written the same day on sibling
+branches of this change; all three merged into `main` the same night, 2026-09-23 ~00:20
+local, so this sentence describes the tree): `nh status --check` fails on a day with no
 snapshot rows (ADR-0061), and the RSS pass stops at its run's own day boundary rather than
 writing yesterday's stamp on today's readings (ADR-0062).
 

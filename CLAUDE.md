@@ -81,7 +81,7 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 - Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
-  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,085** (measured 2026-09-22 on main, pytest's own summary line, exit 0; this line said 1,081 until then. 967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until 09-15, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
+  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,096** (measured 2026-09-23 ~00:20 local on `main` after ADR-0061/0062/0063 merged — pytest's own summary line via a redirect, exit 0; 1,085 on 2026-09-22 before them, and note `pyproject.toml` already carries `addopts = "-q"`, so `pytest -q` is `-qq` and prints NO summary line — run `uv run pytest > file 2>&1` and read the last line; this line said 1,081 until 09-22. 967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until 09-15, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
   now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
   so a new phase silently extends the nightly gate (it reads FAIL until the next nightly
   runs the new one; `run_nightly.sh` runs the phases before the check, so no page).
@@ -230,7 +230,14 @@ reviewer. Summarize exploration briefly.
   `_spent_today`). So "effectively per-day" is really per-day-of-run-start: a run that
   crosses Pacific midnight keeps budgeting against the previous day's spend, which is a
   budget Google has already reset. It under-spends, so it is safe; it is not the per-day
-  ledger this bullet implied, and a run that crosses the boundary spends less than it could. Tested since Slice 1
+  ledger this bullet implied, and a run that crosses the boundary spends less than it could.
+  **The other half, 2026-09-23:** the window is `JobRun.started_at >= day_start`, so what a
+  crossing run spends AFTER Pacific midnight is filed under its start day and is invisible
+  to the next run's `_spent_today` — that next run can overspend by exactly that amount
+  (the 09-20 run's sweep charged 412 units on the morning of 09-21 under a 09-20
+  `started_at`). It only bites when a run outlives its day AND a second run starts the same
+  Pacific day, which launchd's no-second-instance rule makes rare; the 500-unit reserve is
+  the margin. Tested since Slice 1
   (`test_todays_earlier_spend_is_deducted_from_this_runs_budget`, whose docstring records
   the suite going red at 00:50 Pacific because an earlier version of the test used "an hour
   ago" instead of anchoring to Pacific midnight). So a manual `nh nightly` plus the 09:10
@@ -261,8 +268,12 @@ reviewer. Summarize exploration briefly.
   ran before DNS was up), 09-20/21 (a run outlived its day and absorbed the next fire).
   ADR-0061 makes the third visible the next morning, ADR-0062 stops the RSS pass crossing
   its day, ADR-0063 runs the nightly under `caffeinate` and leaves self-abort open — three
-  sibling branches written 2026-09-22 with this bullet, each true of `main` only once its
-  branch merges; `git log --grep ADR-006` says which have.
+  sibling branches written 2026-09-22 with this bullet, **all three merged into `main` the
+  same night** (2026-09-23 ~00:20 local; 09-23's 09:10 nightly is the first to run under
+  them). On merged `main`, `nh status --check` read-only that night said `FAIL no
+  video_snapshots row carries 2026-09-21` — the one firing the gap gets; 09-23's run judges
+  09-22, which holds 137,396 rows, so the gate clears on its own and nothing invokes the
+  check before then (only `run_nightly.sh` runs it, after the nightly).
 - **The nightly runs from launchd** (`com.niche-hunter.nightly`, 09:10), not cron:
   cron silently skips a fire the Mac sleeps through and never retries it, which is
   how 2026-08-30 was lost for good. The backup and disk check stay in cron, because

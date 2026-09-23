@@ -3589,9 +3589,10 @@ Mac awake), which address the cause; this one makes the loss visible.
 
 **Sibling branches.** ADR-0061 (`status-sees-a-missing-day`), ADR-0062 (`rss-run-deadline`)
 and ADR-0063 (`nightly-under-caffeinate`) were written the same day on three branches off
-the same commit and refer to each other; this one is `status-sees-a-missing-day`. Each is true of `main` only
-once its own branch has merged — check `git log --grep ADR-006` before trusting a
-cross-reference here as a description of the tree.
+the same commit and refer to each other; this one is `status-sees-a-missing-day`. **All
+three merged into `main` the same night** (2026-09-23 ~00:20 local, in the order 0061,
+0062, 0063), so every cross-reference here now describes the tree. This paragraph said
+"each is true of `main` only once its own branch has merged" until then.
 
 ### The loss, and why the gate could not see it
 
@@ -3661,9 +3662,10 @@ loss, and ADR-0063, which keeps the machine awake.
 
 **Sibling branches.** ADR-0061 (`status-sees-a-missing-day`), ADR-0062 (`rss-run-deadline`)
 and ADR-0063 (`nightly-under-caffeinate`) were written the same day on three branches off
-the same commit and refer to each other; this one is `rss-run-deadline`. Each is true of `main` only
-once its own branch has merged — check `git log --grep ADR-006` before trusting a
-cross-reference here as a description of the tree.
+the same commit and refer to each other; this one is `rss-run-deadline`. **All three merged
+into `main` the same night** (2026-09-23 ~00:20 local, in the order 0061, 0062, 0063), so
+every cross-reference here now describes the tree. This paragraph said "each is true of
+`main` only once its own branch has merged" until then.
 
 ### The defect: a per-request timeout and nothing above it
 
@@ -3771,9 +3773,10 @@ process wrapper whose behaviour is the operating system's.
 
 **Sibling branches.** ADR-0061 (`status-sees-a-missing-day`), ADR-0062 (`rss-run-deadline`)
 and this one (`nightly-under-caffeinate`) were written the same day on three branches off
-the same commit and refer to each other. Each is true of `main` only once its own branch
-has merged; a reader of `main` should check `git log --grep ADR-006` before trusting a
-cross-reference here as a description of the tree.
+the same commit and refer to each other. **All three merged into `main` the same night**
+(2026-09-23 ~00:20 local, in the order 0061, 0062, 0063), so every cross-reference here
+now describes the tree. This paragraph said "each is true of `main` only once its own
+branch has merged" until then.
 
 ### What happened, in the part this ADR addresses
 
