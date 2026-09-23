@@ -3589,6 +3589,12 @@ new `job_runs.status` value, `degraded`. No schema change (the column is a `Stri
 and only the set of values grows), no migration. Companion to ADR-0061, which sees the
 loss, and ADR-0063, which keeps the machine awake.
 
+**Sibling branches.** ADR-0061 (`status-sees-a-missing-day`), ADR-0062 (`rss-run-deadline`)
+and ADR-0063 (`nightly-under-caffeinate`) were written the same day on three branches off
+the same commit and refer to each other; this one is `rss-run-deadline`. Each is true of `main` only
+once its own branch has merged — check `git log --grep ADR-006` before trusting a
+cross-reference here as a description of the tree.
+
 ### The defect: a per-request timeout and nothing above it
 
 `youtube_rss` had `TIMEOUT_S = 20` on each request and no bound on the pass. On
