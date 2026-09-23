@@ -3587,6 +3587,12 @@ Reads: interim 2026-09-25 (cannot pass), verdict 2026-10-02, both as dated defer
 collector change. Companion to ADR-0062 (the RSS run deadline) and ADR-0063 (keeping the
 Mac awake), which address the cause; this one makes the loss visible.
 
+**Sibling branches.** ADR-0061 (`status-sees-a-missing-day`), ADR-0062 (`rss-run-deadline`)
+and ADR-0063 (`nightly-under-caffeinate`) were written the same day on three branches off
+the same commit and refer to each other; this one is `status-sees-a-missing-day`. Each is true of `main` only
+once its own branch has merged — check `git log --grep ADR-006` before trusting a
+cross-reference here as a description of the tree.
+
 ### The loss, and why the gate could not see it
 
 The 2026-09-20 nightly started at 09:22 after a DarkWake, its `youtube_api` pass died at
