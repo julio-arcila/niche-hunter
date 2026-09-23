@@ -26,7 +26,15 @@ wait_for_network
 ping_hc /start
 log "nightly starting"
 
-uv run nh nightly
+# Under caffeinate (ADR-0063): `-i` holds off IDLE sleep, honoured on battery, which is
+# what `sleep 1` in `pmset -g custom` would otherwise do to a DarkWake'd Mac minutes into
+# the run; `-s` holds off system sleep, honoured only on AC. caffeinate exits with the
+# wrapped command's status (verified: `caffeinate -i sh -c 'exit 3'` returns 3), so
+# collect_rc is unchanged. What this cannot do: a closed lid on battery still sleeps,
+# and a run still executing at the next 09:10 still absorbs that fire — every row it
+# goes on to write carries its START day. 2026-09-20/21 was lost that way; see the
+# RUNBOOK, "Keeping the Mac awake", including the open self-abort question.
+caffeinate -i -s uv run nh nightly
 collect_rc=$?
 
 uv run nh status --check
