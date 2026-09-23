@@ -227,3 +227,75 @@ def test_an_exception_outside_the_requests_hierarchy_still_costs_only_one_feed(s
     assert record.status == "ok"
     with session_scope(engine) as s:
         assert s.scalar(sa.select(sa.func.count()).select_from(VideoSnapshot)) == 3
+
+
+# -- the run's day boundary (ADR-0062) ------------------------------------------
+
+
+def _frozen_clock(monkeypatch, instant):
+    """Pin the clock `past_deadline()` reads. `base.utcnow` is the one read the deadline
+    makes; `fetched_at` in the payload comes from the collector module's own import and is
+    not what is under test."""
+    from nh.collectors import base
+
+    monkeypatch.setattr(base, "utcnow", lambda: instant)
+
+
+def test_the_deadline_is_utc_midnight_after_the_run_start_day(settings, engine):
+    """Derived from `observed_at`, never from a wall-clock cap: a run started at 14:10 UTC
+    on DAY may take readings until 00:00 UTC on DAY+1 — 19:00 local — and no later."""
+    from datetime import UTC, datetime
+
+    from tests.conftest_features import DAY
+
+    started = datetime.combine(DAY, datetime.min.time(), tzinfo=UTC).replace(hour=14, minute=10)
+    collector = YouTubeRssCollector(RUN_ID, settings=settings, engine=engine, observed_at=started)
+    assert collector.deadline == datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
+
+
+@responses.activate
+def test_past_the_deadline_no_feed_is_polled_and_the_run_is_degraded(settings, engine, monkeypatch):
+    """2026-09-20, replayed: the run started on its day and the clock is now the next
+    morning. Every feed is skipped — no request, no `feed_state` row, no `fail_count` —
+    and the run says so in `job_runs` rather than reading `ok`."""
+    from datetime import UTC, datetime, timedelta
+
+    _known_channel(engine)
+    _known_channel(engine, "UC00000000000000000002")
+    responses.add(responses.GET, FEED_URL.format(CHANNEL), body=FEED_XML, status=200)
+    collector = _collector(settings, engine)
+    _frozen_clock(monkeypatch, collector.deadline + timedelta(hours=8, minutes=42))
+
+    record = collector.run()
+
+    assert len(responses.calls) == 0
+    assert record.status == "degraded"
+    assert "2 of 2 feeds not polled" in record.error
+    assert record.snapshots_written == 0
+    with session_scope(engine) as s:
+        assert s.scalar(sa.select(sa.func.count()).select_from(FeedState)) == 0
+    # And a clock inside the day polls as before — the deadline is a boundary, not a cap.
+    _frozen_clock(monkeypatch, collector.deadline - timedelta(hours=1))
+    assert not collector.past_deadline()
+    assert collector.deadline.tzinfo is UTC
+    assert collector.deadline.time() == datetime.min.time()
+
+
+@responses.activate
+def test_a_feed_skipped_for_the_deadline_keeps_its_prior_fail_count(settings, engine, monkeypatch):
+    """A channel three failures from the breaker must not be pushed toward FAIL_LIMIT by the
+    run's own lateness: skipped is not failed."""
+    from datetime import timedelta
+
+    _known_channel(engine)
+    with session_scope(engine) as s:
+        s.add(FeedState(channel_id=CHANNEL, fail_count=FAIL_LIMIT - 3))
+    collector = _collector(settings, engine)
+    _frozen_clock(monkeypatch, collector.deadline + timedelta(minutes=1))
+
+    collector.run()
+
+    with session_scope(engine) as s:
+        state = s.get(FeedState, CHANNEL)
+    assert state.fail_count == FAIL_LIMIT - 3
+    assert state.last_polled is None

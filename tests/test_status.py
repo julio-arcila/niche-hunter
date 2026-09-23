@@ -720,3 +720,17 @@ def test_a_small_watchlist_population_is_not_measured(settings, engine):
     result = check(engine, settings)
 
     assert not any("watchlist" in w for w in result.warnings), result.warnings
+
+
+def test_a_degraded_source_fails_the_check(settings, engine):
+    """A pass that reached only part of its feed list is a partial loss of the day's
+    readings (ADR-0062). Not a warning: the rows it did not take cannot be taken later."""
+    _run(engine, "youtube_api", snapshots=40)
+    _run(engine, "youtube_rss", status="degraded", snapshots=120)
+    _run(engine, "wikipedia", snapshots=450)
+    _run(engine, "trends", snapshots=5)
+    for phase, _ in PHASES:
+        _run(engine, phase, snapshots=None)
+    result = check(engine, settings)
+    assert not result.ok
+    assert any("youtube_rss finished degraded" in p for p in result.problems), result.problems

@@ -254,3 +254,28 @@ def test_exhausting_a_ledger_stops_further_spending_without_charging():
     assert ledger.used == 200  # nothing fabricated
     assert ledger.remaining == 0
     assert not ledger.can_afford(1)
+
+
+class GappedCollector(FakeCollector):
+    """Fetches everything it can and then names what it could not (ADR-0062)."""
+
+    def fetch(self) -> Iterable[Raw]:
+        yield from super().fetch()
+        self.degraded = "deadline reached: 3 of 4 feeds not polled"
+
+
+def test_a_known_gap_is_recorded_as_degraded_not_ok(engine, settings):
+    """Everything flushed stands, the reason lands in `job_runs.error`, and the status is
+    neither `ok` (a gap is not a clean night) nor `failed` (nothing broke)."""
+    record = GappedCollector(RUN_ID, settings=settings, engine=engine).run()
+    assert record.status == "degraded"
+    assert record.error == "deadline reached: 3 of 4 feeds not polled"
+    assert record.snapshots_written == 2
+    with session_scope(engine) as s:
+        assert s.scalar(sa.select(sa.func.count()).select_from(VideoSnapshot)) == 1
+
+
+def test_a_complete_run_is_still_ok(engine, settings):
+    record = FakeCollector(RUN_ID, settings=settings, engine=engine).run()
+    assert record.status == "ok"
+    assert record.error is None

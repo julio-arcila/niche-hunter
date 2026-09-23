@@ -111,3 +111,5 @@ def test_a_failed_sweep_does_not_fail_the_night():
 
     assert NightlyResult("r", now, [], good).ok is True
     assert NightlyResult("r", now, [], bad).ok is False
+    degraded = {**good, "youtube_rss": "degraded"}
+    assert NightlyResult("r", now, [], degraded).ok is False  # ADR-0062: not a clean night

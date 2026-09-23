@@ -63,7 +63,7 @@ The rules in `.claude/rules/data.md` are implemented rather than documented:
 | Snapshots append-only | `AppendOnly` mixin + `before_flush` listener raising `AppendOnlyViolation` |
 | Snapshots deduped per day | `UniqueConstraint(entity, observed_date, source)` + `insert_ignore` |
 | Absent is NULL | `nh.collectors.parse.*` return `None`; every measure column is nullable |
-| Outage does not kill the run | `Collector.run()` records `job_runs.status="failed"` and returns |
+| Outage does not kill the run | `Collector.run()` records `job_runs.status="failed"` and returns; a known gap records `"degraded"` with the reason (ADR-0062) |
 | No network in tests | autouse `no_network` fixture blocks sockets |
 | No destructive SQL | `scripts/hooks/block_dangerous_sql.sh` on `PreToolUse(Bash)` |
 

@@ -3581,3 +3581,109 @@ cluster, so no result says a niche is open.
 
 Reads: interim 2026-09-25 (cannot pass), verdict 2026-10-02, both as dated deferrals in
 `nh deferrals`. The 90-day emergence panel is a separate registration, due before 2026-11-30.
+
+## ADR-0062 — The RSS pass stops at its run's own day boundary; feeds it did not reach are logged, and the run is `degraded`
+2026-09-22. Accepted. Adds `Collector.deadline`, `Collector.past_deadline()` and
+`Collector.degraded` to the base contract, with `youtube_rss` as the first consumer, and a
+new `job_runs.status` value, `degraded`. No schema change (the column is a `String(16)`,
+and only the set of values grows), no migration. Companion to ADR-0061, which sees the
+loss, and ADR-0063, which keeps the machine awake.
+
+### The defect: a per-request timeout and nothing above it
+
+`youtube_rss` had `TIMEOUT_S = 20` on each request and no bound on the pass. On
+2026-09-20 it began polling 7,809 feeds at 09:42, the Mac slept clamshell-on-battery, and
+the pass resumed on each maintenance wake — the log shows DNS failures at 12:29, 13:30 and
+14:31 — and then properly when the operator opened the lid at 08:42 the next morning,
+finishing at 08:58 on 09-21. All 101,589 rows it wrote are stamped `observed_date =
+2026-09-20`, because `nightly.run_nightly` fixes `observed_at` once and every collector
+stamps from it. Most of those readings were taken on 09-21. And the run was still
+executing at 09:10 on 09-21, so launchd did not start that day's fire; 09-21 has no
+snapshot rows at all.
+
+A second cost came out of the same night, and it is not small: **385 feeds were charged
+one `fail_count` each** during that run, 381 of them on name resolution — on every
+maintenance wake the pool churned through feeds that failed instantly at DNS before the
+machine dozed again. 385 live channels took a step toward `FAIL_LIMIT` for the machine's
+own sleep. Past the deadline that cannot happen any more, because a skipped feed is not
+polled at all. Inside the day it still can — a doze at 11:00 that wakes with DNS down
+charges the same way — and that is left as a named follow-up rather than folded in here:
+whether a `NameResolutionError` should count toward the breaker at all is a separate
+decision about what `FAIL_LIMIT` means.
+
+### The shape: a deadline derived from `observed_at`, not a wall-clock cap
+
+Two shapes were on the table. A **wall-clock cap** — no RSS pass runs longer than N hours
+— and a **deadline derived from the run's own `observed_at`**: the pass stops at 00:00 UTC
+of the day after `observed_date`, which is 19:00 local, the same boundary the stamp has.
+The second shipped, for three reasons.
+
+1. **It is the invariant, not a proxy for it.** What went wrong is that a row stamped
+   `observed_date = D` was observed on D+1. The deadline encodes exactly that: a reading
+   this run takes is taken on the day it is stamped, or it is not taken. A cap encodes
+   "passes are short", which is usually correlated and sometimes not — a six-hour cap on a
+   run started at 18:00 local still crosses the boundary.
+2. **A cap needs a number with nothing behind it.** A normal pass takes 16-20 minutes
+   (14:13 -> 14:29 UTC on 09-19, 14:13 -> 14:31 on 09-22) against roughly ten hours of
+   headroom from a 09:10 start. Any cap would be either far too large to matter on the
+   night that mattered or small enough to cut a slow-but-honest pass. The day boundary is
+   not chosen here; it is where `observed_date` already rolls.
+3. **The sleep case comes out right.** A run frozen at 09:42 and resumed at 18:30 local
+   the same day finishes under the derived deadline, and its rows are honest — same day,
+   late in it. A cap would have expired while nothing was running, and cut a pass that
+   could still have collected that day.
+
+What the derived deadline costs, named rather than waved at: a run that starts minutes
+before 19:00 local gets minutes. That path — the late wake — was already documented as
+writing into the wrong day; it now writes nothing past the boundary, reports `degraded`,
+and pages, which is the better of the two honest outcomes. The `wait_for_network` bound
+in `_common.sh` widens that window by up to ten minutes, as its comment already says.
+
+### What a skipped feed is, and is not
+
+`_poll` checks the deadline before it sleeps or sends anything. Past it, the feed is
+**skipped**, which is three things by construction:
+
+- **Not a failure.** No `Raw` is yielded and no `feed_state` row is touched: `fail_count`
+  and `last_polled` are unchanged, because the feed did nothing wrong and `FAIL_LIMIT`
+  exists for dead feeds. Charging the breaker for the run's own lateness would retire
+  live channels.
+- **Not silent.** Each skip logs at DEBUG, the pass logs one WARNING with the count and
+  the first ids, and `job_runs.error` carries `deadline <instant> reached: N of M feeds
+  not polled`.
+- **Not `ok`.** The run records `degraded`, through the base contract, so any collector
+  that finishes with a known gap reports it the same way.
+
+Feeds in flight when the machine sleeps are the exception the deadline cannot reach:
+their sockets die on wake and they take a real failure and one `fail_count` — at most
+`rss_workers` (8) of them per doze, and the breaker needs five in a row. They did fail;
+that is recorded as what it is.
+
+### `degraded`, and everything that reads a status
+
+- `Collector.run` writes `status = "degraded"` and `error = <the reason>`.
+- `NightlyResult.ok` is False, so `nh nightly` exits 1 — an alert and a `/fail` ping,
+  which agrees with the gate (the 2026-09-15 rule that the exit code and the gate must
+  not disagree).
+- `status.check` reports `youtube_rss finished degraded` as a **problem**: a pass that
+  reached only part of the feed list is a partial loss of the compounding asset for that
+  day, and that is what the gate pages on.
+- `criteria._nightly_days` counts only `ok`, so a degraded night is not an unattended
+  one and C1's clock restarts. Correct: the operator had to look.
+- `_worst_per_source` lets `degraded` beat `ok`, as any non-`ok` already did.
+
+### What it does not cover, named
+
+**The run can still outlive its day.** The enrichment sweep (`youtube_api`,
+`backfill_only`) and the four phases do not read the deadline: measured on 09-21, the
+sweep took 9 minutes and the phases 48. A run resumed at 08:42 the next morning therefore
+still finishes near 09:40 and absorbs the 09:10 fire. This is left as it is, on purpose:
+whether a run past its deadline should skip the sweep and the phases so the next fire can
+start on time — recomputing the abandoned day's features by hand through `nh compute`
+(ADR-0014) — is the self-abort question ADR-0063 records as open, and it is a policy the
+repository cannot settle from its own documents. The hook the answer would use is now in
+the base class.
+
+Wikipedia and Trends take about 24 minutes each and stamp differently (Wikipedia
+backfills by article day), so they are not consumers either; a run long enough for that
+to matter has already tripped everything above.

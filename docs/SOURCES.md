@@ -39,7 +39,15 @@ a real capture via `scripts/record_fixtures.py`.*
   gzip by default, so it is ~7 KB on the wire per feed (~7 MB a night for 955
   channels) against ~64 KB decoded. Transfer is fine; *storage* was not — hence
   compression and retention in ADR-0010.
-- The `fail_count` circuit breaker lives in `feed_state`.
+- The `fail_count` circuit breaker lives in `feed_state`. A feed skipped because the run
+  is past its day boundary (below) is **not** charged — it was never asked.
+- **The pass stops at its run's own day boundary (ADR-0062, 2026-09-22):** UTC midnight
+  after `observed_date`, 19:00 local. Feeds not reached by then are skipped, counted,
+  logged, and the run is recorded `degraded` with the count in `job_runs.error`. Why: a
+  run frozen with the Mac asleep on 2026-09-20 wrote 101,589 readings the next morning
+  under the previous day's stamp, and 385 feeds were charged a `fail_count` for DNS
+  failures during maintenance wakes. A normal pass takes 16-20 minutes for ~7,800
+  feeds (measured 2026-09-19 and 09-22), so the boundary is never near on a healthy night.
 - **Join key**: `video_id`, `channel_id`.
 - **Why it matters most**: this is the zero-cost view-velocity series, and it
   cannot be backfilled.
