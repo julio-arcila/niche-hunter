@@ -672,6 +672,11 @@ def _watched(engine, channels, *, read):
 
     today = utcnow().date()
     make_cluster(engine)
+    # Yesterday collected. `add_channel` writes its readings on the upload day, fourteen
+    # days back, and nothing else — a world with a hole where the previous night should be,
+    # which `_check_previous_day` (ADR-0061) rightly refuses. The watchlist question is
+    # about TODAY's readings, so one row yesterday changes nothing it measures.
+    _snapshots_on(engine, today - timedelta(days=1))
     for c in range(channels):
         channel = f"UCw{c:03d}"
         ids = add_channel(
@@ -720,3 +725,124 @@ def test_a_small_watchlist_population_is_not_measured(settings, engine):
     result = check(engine, settings)
 
     assert not any("watchlist" in w for w in result.warnings), result.warnings
+
+
+# -- a missing day (ADR-0061) --------------------------------------------------
+
+
+def _night_at(engine, started, *, run_id):
+    """A complete good night whose every `job_runs` row starts at `started`.
+
+    Fixed instants rather than `utcnow()`: the previous-day check reads the run's own start
+    day, so the test can name the days outright and nothing here touches the clock.
+    """
+    from nh.db.models import JobRun
+
+    with session_scope(engine) as s:
+        for source in ("youtube_api", "youtube_rss", "wikipedia", "trends"):
+            s.add(
+                JobRun(
+                    run_id=run_id,
+                    job="nightly",
+                    source=source,
+                    status="ok",
+                    started_at=started,
+                    snapshots_written=10,
+                )
+            )
+        for phase, _ in PHASES:
+            s.add(
+                JobRun(run_id=run_id, job="nightly", source=phase, status="ok", started_at=started)
+            )
+
+
+def _snapshots_on(engine, *days):
+    """One RSS reading per listed day, so a day's presence is a row and nothing more."""
+    from nh.db.models import VideoSnapshot
+
+    with session_scope(engine) as s:
+        for day in days:
+            s.add(
+                VideoSnapshot(
+                    video_id=f"v{day.isoformat()}",
+                    channel_id="UC0",
+                    observed_date=day,
+                    views=1,
+                    source="youtube_rss",
+                    run_id="r",
+                )
+            )
+
+
+def _run_day():
+    """The instant the suite's run started, and the UTC day every row of it is stamped."""
+    from datetime import UTC, datetime, time
+
+    from tests.conftest_features import DAY
+
+    return datetime.combine(DAY, time(14, 10), tzinfo=UTC), DAY
+
+
+def test_a_previous_day_with_no_snapshots_fails_the_check(settings, engine):
+    """2026-09-21, as it happened: the run before collected, the run after collected, and
+    no row anywhere carries the day between. Every per-run check read green."""
+    started, day = _run_day()
+    _night_at(engine, started, run_id=RUN_ID)
+    _snapshots_on(engine, day - timedelta(days=2), day)
+    result = check(engine, settings)
+
+    assert not result.ok
+    assert any(str(day - timedelta(days=1)) in p and "lost" in p for p in result.problems), (
+        result.problems
+    )
+
+
+def test_a_previous_day_with_snapshots_is_silent(settings, engine):
+    started, day = _run_day()
+    _night_at(engine, started, run_id=RUN_ID)
+    _snapshots_on(engine, day - timedelta(days=2), day - timedelta(days=1), day)
+    result = check(engine, settings)
+
+    assert result.ok, result.problems
+
+
+def test_a_fresh_database_is_not_missing_a_day(settings, engine):
+    """The first night has no previous day, and the second night's previous day is the
+    first — neither may page. The bootstrap rule: silent until some row is OLDER than the
+    previous day."""
+    started, day = _run_day()
+    _night_at(engine, started, run_id=RUN_ID)
+    _snapshots_on(engine, day)
+    assert check(engine, settings).ok
+
+    _snapshots_on(engine, day - timedelta(days=1))
+    assert check(engine, settings).ok
+
+
+def test_the_previous_day_is_the_run_start_day_not_the_clock(settings, engine):
+    """`observed_date` is UTC and the day boundary is 19:00 local, so any check that
+    computed "yesterday" from a clock would disagree with the stamp for five hours a day.
+    This one reads the run's own start day: a run stamped DAY judges DAY-1, whatever the
+    wall clock says — and the suite's calendar is pinned, so this test cannot ride it."""
+    started, day = _run_day()
+    _night_at(engine, started, run_id=RUN_ID)
+    # DAY-1 present, and the real calendar's yesterday deliberately absent.
+    _snapshots_on(engine, day - timedelta(days=3), day - timedelta(days=1), day)
+    result = check(engine, settings)
+
+    assert result.ok, result.problems
+    assert not any("lost" in p for p in result.problems)
+
+
+def test_the_missing_day_fires_once_and_clears_on_the_next_night(settings, engine):
+    """A page that stays red until someone silences it trains the operator to skim. The
+    night after the gap, the previous day is the day that just collected."""
+    started, day = _run_day()
+    _snapshots_on(engine, day - timedelta(days=2), day)
+    _night_at(engine, started, run_id=RUN_ID)
+    assert not check(engine, settings).ok
+
+    _night_at(engine, started + timedelta(days=1), run_id="77777777-7777-7777-7777-777777777777")
+    _snapshots_on(engine, day + timedelta(days=1))
+    result = check(engine, settings)
+    assert result.ok, result.problems

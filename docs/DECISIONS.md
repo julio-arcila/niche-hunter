@@ -3581,3 +3581,67 @@ cluster, so no result says a niche is open.
 
 Reads: interim 2026-09-25 (cannot pass), verdict 2026-10-02, both as dated deferrals in
 `nh deferrals`. The 90-day emergence panel is a separate registration, due before 2026-11-30.
+
+## ADR-0061 — `nh status --check` asserts the previous day has snapshots; a day with none is a failed night
+2026-09-22. Accepted. Adds `status._check_previous_day`. No schema change, no migration, no
+collector change. Companion to ADR-0062 (the RSS run deadline) and ADR-0063 (keeping the
+Mac awake), which address the cause; this one makes the loss visible.
+
+### The loss, and why the gate could not see it
+
+The 2026-09-20 nightly started at 09:22 after a DarkWake, its `youtube_api` pass died at
+09:42 on a connection reset, and the Mac slept clamshell-on-battery with RSS still polling.
+The run resumed when the operator woke the machine at 08:42 on 09-21 and finished at
+10:02 — a 24h40m run. `nightly.run_nightly` sets `started = utcnow()` once and hands it to
+every collector and phase as `observed_at`, so every row written on the morning of 09-21
+is stamped `observed_date = 2026-09-20`. launchd will not start a second instance of a
+label that is still running, so the 09-21 09:10 fire never happened. No `video_snapshots`
+row carries 2026-09-21, and none ever will: no source serves history.
+
+`nh status --check` asked, as it always had, whether the LATEST run collected. It did —
+101,589 RSS rows, all stamped 09-20. The gate went red that morning only because 09-20's
+discovery had *also* failed. Had the API pass survived, the missing day would have read
+green, which is the exact shape of failure the gate exists to close: a pipeline that
+stopped producing behind a green ping.
+
+### What the check reads
+
+The run's own start day, from `job_runs.started_at`, minus one — and whether any
+`video_snapshots` row carries that date. Three things are deliberate:
+
+- **Not the clock.** `observed_date` is UTC, so the snapshot day boundary is 19:00 local;
+  `criteria._today()` is UTC and `inputs.operator_today()` is local, and both are
+  different questions from "which day did this run collect for". The run's start instant
+  is the instant every collector stamps, so reading it back means there is no clock to
+  get wrong and nothing for the suite's pinned calendar to ride on. `_check_watchlist`
+  already reads the same field for the same reason.
+- **`video_snapshots` only.** RSS writes it every night at zero quota; `channel_snapshots`
+  is API-only, so gating on it would page on a night the API failed and RSS collected —
+  a night that is degraded, not lost, and already reported per source.
+- **Existence, not size.** A day with a handful of rows is a different question and has
+  its own detectors (`the run wrote no snapshots`, Rule 3's falls). A day with none is
+  the unrecoverable one.
+
+**A problem, not a warning.** The RUNBOOK says the page should be reserved for the thing
+that cannot be fixed tomorrow, and this is that thing. It fires once per gap: the next
+night's previous day is the day that just collected, so it clears without anyone silencing
+it.
+
+**Bootstrap** is silent by construction: the check says nothing until some row is OLDER
+than the previous day. A fresh database, a first night and a second night all pass.
+
+### Verified against the live database
+
+Run read-only on 2026-09-22, the latest run being that morning's: `FAIL no video_snapshots
+row carries 2026-09-21`. The 09-23 nightly will judge 09-22, which holds 137,396 rows, so
+the gate clears on its own. `test_status.py::_watched` had to be taught that yesterday
+collected — its world had readings fourteen days back and none in between, a hole this
+check rightly refuses — which is a fixture corrected, not a check weakened.
+
+### What it does not do
+
+It recovers nothing. It turns "a day silently gone" into "a page the next morning", which
+is the difference between a loss noticed the day after and one noticed at the next audit.
+The cause — one run outliving its snapshot day — is ADR-0062's and ADR-0063's, and the
+question of whether a run still executing at the next 09:10 should abort rather than
+absorb that fire is recorded as open in ADR-0063.

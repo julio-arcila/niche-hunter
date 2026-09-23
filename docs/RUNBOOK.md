@@ -440,7 +440,8 @@ is a pause on the healthchecks side.
 uv run nh prune --dry-run     # storage per kind/codec; what retention would drop
 uv run nh backfill descriptions --dry-run   # re-derive stored columns from raw
 uv run nh status              # last 7 days: runs, quota, snapshots per day
-uv run nh status --check      # the gate; exit 1 if the last night collected nothing
+uv run nh status --check      # the gate; exit 1 if the last night collected nothing,
+                              # or if the day before it has no snapshot rows (ADR-0061)
 uv run nh sources             # ported / configured / quota per source
 uv run nh doctor              # database reachable, schema present
 ```
