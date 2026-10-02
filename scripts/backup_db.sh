@@ -62,19 +62,61 @@ TMP="$(mktemp -t nh_backup)"
 trap 'rm -f "$TMP"' EXIT
 mkdir -p "$DEST"
 
+# Both normalise anything that is not a plain integer to -1, which every
+# comparison below rejects. The `|| echo -1` fallback alone is not enough: it
+# fires on a nonzero exit, but a zero exit printing nothing would leave an empty
+# string, and `[ "" -lt 1 ]` errors with "integer expression expected" instead of
+# being false. An erroring test inside an `if` condition is exempt from `set -e`,
+# so the guard would be skipped and the script would go on to call an unverified
+# copy good — a silent pass, which is worse than the string comparison this
+# replaced. Found in review, not in production.
+_count() { local n; n=$(/usr/bin/sqlite3 "$1" "$2" 2>/dev/null) || n=-1
+           case "$n" in '' | *[!0-9]*) n=-1 ;; esac; printf '%s' "$n"; }
+tables()    { _count "$1" "SELECT count(*) FROM sqlite_master WHERE type='table';"; }
+snapshots() { _count "$1" "SELECT count(*) FROM video_snapshots;"; }
+
+# Bracket the copy instead of demanding equality with the source afterwards.
+#
+# `.backup` takes 15-25 minutes on a 4.9GB database, and the nightly writes
+# `video_snapshots` for most of that window — RSS alone ran to 09:58 on
+# 2026-09-24 against this script's 09:40 cron slot. Comparing a count read
+# AFTER the copy against the copy itself therefore compares two different
+# instants and fails on every night the collection overruns: measured
+# 2,579,131 in the copy against 2,660,720 in the source, and three
+# consecutive nights lost that way (2026-09-30, 10-01, 10-02), with the
+# equality test passing before that only because RSS usually finished before
+# the slot and the later collectors write no snapshot rows. Ordering luck.
+#
+# What makes a bracket sound rather than merely looser: `video_snapshots` is
+# append-only and never pruned (data rules 4 and 5), so its count is monotone
+# in time. A copy taken at any instant during the run must land between the
+# count before the copy began and the count after it finished. The lower
+# bound still catches the failure the header warns about: a backup of nothing
+# scores 0 against a source above it. (The 113-byte incident itself is caught
+# earlier, by the table check below — an empty database has no tables at all.
+# `src_before > 0` is the belt to that braces, for a source that has tables
+# and no snapshots.)
+src_before="$(snapshots "$DB")"
+
 /usr/bin/sqlite3 "$DB" ".backup '$TMP'"
 
-tables()   { /usr/bin/sqlite3 "$1" "SELECT count(*) FROM sqlite_master WHERE type='table';"; }
-snapshots() { /usr/bin/sqlite3 "$1" "SELECT count(*) FROM video_snapshots;" 2>/dev/null || echo -1; }
+src_after="$(snapshots "$DB")"
 
 /usr/bin/sqlite3 "$TMP" "PRAGMA integrity_check;" | grep -qx ok || {
   log "FAILED integrity check — not writing it"
   alert "niche-hunter backup failed integrity check"; exit 1; }
 
 src_t="$(tables "$DB")"; bak_t="$(tables "$TMP")"
-src_s="$(snapshots "$DB")"; bak_s="$(snapshots "$TMP")"
-if [ "$bak_t" -lt 1 ] || [ "$src_t" != "$bak_t" ] || [ "$src_s" != "$bak_s" ]; then
-  log "FAILED: backup does not match source (tables $src_t/$bak_t, snapshots $src_s/$bak_s)"
+bak_s="$(snapshots "$TMP")"
+# A schema change is a migration, never concurrent with a backup, so tables
+# still compare for equality.
+if [ "$bak_t" -lt 1 ] || [ "$src_t" != "$bak_t" ]; then
+  log "FAILED: backup does not match source (tables $src_t/$bak_t)"
+  alert "niche-hunter backup content mismatch — NOT written"
+  exit 1
+fi
+if [ "$src_before" -lt 1 ] || [ "$bak_s" -lt "$src_before" ] || [ "$bak_s" -gt "$src_after" ]; then
+  log "FAILED: backup snapshots $bak_s outside [$src_before, $src_after] — NOT written"
   alert "niche-hunter backup content mismatch — NOT written"
   exit 1
 fi
@@ -117,7 +159,7 @@ fi
 # judgement `run_nightly.sh` already applies to `nh prune`.
 find "$DEST" -name 'niche_hunter_*.db.gz' -mtime +$KEEP_DAYS -delete \
   || log "retention sweep failed (non-fatal) — backups are kept, not pruned"
-log "backup ok -> $OUT ($(du -h "$OUT" | cut -f1), $bak_t tables, $bak_s snapshots)"
+log "backup ok -> $OUT ($(du -h "$OUT" | cut -f1), $bak_t tables, $bak_s snapshots in [$src_before, $src_after])"
 
 # ---- offsite copy #2: somewhere that is not iCloud -------------------------
 #

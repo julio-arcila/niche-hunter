@@ -448,6 +448,43 @@ Note on verification: `integrity_check` alone is **not** sufficient — it retur
 and snapshot counts against the source, because an unset `NH_DATABASE_URL` once
 produced a "successful" 113-byte backup of nothing.
 
+**The snapshot count is BRACKETED, not equal, since 2026-10-02.** It read
+`src_s != bak_s` until then, with the source counted *after* `.backup` returned —
+two different instants, because the copy of a 4.9 GB database takes 15-25 minutes
+and the nightly writes `video_snapshots` through most of that window. The 09:40
+slot is 30 minutes after the nightly starts, and the nightly now routinely runs
+past it (RSS to 09:58 on 09-24; the whole run to 12:53 on 10-01), so the check
+failed on the collection rather than on the backup: **four nights lost this way —
+2026-09-24, and then 09-30, 10-01 and 10-02 consecutively** (the last reading
+3,858,433 in the copy against 3,872,477 in the source), leaving 09-29 as the
+newest good local copy with a 7-day window. Nothing was wrong with any of those
+backups; the test was.
+
+It now reads the count before the copy and after it, and requires
+`src_before <= bak_s <= src_after` with `src_before > 0`. That is sound rather
+than merely looser because `video_snapshots` is append-only and never pruned
+(data rules 4 and 5), so the count is monotone in time and a copy taken at any
+instant inside the run must land in the bracket. Everything the equality test
+caught, the lower bound still catches: a backup of nothing scores 0 against a
+positive `src_before` — though the 113-byte incident in the script's header is
+caught one check earlier, by table equality, since an empty database has no
+tables at all. The `backup ok` line now prints `N snapshots in [before, after]`,
+so a night where collection overran is visible as a wide bracket instead of a
+failure. Table counts still compare for **equality** — a schema change is a
+migration, never concurrent with a backup. Both counts normalise non-numeric
+output to `-1`: a numeric `[ "$x" -lt 1 ]` on an empty string errors rather than
+being false, and an erroring test inside an `if` is exempt from `set -e`, so the
+guard would have been skipped and an unverified copy called good. That hole came
+in with the bracket and was closed in review, before any run used it.
+
+Not fixed by this, and still true: the 09:40 slot races the nightly for I/O
+(2026-09-23's features phase took 62 minutes against a usual 18-25 while
+`.backup` and `gzip` ran). Moving the cron line to 11:00 is an operator change
+to a crontab this repo does not own; chaining the backup from `run_nightly.sh`
+is **not** the fix, because the launchd agent has no Full Disk Access to iCloud
+and the backup would then fail every night — see "The backup, and why it is NOT
+on launchd".
+
 ## The monthly half-hour
 
 Once a month, in this order. It is the only recurring obligation this system has.
