@@ -8,6 +8,7 @@ nothing checks is a clock that expires unnoticed.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 import pytest
@@ -140,9 +141,23 @@ def test_the_channel_reach_entry_waits_on_a_person_not_a_date():
 def test_no_discharged_read_entry_is_left_in_the_register():
     """Both scheduled reads of ADR-0060 are rendered. A discharged `date` entry
     cannot be marked done — `fires()` reports a passed date as UNBLOCKED — so it has
-    to leave the register entirely."""
-    assert not [d for d in DEFERRALS if "INTERIM read" in d.metric]
-    assert not [d for d in DEFERRALS if "PRIMARY read" in d.metric]
+    to leave the register entirely.
+
+    This pins WORDING, and says so rather than pretending otherwise: an entry
+    re-added under a name containing neither word would pass. A structural version
+    — no `date` entry may carry a trigger already in the past — was written and
+    then deleted, because it reads the wall clock: `channel-emergence`'s trigger is
+    2026-10-02 by design, so that test would have gone red on 10-03 over an entry
+    that is legitimately unblocked and legitimately pending. A guard that turns the
+    suite red on a calendar day, for work nobody has yet failed to do, is the thing
+    ADR-0064 re-deferred a metric to avoid. The overdue question belongs to a
+    reader of `nh deferrals`, not to pytest."""
+    # "interim|primary" alone is too wide — `cost_risk.*` says "primary-source
+    # density" and has nothing to do with a scheduled read. Both words must sit
+    # next to "read" to count.
+    pattern = r"(interim|primary)\b[^.]*\bread|read\b[^.]*\b(interim|primary)"
+    reads = [d for d in DEFERRALS if re.search(pattern, d.metric, re.I)]
+    assert not reads, f"a discharged read entry is back: {[d.metric for d in reads]}"
 
 
 def test_the_relevance_validation_deferral_names_slice_7_not_slice_6():
