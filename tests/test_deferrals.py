@@ -108,6 +108,43 @@ def test_no_deferral_is_silently_unblocked_today(deferral):
     assert fires(deferral, date(2026, 8, 27)) is not True
 
 
+def test_rss_acceleration_is_manual_and_names_the_rule_it_would_break():
+    """ADR-0064. Its `query` trigger counted DAYS and fired on 2026-09-27 while the
+    prototype needs a per-VIDEO series across ages, so the register announced work
+    that the data rules forbid in that shape. A re-defer that did not say which rule
+    would be broken would invite the same port again."""
+    entry = next(d for d in DEFERRALS if d.metric == "openness.rss_acceleration")
+    assert entry.kind == "manual"
+    assert "rule 9" in entry.blocker
+    assert "video_velocity" in entry.blocker
+    assert "AGE-anchored" in entry.trigger
+    # Not a date and not a query: either would re-fire on its own, which is the
+    # failure this entry just caused.
+    assert entry.kind not in {"date", "query"}
+
+
+def test_the_channel_reach_entry_waits_on_a_person_not_a_date():
+    """The reads are rendered; what is left is a human recording H1's verdict. A
+    `date` entry would keep reporting UNBLOCKED forever, which is how three entries
+    in this register were caught lying."""
+    entry = next(d for d in DEFERRALS if d.metric.startswith("channel-reach H1"))
+    assert entry.kind == "manual"
+    assert "CHANNEL_REACH_H1_VALIDATED" in entry.blocker
+    assert "CHANNEL_REACH_H1_VALIDATED" in entry.trigger
+    # The licence is the registered one, and it is the thing a later reader will
+    # over-read: channels, never a niche, and Gate E stands.
+    assert "CHANNELS" in entry.trigger
+    assert "Gate E" in entry.trigger
+
+
+def test_no_discharged_read_entry_is_left_in_the_register():
+    """Both scheduled reads of ADR-0060 are rendered. A discharged `date` entry
+    cannot be marked done — `fires()` reports a passed date as UNBLOCKED — so it has
+    to leave the register entirely."""
+    assert not [d for d in DEFERRALS if "INTERIM read" in d.metric]
+    assert not [d for d in DEFERRALS if "PRIMARY read" in d.metric]
+
+
 def test_the_relevance_validation_deferral_names_slice_7_not_slice_6():
     """It was deferred deliberately, and the boundary is the decision. Slice 6 can
     run on an unvalidated relevance rule because a threshold-sensitivity pass

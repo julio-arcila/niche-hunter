@@ -3833,3 +3833,89 @@ base class — or a `timeout` around `nh nightly` in `run_nightly.sh` set to end
 09:10. Until it is decided, what is promised is only this: an overrun is visible the
 next morning (ADR-0061), the RSS pass does not cross its day (ADR-0062), and the Mac does
 not doze off on its own account (this ADR).
+
+## ADR-0064 — `openness.rss_acceleration` is re-deferred: the trigger counted days, and the metric the prototype holds is the shape data rule 9 forbids
+
+**2026-10-02.** The register fired. `openness.rss_acceleration` had been deferred on
+2026-08-27 with the blocker "needs a view series per video; `video_snapshots` has one
+day" and a `query` trigger reading "`video_snapshots` spans >= 30 distinct
+observed_dates". On 2026-09-27 the corpus reached exactly 30 distinct days — 08-27
+through 09-27, less 08-30 and 09-21, the two lost nights — and
+`test_no_deferral_is_silently_unblocked_today[openness.rss_acceleration]` went red,
+which is precisely what that test exists to do. `main` was red from that night until
+this ADR.
+
+**Declined, not implemented.** The metric is re-deferred with a new blocker, and the
+entry's kind moves from `query` to `manual`.
+
+### Why, and the first reason is the one that matters
+
+`legacy/niche_hunter_rss.py::video_velocity` computes, per video,
+`acceleration = vel_24h / ((v1 - v0) / days_span)`: the last <=25h of views divided by
+the average velocity over the video's **observed span**. That span is not a property of
+the video. It is a property of **feed position**: a channel's feed holds its newest 15
+entries, so a video on a fast-cadence channel falls out of the feed in a day or two and
+is observed for a day or two, while a video on a slow channel is observed for months.
+The ratio of a recent rate to a span-average rate therefore reads near 1 for the fast
+channel and far from 1 for the slow one, for reasons that have nothing to do with
+acceleration. Aggregated to a niche, it measures the niche's cadence mix.
+
+That is data rule 9's shape — "never count events over a fixed window using RSS-sourced
+rows" generalised to its stated form, "a metric that normalises away the dimension you
+are comparing on comes out flat, and flat reads as a finding rather than as a bug". It
+is also the exact class `supply.median_top_video_age` is already dormant for, and this
+repository has shipped that mistake once (`uploads_per_week` as a fixed-window count,
+corrected 2026-08-29 to a rate over an observed span).
+
+The ADR-0059 watchlist does not repair it. It adds a reading at ages 14-17 for
+**small-cohort members only** (`COHORT_MAX_SUBS`), so an age-anchored series exists for
+part of the corpus and not for the videos a velocity metric would most want.
+
+### Why the trigger was wrong, which is the more useful lesson
+
+The trigger was a **proxy for the thing it claimed to check, and the proxy was
+available while the thing was not.** What the prototype needs is a per-**video** series
+across ages. What the trigger counted was **days in the corpus** — a number that rises
+on its own, every night, whatever the per-video coverage is. It could never have been
+evidence for the claim, and it fired without having become one.
+
+A machine-checkable trigger that checks the wrong quantity is worse than a manual one,
+because it carries the authority of having been evaluated. The new trigger is `manual`
+and names four conditions, none of which a query can fake: an age-anchored definition in
+METRICS.md, measured coverage, a measured spread across clusters, and a named consumer
+that is not `scorecards`. It is deliberately **not** a `date` — a date re-fires on its
+own and reddens the suite again with nothing else having changed, which is the failure
+this entry just caused.
+
+The `"distinct observed_dates"` branch of `_query_fires` is removed with its one caller.
+An unknown trigger already returns `None`, so a stale branch would only wait to mislead.
+
+### It also has no consumer
+
+`scorecard.OPENNESS_FROM` is `breakthrough_rate_cohort`, and the whole `scorecards` row
+is withheld from every surface behind Gate E's 2026-08-28 null (ADR-0029, ADR-0052).
+`docs/INSIGHT_RULES.md` refuses rules written for the sake of having one. So nothing
+would read this number if it existed. "Cost: small — the prototype's function ports
+nearly unchanged" was also false: a registered metric must enter `drilldown.REGISTRY`
+(tested non-empty), `basis.SOURCE_OF` (tested exhaustive), the derived
+`SCORER_DEPENDENT` set, and `replay.BACKTEST_METRICS` parity — where `video_snapshots`
+is empty in `data/backtest.db` by design, so it would have become the third backtest
+metric that can never compute.
+
+### Discharged with it: both channel-reach reads
+
+Both scheduled reads of ADR-0060 were rendered on 2026-10-02 — the interim two days
+after its own date, because nobody ran it on the day, and numerically identical either
+way (the 2026-09-01 cohort's last uploads reached age 17 on 09-25 and `_readings` takes
+the earliest reading in [14, 17]). H1 **PASSED**: rho +0.470, p 0.0001, lift 2.592, on
+665 channels and 873 channel-dates against floors of 200 and 5 clusters. H2 failed at
+-0.031 and was registered as low-power.
+
+Their two `date` entries leave the register rather than being marked done, because
+`fires()` reports a passed date as UNBLOCKED forever — the way three entries in this
+register were caught lying. One `manual` entry replaces them, and it waits on the one
+thing that is actually outstanding: **a person** committing `CHANNEL_REACH_H1_VALIDATED`
+in `nh/api/gates.py`, which does not exist yet. No code here sets it, on the
+`EXPOSITION_VALIDATED` / `BALLAST_VALIDATED` pattern and for that pattern's reason. What
+H1 licenses is only what was registered — a ranked list of **channels**, within cluster.
+It does not touch `scorecards`, does not rank a niche, and leaves Gate E standing.

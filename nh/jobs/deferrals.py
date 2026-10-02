@@ -44,35 +44,36 @@ class Deferral:
 
 #: Ordered roughly by how close each is to firing.
 DEFERRALS: tuple[Deferral, ...] = (
+    # The INTERIM read's entry is GONE rather than marked done: it was rendered on
+    # 2026-10-02 (two days after its date — nobody ran it on the day) to
+    # reports/channel_reach_interim_2026-09-25.md, H1 +0.411 on 276 channel-dates,
+    # labelled INTERIM and never a verdict. A `date` entry reports a passed date as
+    # UNBLOCKED forever, so a discharged one has to leave. Same disposal the KP clock got.
     Deferral(
-        metric="channel-reach INTERIM read (ADR-0060) — t=2026-09-01 only, cannot pass",
+        metric="channel-reach H1 — a person must record the verdict in nh/api/gates.py",
         blocker=(
-            "the 2026-09-01 decision date's uploads (09-02..09-08) are not all 17 days old until "
-            "the 2026-09-25 nightly has collected; `channel_reach.read` refuses before that, "
-            "judged from the latest observed_date rather than the clock"
+            "ALL THAT REMAINS IS A HUMAN'S VERDICT. The PRIMARY read is rendered "
+            "(reports/channel_reach_2026-10-02.md, 2026-10-02): **H1 PASS**, rho +0.470, "
+            "p 0.0001, lift 2.592, on 665 channels and 873 channel-dates against floors "
+            "of 200 and 5 clusters, the draw key's sha256 verified against the registered "
+            "constant before any outcome was read; the interim had foreshadowed it at "
+            "+0.411, so it is not an artefact of one decision date. H2 FAILED at -0.031 "
+            "and was registered as low-power, so that FAIL is weak evidence of absence. "
+            "The registration says the gate constant is set BY A PERSON in the commit "
+            "that writes the result, and `CHANNEL_REACH_H1_VALIDATED` does not exist in "
+            "nh/api/gates.py yet — no code here may set it, on the `EXPOSITION_VALIDATED` "
+            "/ `BALLAST_VALIDATED` pattern and for the same reason: a file the code reads "
+            "standing in for a human is not a human"
         ),
-        kind="date",
-        # The LAST day still blocked: `fires()` is `today > trigger`, the read is due ON 09-25.
-        trigger="2026-09-24",
-        consumer="reports/channel_reach_interim_2026-09-25.md — labelled INTERIM, never a verdict",
-        cost=(
-            "minutes: `uv run nh prospective channel-reach read interim` after the 09-25 nightly. "
-            "Rendered once. Nothing may change after it: the void clause names this read."
+        kind="manual",
+        trigger=(
+            "a person reads reports/channel_reach_2026-10-02.md and commits "
+            "`CHANNEL_REACH_H1_VALIDATED` in nh/api/gates.py. What it licenses is only "
+            "what was registered: a ranked list of CHANNELS, within cluster — never "
+            "`scorecards`, never a niche, and it leaves Gate E's niche-grain null standing"
         ),
-    ),
-    Deferral(
-        metric="channel-reach PRIMARY read (ADR-0060) — the verdict on H1, and H2 behind the gate",
-        blocker=(
-            "the 2026-09-08 decision date's uploads (through 09-15) are not all 17 days old until "
-            "the 2026-10-02 nightly has collected"
-        ),
-        kind="date",
-        trigger="2026-10-01",
-        consumer=(
-            "reports/channel_reach_2026-10-02.md; on H1 PASS, `CHANNEL_REACH_H1_VALIDATED` in "
-            "nh/api/gates.py set by a person in the commit that writes the result"
-        ),
-        cost="minutes to read; the gate constant and any list surface are a later slice",
+        consumer="any channel-list surface; nothing reads the constant until one exists",
+        cost="minutes for the verdict; the list surface is its own slice",
     ),
     Deferral(
         metric="channel-emergence 90-day panel — its own pre-registration",
@@ -248,11 +249,34 @@ DEFERRALS: tuple[Deferral, ...] = (
     ),
     Deferral(
         metric="openness.rss_acceleration",
-        blocker="needs a view series per video; video_snapshots has one day",
-        kind="query",
-        trigger="video_snapshots spans >= 30 distinct observed_dates",
-        consumer="openness; INSIGHT_RULES candidates",
-        cost="small — the prototype's function ports nearly unchanged",
+        blocker=(
+            "RE-DEFERRED 2026-10-02 (ADR-0064). The old trigger — 30 distinct "
+            "observed_dates — fired on 2026-09-27 and measured the wrong thing: it "
+            "counted DAYS, and the prototype needs a per-VIDEO series across ages. "
+            "`legacy/niche_hunter_rss.py::video_velocity` divides the last <=25h "
+            "velocity by the velocity over the video's observed span, and that span is "
+            "set by feed position: a feed holds 15 entries, so a fast-cadence channel's "
+            "video is observed for days and a slow one's for months. Aggregated to a "
+            "niche it measures cadence mix — data rule 9's shape, the class "
+            "`supply.median_top_video_age` is dormant for. The ADR-0059 watchlist adds "
+            "an age 14-17 reading for small members only. It also has no consumer: "
+            "`scorecards.openness` reads `breakthrough_rate_cohort` and the row is "
+            "withheld (ADR-0029/0052), and INSIGHT_RULES refuses rules for count's sake"
+        ),
+        # `manual`, not a new `query`: conditions (2)-(4) are not machine-checkable, and
+        # a query pretending otherwise is what just happened. Not `date` either — a date
+        # re-fires on its own and reddens the suite with nothing else changed.
+        kind="manual",
+        trigger=(
+            "all of: (1) a METRICS.md entry defining an AGE-anchored form — views at a "
+            "fixed pair of ages, both readings required, never a window the feed cannot "
+            "fill — with its niche-grain aggregate, inputs_n and confidence; (2) measured "
+            "coverage: the share of on-niche long-form videos holding both readings; "
+            "(3) a measured spread across the active clusters, so it is not flat by "
+            "construction; (4) a named consumer that is not `scorecards`"
+        ),
+        consumer="none today; openness.* and INSIGHT_RULES only once (4) names one",
+        cost="a definition and a measurement first; the port itself is small",
     ),
     Deferral(
         metric="money.tier1_cpc_ratio",
@@ -409,11 +433,10 @@ def _query_fires(trigger: str, engine: Engine | None) -> bool | None:
                 )
             )
             return (cited or 0) > 0
-        if "distinct observed_dates" in trigger:
-            days = session.scalar(
-                sa.text("SELECT count(DISTINCT observed_date) FROM video_snapshots")
-            )
-            return (days or 0) >= 30
+        # The "distinct observed_dates" branch was removed with ADR-0064: its one
+        # entry (`openness.rss_acceleration`) is `manual` now, and a day count was
+        # never evidence that a per-video series exists. An unknown trigger already
+        # returns None, so a stale branch here would only wait to mislead.
     return None
 
 
