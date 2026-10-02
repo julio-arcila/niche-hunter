@@ -243,7 +243,10 @@ answers whether Slice 6 is runnable.
 
 **Deferred with triggers, not prose:** `voice.*` (nobody has applied), all KP money
 metrics (clock expires 2026-09-24), `cost_risk.*` (2 of 6 sources),
-`supply.format_mix` and `openness.rss_acceleration` (need history), the Postgres
+`supply.format_mix` (needs history) and `openness.rss_acceleration` (re-deferred
+2026-10-02, ADR-0064: "needs history" was the wrong blocker — the prototype's form is
+feed-position-dependent, which is data rule 9's shape, so history alone never unblocks
+it), the Postgres
 swap (ADR-0019), and `value`/`sustainability`/`opportunity`/`ci_*`.
 
 ### Slice 6 — Calibration · size L · **GO / NO-GO**

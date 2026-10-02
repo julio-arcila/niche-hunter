@@ -1315,6 +1315,27 @@ the trigger does fire: that was a count over a window the feed cannot fill, re-b
 a rate over an observed span, whereas this is a median of ages with no denominator to
 re-base. Whatever registers it will need a different fix, not that one.
 
+**`openness.rss_acceleration` — re-deferred 2026-10-02 (ADR-0064), same class as
+the metric above.** Its register entry read "needs a view series per video" with a
+machine trigger of 30 distinct `observed_date`s, and that trigger fired on 2026-09-27
+when the corpus reached exactly 30 days, turning the suite red. It was declined rather
+than ported, because the prototype's formula is the censored shape:
+`legacy/niche_hunter_rss.py::video_velocity` divides the last <=25h of views by the
+average velocity over the video's **observed span**, and that span is set by feed
+position, not by the video — a feed holds 15 entries, so a fast-cadence channel's video
+is observed for a day or two and a slow one's for months. The ratio comes out near 1 for
+the fast channel for reasons unrelated to acceleration, and aggregated to a niche it
+reports cadence mix. The ADR-0059 watchlist does not repair it: an age 14-17 reading
+exists for small-cohort members only.
+
+The lesson worth keeping is about the TRIGGER, not the metric. It counted days, which
+rise on their own every night, while the claim it stood for was about per-video
+coverage. A machine-checkable trigger that measures the wrong quantity is worse than a
+manual one, because it carries the authority of having been evaluated. The replacement
+is `manual` and asks for an **age-anchored** definition — views at a fixed pair of ages,
+both readings required, never a window the feed cannot fill — plus measured coverage, a
+measured spread across clusters, and a consumer that is not `scorecards`.
+
 Two names removed from this list rather than implemented:
 
 - `demand.wikipedia_pageviews` — **superseded**, not pending. `demand.wiki_weekly_views`
