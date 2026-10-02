@@ -62,8 +62,18 @@ TMP="$(mktemp -t nh_backup)"
 trap 'rm -f "$TMP"' EXIT
 mkdir -p "$DEST"
 
-tables()   { /usr/bin/sqlite3 "$1" "SELECT count(*) FROM sqlite_master WHERE type='table';"; }
-snapshots() { /usr/bin/sqlite3 "$1" "SELECT count(*) FROM video_snapshots;" 2>/dev/null || echo -1; }
+# Both normalise anything that is not a plain integer to -1, which every
+# comparison below rejects. The `|| echo -1` fallback alone is not enough: it
+# fires on a nonzero exit, but a zero exit printing nothing would leave an empty
+# string, and `[ "" -lt 1 ]` errors with "integer expression expected" instead of
+# being false. An erroring test inside an `if` condition is exempt from `set -e`,
+# so the guard would be skipped and the script would go on to call an unverified
+# copy good — a silent pass, which is worse than the string comparison this
+# replaced. Found in review, not in production.
+_count() { local n; n=$(/usr/bin/sqlite3 "$1" "$2" 2>/dev/null) || n=-1
+           case "$n" in '' | *[!0-9]*) n=-1 ;; esac; printf '%s' "$n"; }
+tables()    { _count "$1" "SELECT count(*) FROM sqlite_master WHERE type='table';"; }
+snapshots() { _count "$1" "SELECT count(*) FROM video_snapshots;"; }
 
 # Bracket the copy instead of demanding equality with the source afterwards.
 #
@@ -81,9 +91,11 @@ snapshots() { /usr/bin/sqlite3 "$1" "SELECT count(*) FROM video_snapshots;" 2>/d
 # append-only and never pruned (data rules 4 and 5), so its count is monotone
 # in time. A copy taken at any instant during the run must land between the
 # count before the copy began and the count after it finished. The lower
-# bound still catches the failure the header warns about — a backup of
-# nothing scores 0 against a source above it — and `src_before > 0` keeps the
-# 113-byte empty-database case failing.
+# bound still catches the failure the header warns about: a backup of nothing
+# scores 0 against a source above it. (The 113-byte incident itself is caught
+# earlier, by the table check below — an empty database has no tables at all.
+# `src_before > 0` is the belt to that braces, for a source that has tables
+# and no snapshots.)
 src_before="$(snapshots "$DB")"
 
 /usr/bin/sqlite3 "$DB" ".backup '$TMP'"

@@ -466,10 +466,16 @@ than merely looser because `video_snapshots` is append-only and never pruned
 (data rules 4 and 5), so the count is monotone in time and a copy taken at any
 instant inside the run must land in the bracket. Everything the equality test
 caught, the lower bound still catches: a backup of nothing scores 0 against a
-positive `src_before`. The `backup ok` line now prints `N snapshots in [before,
-after]`, so a night where collection overran is visible as a wide bracket
-instead of a failure. Table counts still compare for **equality** — a schema
-change is a migration, never concurrent with a backup.
+positive `src_before` — though the 113-byte incident in the script's header is
+caught one check earlier, by table equality, since an empty database has no
+tables at all. The `backup ok` line now prints `N snapshots in [before, after]`,
+so a night where collection overran is visible as a wide bracket instead of a
+failure. Table counts still compare for **equality** — a schema change is a
+migration, never concurrent with a backup. Both counts normalise non-numeric
+output to `-1`: a numeric `[ "$x" -lt 1 ]` on an empty string errors rather than
+being false, and an erroring test inside an `if` is exempt from `set -e`, so the
+guard would have been skipped and an unverified copy called good. That hole came
+in with the bracket and was closed in review, before any run used it.
 
 Not fixed by this, and still true: the 09:40 slot races the nightly for I/O
 (2026-09-23's features phase took 62 minutes against a usual 18-25 while
