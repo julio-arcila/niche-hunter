@@ -1476,7 +1476,7 @@ youtube_api.watchlist_population(day)          -- videos, ADR-0059
   active cluster and have EVER been observed at MIN(subs) in (0, COHORT_MAX_SUBS],
   published so as to be aged 14-17 on `day`.
 
-youtube_api.channel_watchlist_population(day)  -- channels, ADR-0068
+youtube_api.channel_watchlist_population(day)  -- channels, ADR-0065
   channels that are non-noise members of an active cluster and have EVER been observed
   at MIN(subs) in (0, COHORT_MAX_SUBS]. No age window: a channel is in the population
   every night it qualifies, because the outcome is its subscriber trajectory.
@@ -1486,13 +1486,20 @@ youtube_api.channel_watchlist_population(day)  -- channels, ADR-0068
 preference.** Both populations tested `MAX(subs) <= COHORT_MAX_SUBS` until then, and the
 two readings agreed only because subscriber counts were stale: the API snapshots a channel
 when it appears in a search hit, so a channel that had outgrown the ceiling went on
-looking small for weeks. ADR-0068's nightly re-read ends that staleness — and under `MAX`
+looking small for weeks. ADR-0065's nightly re-read ends that staleness — and under `MAX`
 it would therefore have begun evicting a channel from both populations on the night it
 crossed 10k, mid-window for its videos aged 14-17. Readings would have stopped exactly
 for the channels that grew, which is censoring correlated with the outcome: the defect
 both watchlists exist to remove, re-created by the instrument meant to fix it. `MIN` is
 monotone — once seen small, always collected — so no reading can be lost to the thing
-being measured, and the population only ever widens, so the change costs no history.
+being measured.
+
+The zero readings are excluded in the WHERE (`subs >= 1`), BEFORE the aggregate, and not
+as a lower bound on it: `min(subs) BETWEEN 1 AND cap` reads as "ever small" but means
+"never zero", and 0 is a real reading for a new channel (1,387 rows over 573 channels).
+That form evicted 85 channels, one of which had grown 0 -> 2,000. With the filter in the
+right place the population is 6,561 against `MAX`'s 6,544: 17 added, none removed, so the
+change costs no history.
 
 `features.inputs.cohort` is deliberately NOT changed: for ANALYSIS, "small as of the day"
 is the right question, and a frozen registration key decides membership anyway. The

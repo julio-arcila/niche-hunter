@@ -3920,7 +3920,7 @@ in `nh/api/gates.py`, which does not exist yet. No code here sets it, on the
 H1 licenses is only what was registered — a ranked list of **channels**, within cluster.
 It does not touch `scorecards`, does not rank a niche, and leaves Gate E standing.
 
-## ADR-0068 — The nightly re-reads small member channels' subscribers, because a 90-day outcome cannot be collected from search hits
+## ADR-0065 — The nightly re-reads small member channels' subscribers, because a 90-day outcome cannot be collected from search hits
 
 **2026-10-04.** `channels.list` over every small active-cluster member channel with no
 reading yet tonight, snapshot-only, last in the pass. ~112 units a night measured against
@@ -3957,11 +3957,25 @@ correlated with the outcome. It was found by a test failure ("the population its
 not drift", 0 of 4) rather than by reasoning, which is worth recording: the interaction
 is invisible in either query read alone.
 
-Both populations now test `MIN(subs)` — ever observed small, hence monotone: once a
-channel is in, no reading can be lost to the thing being measured. It only widens the
-population, so no night's collection is lost to the change. `features.inputs.cohort` keeps
-"small as of the day" for ANALYSIS, deliberately: that is the right question there, and
-a frozen key decides membership for a registered test anyway.
+Both populations now test `MIN(subs) <= COHORT_MAX_SUBS` over snapshots with
+`subs >= 1` — ever observed small, hence monotone: once a channel is in, no reading can
+be lost to the thing being measured. `features.inputs.cohort` keeps "small as of the day"
+for ANALYSIS, deliberately: that is the right question there, and a frozen key decides
+membership for a registered test anyway.
+
+**Where the zeros go is the whole fix, and the first version put them in the wrong
+place.** It wrote `min(subs).between(1, COHORT_MAX_SUBS)`, which reads as "ever small"
+and means "never zero" — and 0 is a real API reading for a brand-new channel, 1,387 rows
+across 573 channels. It therefore EVICTED 85 channels, among them one whose readings went
+0 to 2,000: a zero-start channel that grew, which is the exact case the change exists to
+protect. The claim "it only widens the population" was false as written, and the new tests
+passed either way because none of them had a channel that had ever read zero.
+
+Filtering `subs >= 1` in the WHERE, before the aggregate, is the correct form: a channel
+is judged on its non-zero readings. Measured after the fix: **6,561 channels against
+`MAX`'s 6,544** — 17 added (outgrowers, as intended), none removed. Only now does "only
+widens, so no history is lost" hold. Caught in review; the lesson is that a bound on an
+aggregate is not the same predicate as a bound on its inputs.
 
 ### Snapshot-only, and here it matters more than at video grain
 
@@ -3992,8 +4006,10 @@ re-fetch.
   terminated channel (expected, self-limiting, visible as coverage), an unasked id is
   quota that ran out and a reading lost for good.
 
-Measured population on merge day: **6,544** channels, 950 already read by the evening's
-run, 5,594 to ask, **112 units**.
+Measured population on merge day, under the shipped `MIN` form: **6,561** channels, 959
+already read by the evening's run, 5,602 to ask, **113 units**. (The first draft of this
+ADR quoted 6,544 / 950 / 112, which were the `MAX` population's figures — measured before
+the change the ADR is about, which review caught.)
 
 ### What this does NOT do
 

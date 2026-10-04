@@ -177,13 +177,21 @@ def watchlist_population(day: date) -> sa.Select:
     It was `MAX(subs)` until 2026-10-04, and the two agreed only because subscriber
     counts were stale: the API snapshotted a channel just when it turned up in search
     hits, so a channel that outgrew the ceiling went on looking small here for weeks.
-    ADR-0068's nightly subscriber re-read ended that, and under `MAX` the population
+    ADR-0065's nightly subscriber re-read ended that, and under `MAX` the population
     would have begun shedding a channel on the night it crossed 10k — mid-window for its
     videos aged 14-17, so their readings would stop exactly for the channels that grew.
     Censoring correlated with success, which is the defect the watchlist exists to
     remove. `MIN` is monotone: once seen small, always in, so a reading can never be lost
-    to the thing being measured. It only ever widens the population, so no night's
-    collection is lost to the change.
+    to the thing being measured.
+
+    **The zeros are filtered BEFORE the aggregate, not by a lower bound on it**, and the
+    first version of this change got that wrong: `min(subs).between(1, ...)` reads as
+    "ever small" but means "never zero", and 0 is a real API reading for a new channel —
+    1,387 such rows across 573 channels. It evicted 85 channels, including one whose
+    readings went 0 to 2,000, which is a zero-start channel that GREW: the very case this
+    is for. With `subs >= 1` in the WHERE, the population is 6,561 against `MAX`'s 6,544,
+    so it does only widen, which is what makes the change free of lost history. Caught in
+    review.
 
     This is the COLLECTION definition. `features.inputs.cohort` still reads "small as of
     the day" for ANALYSIS, which is the right question there and deliberately different.
@@ -193,9 +201,9 @@ def watchlist_population(day: date) -> sa.Select:
     """
     small = (
         sa.select(ChannelSnapshot.channel_id)
-        .where(ChannelSnapshot.observed_date <= day)
+        .where(ChannelSnapshot.observed_date <= day, ChannelSnapshot.subs >= 1)
         .group_by(ChannelSnapshot.channel_id)
-        .having(sa.func.min(ChannelSnapshot.subs).between(1, COHORT_MAX_SUBS))
+        .having(sa.func.min(ChannelSnapshot.subs) <= COHORT_MAX_SUBS)
     )
     members = (
         sa.select(ClusterMember.item_id)
@@ -254,6 +262,12 @@ def channel_watchlist_population(day: date) -> sa.Select:
     good: monotone, so a night's reading can never be lost to the thing being measured,
     and cheap, because a channel that outgrows the cohort is one id a night.
 
+    The `subs >= 1` filter sits in the WHERE, before the aggregate, so a channel that
+    once read 0 subscribers — a real reading for a new channel — is judged on its
+    non-zero readings rather than evicted. Putting that bound on the aggregate instead
+    (`min(subs).between(1, cap)`) silently means "never zero" and threw out 85 channels,
+    one of them a 0-to-2,000 grower. See `watchlist_population`.
+
     A hidden subscriber count is NULL, never 0 (rule 7), so `min()` ignores it and a
     never-visible channel is simply absent — honest, since a hidden count cannot be an
     outcome either. Membership is today's rather than as of `day`, the same deliberate
@@ -262,9 +276,9 @@ def channel_watchlist_population(day: date) -> sa.Select:
     """
     small = (
         sa.select(ChannelSnapshot.channel_id)
-        .where(ChannelSnapshot.observed_date <= day)
+        .where(ChannelSnapshot.observed_date <= day, ChannelSnapshot.subs >= 1)
         .group_by(ChannelSnapshot.channel_id)
-        .having(sa.func.min(ChannelSnapshot.subs).between(1, COHORT_MAX_SUBS))
+        .having(sa.func.min(ChannelSnapshot.subs) <= COHORT_MAX_SUBS)
     )
     members = (
         sa.select(ClusterMember.item_id)
@@ -387,11 +401,22 @@ class YouTubeApiCollector(Collector):
         for item in self._enrich("videos", list(video_ids)):
             read_tonight.add(item["id"])
             yield Raw(kind="video", key=item["id"], payload=item)
+        channels_tonight: set[str] = set()
         for item in self._enrich("channels", list(channel_ids)):
+            channels_tonight.add(item["id"])
             yield Raw(kind="channel", key=item["id"], payload=item)
-        yield from self._backfill(seen=set(video_ids), read_tonight=read_tonight)
+        yield from self._backfill(
+            seen=set(video_ids),
+            read_tonight=read_tonight,
+            channels_read_tonight=channels_tonight,
+        )
 
-    def _backfill(self, seen: set[str], read_tonight: set[str] | None = None) -> Iterable[Raw]:
+    def _backfill(
+        self,
+        seen: set[str],
+        read_tonight: set[str] | None = None,
+        channels_read_tonight: set[str] | None = None,
+    ) -> Iterable[Raw]:
         """Enrich videos RSS found, which arrive with no duration at all.
 
         A feed gives title, published and views but never duration, so `is_short`
@@ -418,7 +443,7 @@ class YouTubeApiCollector(Collector):
         # reading costs one night of a 90-day trajectory, while a missed video reading
         # can leave a [14, 17] window empty for good. If the ledger is going to stop
         # somewhere, this is the cheapest place for it to stop.
-        yield from self._channel_watchlist()
+        yield from self._channel_watchlist(channels_read_tonight or set())
 
     def _drain_backlog(self, backlog: dict[str, str]) -> Iterable[Raw]:
         """Enrich the unenriched backlog; mark what the API no longer serves."""
@@ -523,7 +548,7 @@ class YouTubeApiCollector(Collector):
                 declined,
             )
 
-    def _channel_watchlist_ids(self) -> list[str]:
+    def _channel_watchlist_ids(self, exclude: set[str]) -> list[str]:
         """Channel-watchlist ids with no reading yet today, oldest-known first, capped.
 
         Oldest `first_seen` first so a capped night drains deterministically instead of
@@ -540,18 +565,23 @@ class YouTubeApiCollector(Collector):
             .limit(self.settings.yt_channel_watchlist_max_ids)
         )
         with session_scope(self.engine) as session:
-            return list(session.scalars(query))
+            return [c for c in session.scalars(query) if c not in exclude]
 
-    def _channel_watchlist(self) -> Iterable[Raw]:
-        """Re-read small member channels' subscriber counts (ADR-0068).
+    def _channel_watchlist(self, exclude: set[str]) -> Iterable[Raw]:
+        """Re-read small member channels' subscriber counts (ADR-0065).
 
-        No `exclude` argument, unlike `_watchlist`: a channel enriched earlier tonight
-        already has a snapshot for the date, so `channel_read_on` has excluded it
-        already. The video watchlist needs its `read_tonight` set because a snapshot
-        written moments ago may not be flushed yet; here the ids come from a query that
-        runs after those flushes, in a later session.
+        `exclude` is the channels discovery already enriched tonight, and it is needed
+        for exactly the reason `_watchlist`'s is. The first version argued it was not:
+        "the ids come from a query that runs after those flushes". That was false —
+        `Collector.run` flushes every `FLUSH_EVERY` raws and `fetch()` is a lazy
+        generator, so when this pass runs up to `FLUSH_EVERY - 1` raws are still pending,
+        and the channel enrichments are the LAST thing before it. `channel_read_on` could
+        not see them, and those channels were bought a second time. Harmless to the data
+        (`insert_ignore` keeps the first reading) and a few units a night, but the comment
+        asserting it could not happen is exactly the kind of claim this repo keeps
+        catching. Found in review.
         """
-        ids = self._channel_watchlist_ids()
+        ids = self._channel_watchlist_ids(exclude)
         if not ids:
             return
         self.log.info("channel watchlist: re-reading subscribers for %d channels", len(ids))
@@ -876,7 +906,7 @@ class YouTubeApiCollector(Collector):
         )
 
     def _norm_channel_watch(self, raw: Raw) -> Batch:
-        """A channel-watchlist re-read (ADR-0068): the snapshot, and nothing else.
+        """A channel-watchlist re-read (ADR-0065): the snapshot, and nothing else.
 
         The `Channel` row is deliberately not re-upserted, which is ADR-0059's rule
         applied to the entity whose fields actually feed clustering: `keywords` and

@@ -760,7 +760,7 @@ def _serve_videos(engine, dead: set[str] | None = None):
 
 
 def _serve_channels(engine, dead: set[str] | None = None):
-    """Answer /channels with each requested id, for the ADR-0068 subscriber re-read.
+    """Answer /channels with each requested id, for the ADR-0065 subscriber re-read.
 
     Every test that runs a whole night needs this now: `_backfill` ends with the channel
     watchlist, so a world with small member channels and no /channels responder fails the
@@ -809,7 +809,7 @@ def test_the_watchlist_reads_exactly_the_registered_population(settings, engine)
 
     assert record.status == "ok", record.error
     assert set(_requested()) == {"UCsmall-v0", "UCsmall-v1", "UCsmall-v2", "UCsmall-v3"}
-    # Two pages, not one: four video ids are one `videos.list`, and the ADR-0068
+    # Two pages, not one: four video ids are one `videos.list`, and the ADR-0065
     # channel pass that follows is one `channels.list` over the three small members.
     assert record.quota_used == 2, "one videos.list page, plus one channels.list page"
 
@@ -1010,7 +1010,7 @@ def test_a_watchlist_reread_records_views_and_leaves_the_video_row_alone(setting
     assert kinds == {"video_watch"}
 
 
-# -- the channel subscriber watchlist (ADR-0068) -------------------------------------
+# -- the channel subscriber watchlist (ADR-0065) -------------------------------------
 
 
 @responses.activate
@@ -1150,10 +1150,91 @@ def test_a_capped_channel_watchlist_drains_deterministically(settings, engine):
     """Oldest-known first, so a capped night falls in the same place every time rather
     than starving a random third of the cohort — `_unenriched_ids`' reasoning. There is no
     [14, 17] window here to order by: a channel is in the population every night."""
+    from datetime import UTC, datetime
+
+    import sqlalchemy as sa
+
+    from nh.db.models import Channel
+
     _watch_world(engine)
     _serve_videos(engine)
     _serve_channels(engine)
+    # Give the three a known `first_seen` order, so the assertion is about the ORDER and
+    # not merely about the count — review found it asserting only the count.
+    with session_scope(engine) as s:
+        for n, cid in enumerate(("UCyoung", "UCsmall", "UCshort")):
+            s.execute(
+                sa.update(Channel)
+                .where(Channel.channel_id == cid)
+                .values(first_seen=datetime(2026, 1, 1 + n, tzinfo=UTC))
+            )
     settings.yt_channel_watchlist_max_ids = 2
     _night_collector(settings, engine).run()
 
-    assert len(_requested("/channels")) == 2
+    assert _requested("/channels") == ["UCyoung", "UCsmall"]
+
+
+@responses.activate
+def test_a_channel_that_once_read_zero_subscribers_stays_in_the_population(settings, engine):
+    """0 is a real reading for a brand-new channel — 1,387 such rows across 573 channels
+    on 2026-10-04 — and the first version of this change excluded them by writing
+    `min(subs).between(1, cap)`, which reads as "ever small" and means "never zero". It
+    evicted 85 channels, one of which had grown from 0 to 2,000 subscribers: a zero-start
+    channel that grew, the exact case the MIN test exists to protect. The zeros are
+    filtered before the aggregate now, so the channel is judged on its non-zero readings.
+    """
+    from datetime import date, timedelta
+
+    from nh.collectors.youtube_api import channel_watchlist_population
+    from nh.db.models import ChannelSnapshot
+    from tests.conftest_features import add_channel, make_cluster
+
+    built = date.fromisoformat(WATCH_BUILT)
+    make_cluster(engine)
+    add_channel(engine, "UCzero", subs=2_000, videos=0, day=built)
+    with session_scope(engine) as s:
+        s.add(
+            ChannelSnapshot(
+                channel_id="UCzero",
+                observed_date=built - timedelta(days=30),
+                subs=0,
+                source="youtube_api",
+                run_id="r",
+            )
+        )
+
+    with session_scope(engine) as s:
+        population = set(s.scalars(channel_watchlist_population(date.fromisoformat(WATCH_NIGHT))))
+    assert "UCzero" in population
+
+
+@responses.activate
+def test_a_channel_enriched_by_discovery_tonight_is_not_bought_again(settings, engine):
+    """The flush claim this pass shipped with was false.
+
+    `Collector.run` flushes every `FLUSH_EVERY` raws and `fetch()` is a lazy generator, so
+    when the channel pass runs, discovery's channel enrichments — the last thing before it
+    — may still be pending and invisible to `channel_read_on`. The first version argued no
+    exclusion set was needed for that reason; it was buying those channels twice. Harmless
+    to the data, since `insert_ignore` keeps the first reading, but quota spent on nothing.
+
+    The discovered channel has to BE in the watchlist population for this to test
+    anything: the first version of this test built no cluster, so the pass asked for
+    nothing and it passed with the defect restored. Verified to fail without the
+    exclusion set.
+    """
+    from datetime import date
+
+    from tests.conftest_features import add_channel, make_cluster
+
+    discovered = SEARCH_ITEM["snippet"]["channelId"]
+    make_cluster(engine)
+    add_channel(engine, discovered, subs=1_000, videos=0, day=date.fromisoformat(WATCH_BUILT))
+    apply_seeds(engine, ONE_SEED)
+    _mock_api()
+    _serve_channels(engine)
+    _collector(settings, engine).run()
+
+    asked = _requested("/channels")
+    assert discovered in asked, "discovery enriched the channel the watchlist also wants"
+    assert len(asked) == len(set(asked)), f"a channel was bought twice: {asked}"

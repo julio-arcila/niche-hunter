@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     #: 5%/night, and a hard ceiling if discovery ever floods. Separate from the backfill
     #: cap so a large backlog night cannot starve the watchlist, or the reverse.
     yt_watchlist_max_ids: int = 15_000
-    #: Small active-cluster member CHANNELS, re-read nightly for subscribers (ADR-0068),
+    #: Small active-cluster member CHANNELS, re-read nightly for subscribers (ADR-0065),
     #: because the API only snapshots a channel that appears in tonight's search hits:
     #: measured 2026-10-04, that is 181-195 of the 977 frozen cohort channels per night,
     #: 18.5-20%, and a 90-day subscriber outcome read off that fifth is selected on

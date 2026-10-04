@@ -903,16 +903,16 @@ def test_an_uncovered_channel_watchlist_warns_but_does_not_page(settings, engine
     channel-reach cohort channels had a subscriber reading on any given night — 18.5-20%,
     because the API snapshots a channel only when it appears in a search hit. A 90-day
     subscriber outcome read off that fifth is selected on something close to the outcome.
-    Nothing measured this at all until ADR-0068, which is why it took five weeks and a
+    Nothing measured this at all until ADR-0065, which is why it took five weeks and a
     hand query against the frozen key to find."""
     _healthy(engine)
     _channels_watched(engine, 60, read=False)
     result = check(engine, settings)
 
     assert result.ok, result.problems
-    assert any(
-        "channel watchlist" in w and "0 of 60" in w for w in result.warnings
-    ), result.warnings
+    assert any("channel watchlist" in w and "0 of 60" in w for w in result.warnings), (
+        result.warnings
+    )
 
 
 def test_a_covered_channel_watchlist_is_silent(settings, engine):

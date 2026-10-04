@@ -524,7 +524,7 @@ def _check_channel_watchlist(engine: Engine | None, run_id: str, result: CheckRe
     and never a page: one missed night costs a day of a 90-day trajectory, where a missed
     video reading can empty a [14, 17] window for good.
 
-    This check is the instrument that was missing. Before ADR-0068 nothing measured
+    This check is the instrument that was missing. Before ADR-0065 nothing measured
     channel coverage at all, so the 18.5-20% that made a subscriber outcome uncollectable
     had to be found by hand, from the frozen key, five weeks after the cohort was drawn.
     """
@@ -554,7 +554,7 @@ def _check_channel_watchlist(engine: Engine | None, run_id: str, result: CheckRe
         result.warnings.append(
             f"channel watchlist: {read} of {total} small member channels have a subscriber "
             f"reading on {day} ({read / total:.0%}) — a 90-day subscriber outcome measured "
-            f"from this night would be censored (ADR-0068)"
+            f"from this night would be censored (ADR-0065)"
         )
 
 

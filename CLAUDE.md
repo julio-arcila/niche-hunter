@@ -365,6 +365,22 @@ reviewer. Summarize exploration briefly.
   until 10-04 — because each was a true reading of a population that grows every night as
   videos age into the 14-17 window. **Do not quote it as a constant; derive it from the
   night you care about.** Capped at 15,000 ids. It decides what is *collected*; the frozen registration cohort decides what is
+  **A second, CHANNEL-grain watchlist runs beside it (ADR-0065):** `channels.list` over
+  every small active-cluster member channel with no subscriber reading yet tonight,
+  snapshot-only, last in the pass — measured 2026-10-04, 6,561 channels, 5,602 to ask,
+  **113 units**, capped at 10,000 ids. It exists because the API snapshots a channel only
+  when it appears in a search hit, so just 181-195 of the 977 frozen cohort channels had a
+  reading on any night (18.5-20%), and a 90-day subscriber outcome would have been
+  censored to the channels that kept turning up — selection on nearly the outcome. Both
+  populations now test **`MIN(subs)` over readings of 1 or more**, not `MAX`: with counts
+  refreshed nightly a `MAX` test evicts a channel on the night it crosses
+  `COHORT_MAX_SUBS`, stopping its readings and its videos' 14-17 day readings mid-window,
+  for exactly the channels that grew. `features.inputs.cohort` keeps "small as of the day"
+  for ANALYSIS, deliberately. Two defects in that change were caught in review and are
+  worth carrying: a bound on the AGGREGATE (`min(subs).between(1, cap)`) means "never
+  zero" rather than "ever small", and evicted 85 channels including a 0 -> 2,000 grower;
+  and the pass needs discovery's exclusion set, because `fetch()` is lazy and flushes
+  every 500 raws, so tonight's enrichments are not yet visible to the already-read query.
   *analysed*. The first decision date's uploads reach age 17 on **2026-09-19** — the
   watchlist must be collecting by then or they are lost.
 - **H1 PASSED. The channel-grain test is READ, and it is the first pre-registered test in
