@@ -513,6 +513,15 @@ because a frozen nightly must not mean no backup, and the bracket makes a mid-ru
 honest. Expect `nightly still running; waiting up to 150 min` then `nightly finished;
 waited N min` in `logs/backup.log`.
 
+Two things to know before debugging it. The wait ends when **`nh nightly`** exits, not
+when `run_nightly.sh` does, so the copy still overlaps `nh status --check`, `nh prune` and
+the alerts digest — safe, but overlap rather than succession. And a stale frozen nightly,
+or any long-running command whose text contains "nh nightly", makes every backup wait the
+full bound and then copy anyway with an alert: a 12:10 `backup ok` with a wait line is
+that, not a slow disk. **The script cannot be redirected with `NH_DATABASE_URL`** —
+`_common.sh` sources `.env` under `set -a` and overrides it — so test it beside a stub
+`_common.sh`, never by pointing env vars at a scratch path.
+
 Historic, and the reason for the above: the 09:40 slot raced the nightly for I/O
 (2026-09-23's features phase took 62 minutes against a usual 18-25 while
 `.backup` and `gzip` ran). Moving the cron line to 11:00 is an operator change

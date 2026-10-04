@@ -934,15 +934,24 @@ def test_a_small_channel_watchlist_population_is_not_measured(settings, engine):
 
 
 def _phase_row(engine, source, minutes):
-    """A finished phase row on the judged run, lasting `minutes`."""
+    """A finished phase row on the run `check()` judges, lasting `minutes`.
+
+    The run is selected the way `check()` selects it — latest `started_at` — not with a
+    bare `group_by(run_id).first()`, which review rightly called fragile: that is
+    deterministic only while a fixture writes exactly one run, and would otherwise pick an
+    arbitrary one and silently measure the wrong night.
+    """
     from datetime import timedelta
 
     from nh.db.models import JobRun
 
     with session_scope(engine) as s:
         run_id, started = s.execute(
-            sa.select(JobRun.run_id, sa.func.min(JobRun.started_at)).group_by(JobRun.run_id)
-        ).first()
+            sa.select(JobRun.run_id, JobRun.started_at)
+            .where(JobRun.job == "nightly")
+            .order_by(JobRun.started_at.desc())
+            .limit(1)
+        ).one()
         s.add(
             JobRun(
                 run_id=run_id,
@@ -999,16 +1008,42 @@ def test_a_running_phase_is_not_judged_on_duration(settings, engine):
     assert not any("phase took" in w for w in result.warnings), result.warnings
 
 
-def test_the_budget_is_absolute_not_a_multiple_of_a_rolling_median(settings, engine):
-    """The decision, pinned. A relative rule goes quiet under a steady ramp — features
-    went 18 -> 38 minutes across 2026-09-22..27 and no multiple-of-median rule would have
-    said a word — and `BALLAST_DRIFT_SHARE` was blind by construction for exactly that
-    reason. What a long phase threatens is the schedule, and the schedule does not grow
-    with the corpus."""
+def test_the_budget_boundary_is_exclusive(settings, engine):
+    """Exactly at the budget is not over it. Pinned because flipping `>` to `>=` passed
+    every other test in this group — nothing exercised the boundary, so the comparison was
+    free to change meaning. Review found it."""
+    _healthy(engine)
+    _phase_row(engine, "features", 60)
+    assert not any("phase took" in w for w in check(engine, settings).warnings)
+
+
+def test_the_clustering_budget_warns_too(settings, engine):
+    """Clustering's 30 minutes was pinned only by a dict-equality assertion, so nothing
+    showed it was wired at all. It has never fired on real data — its highest measured
+    night is 20.1 minutes — which is precisely why a behavioural test matters more here
+    than for features."""
+    _healthy(engine)
+    _phase_row(engine, "clustering", 31)
+    result = check(engine, settings)
+
+    assert result.ok, result.problems
+    assert any("clustering phase took 31 min" in w for w in result.warnings), result.warnings
+
+
+def test_the_budget_is_absolute_because_it_protects_the_schedule(settings, engine):
+    """The decision, pinned — and pinned for the right reason, which the first version of
+    this test got wrong.
+
+    It said a relative rule "goes quiet under a steady ramp" while this one would not.
+    That is false: 60 is equally quiet on a 38-minute night, as the assertion below shows.
+    The real reason is what the number protects — the morning's schedule, which is a
+    constant — and a 38-minute night is genuinely not a schedule problem. Growth is a
+    human's read of `nh status`, not this wire."""
     from nh.jobs.status import PHASE_WARN_MINUTES
 
     assert PHASE_WARN_MINUTES == {"features": 60, "clustering": 30}
-    # A night at 38 minutes stays silent: the ramp is visible in `nh status`, not here.
     _healthy(engine)
     _phase_row(engine, "features", 38)
-    assert not any("phase took" in w for w in check(engine, settings).warnings)
+    assert not any("phase took" in w for w in check(engine, settings).warnings), (
+        "38 minutes is below the budget and stays silent — by design, not by oversight"
+    )

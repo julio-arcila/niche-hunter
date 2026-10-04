@@ -61,7 +61,12 @@ WAIT_MINUTES="${NH_BACKUP_WAIT_MINUTES:-150}"
 # 644 copy.
 if [ -z "${NH_BACKUP_CAFFEINATED:-}" ] && command -v caffeinate >/dev/null 2>&1; then
   export NH_BACKUP_CAFFEINATED=1
-  exec caffeinate -i -s /bin/bash "$0" "$@"
+  # Resolved absolutely, because `_common.sh` has already `cd`-ed to NH_ROOT: a relative
+  # `$0` from anywhere else is gone by the time we get here. Reproduced from the parent
+  # directory — `bash niche-hunter/scripts/backup_db.sh` died with "No such file or
+  # directory" and took the night's backup with it. The crontab uses an absolute path, so
+  # production was never exposed; a hand-run from the wrong directory was.
+  exec caffeinate -i -s /bin/bash "$NH_ROOT/scripts/backup_db.sh" "$@"
 fi
 
 wait_for_nightly() {

@@ -76,19 +76,26 @@ SWEEP_JOB = "nightly:sweep"
 WATCHLIST_MIN_COVERAGE = 0.9
 
 #: Minutes a phase may take before the gate warns (ADR-0067). ABSOLUTE, not a multiple of
-#: a rolling median, and that is the whole decision: what a long phase threatens is the
-#: SCHEDULE — the backup window, the 19:00 boundary, the next fire — and the schedule does
-#: not grow with the corpus. A 2x-the-median rule fires on the first slow night after a
-#: quiet week and goes silent under a steady ramp, which is exactly how
-#: `BALLAST_DRIFT_SHARE` was blind by construction; the features phase went 18 -> 38
-#: minutes across 2026-09-22..27 and no relative rule would have said a word. A 7-night
-#: window containing 10-01's 156 minutes would also have lifted the median enough to hide
-#: 10-02's 45.
+#: a rolling median, because of WHAT IS BEING PROTECTED: the schedule — the 09:40 backup
+#: slot, the 19:00 boundary that aborts the run (ADR-0066), the next 09:10 fire — and the
+#: schedule does not grow with the corpus. A budget states how long the morning can
+#: afford, which is a constant. A multiple of a median states how unusual tonight is,
+#: which is a different question and not the one the gate needs.
 #:
-#: 60 for features is ~2.3x the 26-minute median measured 2026-09-22..10-04 and is the
-#: number the RUNBOOK already calls abnormal ("62 on 09-23 against a usual 18-25"), so it
-#: fires on the next 09-23 or 10-01 night and not on noise. 30 for clustering is the same
-#: multiple of its own ~9.
+#: It is deliberately NOT a detector of gradual growth, and an earlier version of this
+#: comment claimed it was — that a relative rule "goes silent under a steady ramp" while
+#: this one would not. False: 60 is equally silent on a 38-minute night. Measured features
+#: minutes 2026-09-22..10-04 are 17.9, 61.7, 22.4, 20.2, 25.7, 37.7, 39.1, 22.3, 37.7,
+#: 156.6, 45.1, 26.2, 25.8 — not a ramp at all but roughly bimodal, and "18 -> 38 across
+#: 09-22..27" was the first and last values of a non-monotone window. Growth is watched by
+#: reading `nh status`; the warranted-to-optimise rule in ADR-0067 is a 7-night median
+#: over 45, which IS a growth test and is deliberately a human's read rather than a wire.
+#:
+#: 60 for features is ~2.3x the 26.0-minute median over those nights (10-01 excluded) and
+#: sits above every ordinary night's 45.1 ceiling, so it fires on 09-23's 61.7 and 10-01's
+#: 156.6 and on nothing else in the record. 30 for clustering is the same multiple of its
+#: own ~9 and has never fired on real data — untested against production, worth knowing
+#: before trusting it.
 PHASE_WARN_MINUTES = {"features": 60, "clustering": 30}
 #: A handful of videos is not a population to measure coverage on.
 WATCHLIST_MIN_POPULATION = 50

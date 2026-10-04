@@ -4114,11 +4114,13 @@ the second is how the first stays measurable.
 
 ### The backup waits, and the cron slot does not move
 
-**Measured 2026-09-22..10-04:** the 09:40 cron fire has never found the nightly finished.
-`backup ok` lands 09:53-10:28, and the nightly ends 10:17-10:50 on an ordinary night —
-12:53 on 10-01. So `.backup` plus `gzip` of a 5.8 GB database has overlapped clustering
-and features **every night**, and on 2026-09-23 the features phase took 62 minutes against
-a usual 18-26 while this script held the disk.
+**Measured 2026-09-22..10-04:** the 09:40 cron fire has never found the nightly finished
+(every nightly end in the log is after 09:56, back to 09-14). `backup ok` lands
+09:46-10:28, and the nightly ends 10:05-10:56 on an ordinary night — 12:53 on 10-01.
+(This ADR first said 09:53-10:28 and 10:17-10:50, both narrower than the record at each
+end; review re-read the logs.) So `.backup` plus `gzip` of a 5.8 GB database has overlapped clustering
+and features **every night**, and on 2026-09-23 the features phase took 61.7 minutes
+against a 26.0-minute median while this script held the disk.
 
 **Moving the cron line to 11:00 was rejected.** `pmset -g custom` reads `sleep 1` on AC as
 well as battery; the nightly's own `caffeinate` ends when `nh nightly` exits; and **cron
@@ -4128,8 +4130,14 @@ the one failure class this system has actually paid for.
 
 So the slot stays at 09:40 — inside the window the nightly's own `caffeinate` is already
 holding open — and the backup **waits** for `pgrep -qf 'nh nightly'` to go quiet, holding
-the Mac awake itself by re-execing under `caffeinate -i -s`. The baton passes from one
-awake window to the next with no gap for sleep. Bounded at `NH_BACKUP_WAIT_MINUTES`
+the Mac awake itself by re-execing under `caffeinate -i -s`, so there is no gap for sleep
+between the two awake windows.
+
+**The wait ends when `nh nightly` exits, not when the morning does**, and "the baton
+passes" overstated that: `run_nightly.sh` goes on to run `nh status --check`, `nh prune`
+and the alerts digest, which the backup now overlaps. That is safe — `.backup` is WAL-safe
+and the bracket is over `video_snapshots`, which `nh prune` may not touch (data rule 4) —
+but it is overlap, not succession. Review's correction. Bounded at `NH_BACKUP_WAIT_MINUTES`
 (default 150, so 12:10): past the bound it copies anyway and pushes an alert, because a
 frozen nightly must not mean no backup at all — and the bracket check (2026-10-02) is what
 makes a mid-run copy honest rather than a failure. 10-01's 12:53 run would have exceeded
@@ -4153,19 +4161,31 @@ died with "Permission denied" — found when a test harness's heredoc produced e
 `PHASE_WARN_MINUTES` — 60 for features, 30 for clustering. Never a page: a slow phase
 costs time, and the phases are recomputable (`nh compute --day`).
 
-**Absolute, not a multiple of a rolling median, and that is the decision.** What a long
-phase threatens is the SCHEDULE — the backup slot, the 19:00 boundary that now aborts the
-run (ADR-0066), the next 09:10 fire — and the schedule does not grow with the corpus. A
-relative rule fires on the first slow night after a quiet week and goes silent under a
-steady ramp: features went **18 -> 38 minutes across 2026-09-22..27** and no
-multiple-of-median rule would have said a word. That is `BALLAST_DRIFT_SHARE`'s
-blind-by-construction failure, which needed a second wire to repair. A 7-night window
-containing 10-01's **156 minutes** would also have lifted the median enough to hide
-10-02's 45.
+**Absolute, not a multiple of a rolling median, and the reason is WHAT IT PROTECTS.** A
+budget states how long the morning can afford — the backup slot, the 19:00 boundary that
+now aborts the run (ADR-0066), the next 09:10 fire — and that is a constant. A multiple of
+a median states how unusual tonight is, which is a different question and not the one the
+gate needs.
 
-60 is ~2.3x the 26-minute median over the twelve clean nights and is the number the RUNBOOK
-already calls abnormal ("62 on 09-23 against a usual 18-25"), so it fires on the next
-09-23- or 10-01-class night and not on noise.
+**Two claims in this section were wrong and are corrected rather than quietly dropped,
+because the error is the kind this repository keeps catching in its own prose.** The first
+draft said a relative rule "goes silent under a steady ramp" while an absolute one would
+not. **False: 60 is equally silent on a 38-minute night.** The absolute budget is not a
+growth detector and is not meant to be. The second claim was the ramp itself — "features
+went 18 -> 38 minutes across 2026-09-22..27". The measured series is **17.9, 61.7, 22.4,
+20.2, 25.7, 37.7, 39.1, 22.3, 37.7, 156.6, 45.1, 26.2, 25.8**: not monotone, roughly
+bimodal, and "18 -> 38" was the first and last values of a window chosen after the fact.
+Cherry-picked endpoints, found by review.
+
+Growth is therefore watched by a human reading `nh status`, and by the warranted-to-
+optimise rule below — a 7-night median over 45 — which IS a growth test and is deliberately
+not wired to the gate.
+
+60 is ~2.3x the 26.0-minute median over those nights (10-01 excluded) and sits above every
+ordinary night's 45.1 ceiling, so it fires on 09-23's 61.7 and 10-01's 156.6 and on nothing
+else in the record. 30 for clustering is the same multiple of its own ~9 and **has never
+fired on real data** — its highest measured night is 20.1 — so that half is pinned by a
+test and untested against production.
 
 **Optimisation is NOT yet warranted**, and the rule for when it becomes so is written down
 now rather than argued later: when the 7-night median exceeds 45 minutes, or the wire fires
@@ -4183,7 +4203,21 @@ differential test — identical `features_daily` rows from both paths for a stor
 already failed at 10:14 local, before features started. The monthly restore drill
 (`com.niche-hunter.restore-drill`, 1st of the month at 09:55) was gunzipping a 5 GB file in
 the same window and passed at 10:21, which explains part of it; the rest is unexplained.
+The backup had failed 19 seconds before features started — so it did not contend with
+features, but it HAD overlapped clustering, which the first version of this paragraph left
+out.
 **Nothing would have shown this without reading `job_runs` by hand**, which is the case for
 the wire. Moving the drill off 09:55 — it is launchd, so a slept-through fire replays, and
 12:30 clears both the nightly and the backup — is an operator `launchctl` reload and is
 recommended, not done here.
+
+### A testing note, learned the hard way during this change's review
+
+**`scripts/backup_db.sh` cannot be redirected with environment variables.** `_common.sh`
+sources `.env` under `set -a`, which overrides the caller's exported `NH_DATABASE_URL` and
+`NH_BACKUP_DIR`. A reviewer pointing both at a scratch directory therefore started a
+`.backup` of the live database, and stopped it by hand at the integrity check. Nothing was
+written and nothing was lost — `.backup` reads the source — but the lesson is worth the
+line: to exercise this script, copy it beside a STUB `_common.sh` that does not read
+`.env`, which is how its own harness runs. No automated test is committed for it; shell is
+not covered by pytest here, and the first real exercise of the wait is the next 09:40 fire.
