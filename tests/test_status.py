@@ -931,3 +931,119 @@ def test_a_small_channel_watchlist_population_is_not_measured(settings, engine):
     result = check(engine, settings)
 
     assert not any("channel watchlist" in w for w in result.warnings), result.warnings
+
+
+def _phase_row(engine, source, minutes):
+    """A finished phase row on the run `check()` judges, lasting `minutes`.
+
+    The run is selected the way `check()` selects it — latest `started_at` — not with a
+    bare `group_by(run_id).first()`, which review rightly called fragile: that is
+    deterministic only while a fixture writes exactly one run, and would otherwise pick an
+    arbitrary one and silently measure the wrong night.
+    """
+    from datetime import timedelta
+
+    from nh.db.models import JobRun
+
+    with session_scope(engine) as s:
+        run_id, started = s.execute(
+            sa.select(JobRun.run_id, JobRun.started_at)
+            .where(JobRun.job == "nightly")
+            .order_by(JobRun.started_at.desc())
+            .limit(1)
+        ).one()
+        s.add(
+            JobRun(
+                run_id=run_id,
+                job="nightly",
+                source=source,
+                status="ok",
+                started_at=started,
+                finished_at=started + timedelta(minutes=minutes),
+            )
+        )
+
+
+def test_a_phase_over_its_budget_warns_but_does_not_page(settings, engine):
+    """Measured 2026-09-23: the features phase took 62 minutes against a usual 18-26,
+    under `.backup` contention, and nothing noticed. 10-01 took 156 and nothing noticed
+    that either — it had to be dug out of `job_runs` by hand."""
+    _healthy(engine)
+    _phase_row(engine, "features", 61)
+    result = check(engine, settings)
+
+    assert result.ok, result.problems
+    assert any("features phase took 61 min" in w for w in result.warnings), result.warnings
+
+
+def test_a_phase_inside_its_budget_is_silent(settings, engine):
+    _healthy(engine)
+    _phase_row(engine, "features", 59)
+    result = check(engine, settings)
+
+    assert not any("phase took" in w for w in result.warnings), result.warnings
+
+
+def test_a_running_phase_is_not_judged_on_duration(settings, engine):
+    """A NULL `finished_at` means still running, which `_check_sources` already covers.
+    Treating it as a duration would read as "zero minutes" or crash on the subtraction."""
+    from nh.db.models import JobRun
+
+    _healthy(engine)
+    with session_scope(engine) as s:
+        run_id, started = s.execute(
+            sa.select(JobRun.run_id, sa.func.min(JobRun.started_at)).group_by(JobRun.run_id)
+        ).first()
+        s.add(
+            JobRun(
+                run_id=run_id,
+                job="nightly",
+                source="features",
+                status="running",
+                started_at=started,
+            )
+        )
+    result = check(engine, settings)
+
+    assert not any("phase took" in w for w in result.warnings), result.warnings
+
+
+def test_the_budget_boundary_is_exclusive(settings, engine):
+    """Exactly at the budget is not over it. Pinned because flipping `>` to `>=` passed
+    every other test in this group — nothing exercised the boundary, so the comparison was
+    free to change meaning. Review found it."""
+    _healthy(engine)
+    _phase_row(engine, "features", 60)
+    assert not any("phase took" in w for w in check(engine, settings).warnings)
+
+
+def test_the_clustering_budget_warns_too(settings, engine):
+    """Clustering's 30 minutes was pinned only by a dict-equality assertion, so nothing
+    showed it was wired at all. It has never fired on real data — its highest measured
+    night is 20.1 minutes — which is precisely why a behavioural test matters more here
+    than for features."""
+    _healthy(engine)
+    _phase_row(engine, "clustering", 31)
+    result = check(engine, settings)
+
+    assert result.ok, result.problems
+    assert any("clustering phase took 31 min" in w for w in result.warnings), result.warnings
+
+
+def test_the_budget_is_absolute_because_it_protects_the_schedule(settings, engine):
+    """The decision, pinned — and pinned for the right reason, which the first version of
+    this test got wrong.
+
+    It said a relative rule "goes quiet under a steady ramp" while this one would not.
+    That is false: 60 is equally quiet on a 38-minute night, as the assertion below shows.
+    The real reason is what the number protects — the morning's schedule, which is a
+    constant — and a 38-minute night is genuinely not a schedule problem. Growth is a
+    human's read of `nh status`, not this wire."""
+    from nh.jobs.status import PHASE_WARN_MINUTES
+
+    assert PHASE_WARN_MINUTES == {"features": 60, "clustering": 30}
+    _healthy(engine)
+    _phase_row(engine, "features", 38)
+    assert not any("phase took" in w for w in check(engine, settings).warnings), (
+        "38 minutes is below the budget and stays silent — by design, not by oversight"
+    )

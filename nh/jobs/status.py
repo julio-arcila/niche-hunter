@@ -74,6 +74,29 @@ SWEEP_JOB = "nightly:sweep"
 #: private videos are the only legitimate misses, well under 1% of a window; 0.9 leaves
 #: room for them and still catches a capped, budget-cut or skipped night.
 WATCHLIST_MIN_COVERAGE = 0.9
+
+#: Minutes a phase may take before the gate warns (ADR-0067). ABSOLUTE, not a multiple of
+#: a rolling median, because of WHAT IS BEING PROTECTED: the schedule — the 09:40 backup
+#: slot, the 19:00 boundary that aborts the run (ADR-0066), the next 09:10 fire — and the
+#: schedule does not grow with the corpus. A budget states how long the morning can
+#: afford, which is a constant. A multiple of a median states how unusual tonight is,
+#: which is a different question and not the one the gate needs.
+#:
+#: It is deliberately NOT a detector of gradual growth, and an earlier version of this
+#: comment claimed it was — that a relative rule "goes silent under a steady ramp" while
+#: this one would not. False: 60 is equally silent on a 38-minute night. Measured features
+#: minutes 2026-09-22..10-04 are 17.9, 61.7, 22.4, 20.2, 25.7, 37.7, 39.1, 22.3, 37.7,
+#: 156.6, 45.1, 26.2, 25.8 — not a ramp at all but roughly bimodal, and "18 -> 38 across
+#: 09-22..27" was the first and last values of a non-monotone window. Growth is watched by
+#: reading `nh status`; the warranted-to-optimise rule in ADR-0067 is a 7-night median
+#: over 45, which IS a growth test and is deliberately a human's read rather than a wire.
+#:
+#: 60 for features is ~2.3x the 26.0-minute median over those nights (10-01 excluded) and
+#: sits above every ordinary night's 45.1 ceiling, so it fires on 09-23's 61.7 and 10-01's
+#: 156.6 and on nothing else in the record. 30 for clustering is the same multiple of its
+#: own ~9 and has never fired on real data — untested against production, worth knowing
+#: before trusting it.
+PHASE_WARN_MINUTES = {"features": 60, "clustering": 30}
 #: A handful of videos is not a population to measure coverage on.
 WATCHLIST_MIN_POPULATION = 50
 
@@ -209,6 +232,7 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
     _check_watchlist(engine, run_id, result)
     _check_channel_watchlist(engine, run_id, result)
     _check_previous_day(engine, run_id, result)
+    _check_phase_durations(engine, run_id, result)
     return result
 
 
@@ -515,6 +539,36 @@ def _check_watchlist(engine: Engine | None, run_id: str, result: CheckResult) ->
             f"censored (ADR-0059)"
         )
 
+
+def _check_phase_durations(engine: Engine | None, run_id: str, result: CheckResult) -> None:
+    """Warn when a phase of the judged run took longer than its budget (ADR-0067).
+
+    A warning and never a page: a slow phase costs time, and the phases are recomputable
+    (`nh compute --day`). What it protects is the SCHEDULE — the 09:40 backup slot, the
+    19:00 boundary that now aborts the run (ADR-0066), and the next 09:10 fire.
+
+    A phase still running has a NULL `finished_at` and is not this check's business:
+    `_check_sources` already reports anything that did not finish `ok`. Measured
+    2026-09-22..10-04, features ran 18-45 minutes on ordinary nights, 62 on 2026-09-23
+    under `.backup` contention and 156 on 10-01 alongside the monthly restore drill — the
+    two nights this would have named, neither of which anything noticed at the time.
+    """
+    with session_scope(engine) as session:
+        rows = session.execute(
+            sa.select(JobRun.source, JobRun.started_at, JobRun.finished_at).where(
+                JobRun.run_id == run_id,
+                JobRun.source.in_(PHASE_WARN_MINUTES),
+                JobRun.finished_at.is_not(None),
+            )
+        ).all()
+    for source, started, finished in rows:
+        minutes = (finished - started).total_seconds() / 60
+        budget = PHASE_WARN_MINUTES[source]
+        if minutes > budget:
+            result.warnings.append(
+                f"{source} phase took {minutes:.0f} min against a {budget} min budget — "
+                f"it shares the morning with the backup and the next fire (ADR-0067)"
+            )
 
 def _check_channel_watchlist(engine: Engine | None, run_id: str, result: CheckResult) -> None:
     """Warn when small member channels lack tonight's subscriber reading.

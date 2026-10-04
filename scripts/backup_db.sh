@@ -24,6 +24,71 @@ esac
 
 DEST="${NH_BACKUP_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/niche-hunter-backups}"
 
+# --- wait for the nightly, and hold the Mac awake while waiting (ADR-0067) ---------
+#
+# The 09:40 cron slot is 30 minutes after the nightly starts, and the nightly has never
+# finished by then: measured 2026-09-22..10-04, it ends 10:17-10:50 on an ordinary night
+# and ran to 12:53 on 10-01. So `.backup` and `gzip` of a 5.8GB database have overlapped
+# clustering and features EVERY night, and on 2026-09-23 features took 62 minutes against
+# a usual 18-26 while this script held the disk.
+#
+# Moving the cron line to 11:00 would trade that for a worse failure. `pmset -g custom`
+# reads `sleep 1` on AC as well as battery, the nightly's own `caffeinate` ends when
+# `nh nightly` exits, and **cron silently skips a fire the Mac sleeps through** — which is
+# exactly how 2026-08-30 was lost. An 11:00 slot would sit after the machine was free to
+# doze off again.
+#
+# So the slot stays at 09:40, inside the nightly's awake window, and the backup WAITS for
+# the nightly to finish — holding the Mac awake itself while it does, by re-execing under
+# `caffeinate`. The baton passes from one awake window to the next with no gap for sleep.
+#
+# Bounded, because a frozen nightly must not mean no backup at all: past the bound this
+# backs up anyway, and the bracket check below is what makes a mid-run copy honest rather
+# than a failure. 150 minutes from 09:40 is 12:10 — 10-01's 12:53 run would have exceeded
+# it and been copied mid-features, which is exactly the case the bracket covers.
+WAIT_MINUTES="${NH_BACKUP_WAIT_MINUTES:-150}"
+
+# Re-exec under caffeinate unless already inside it. `-i` holds off idle sleep and is
+# honoured on battery; `-s` holds off system sleep and is honoured only on AC (ADR-0063
+# measured both). The guard variable rather than `pgrep caffeinate`: this must not be
+# fooled by the nightly's own caffeinate, or by the four-minute ones some other tool on
+# this machine runs.
+# `/bin/bash "$0"` rather than `"$0"` alone: re-execing the path directly would need the
+# executable bit, which the crontab line happens to rely on anyway (mode 755) but which a
+# `bash scripts/backup_db.sh` invocation does not. A backup that silently dies with
+# "Permission denied" because someone copied the file without its mode is not a failure
+# this script should be able to have. Caught by a test harness whose heredoc produced a
+# 644 copy.
+if [ -z "${NH_BACKUP_CAFFEINATED:-}" ] && command -v caffeinate >/dev/null 2>&1; then
+  export NH_BACKUP_CAFFEINATED=1
+  # Resolved absolutely, because `_common.sh` has already `cd`-ed to NH_ROOT: a relative
+  # `$0` from anywhere else is gone by the time we get here. Reproduced from the parent
+  # directory — `bash niche-hunter/scripts/backup_db.sh` died with "No such file or
+  # directory" and took the night's backup with it. The crontab uses an absolute path, so
+  # production was never exposed; a hand-run from the wrong directory was.
+  exec caffeinate -i -s /bin/bash "$NH_ROOT/scripts/backup_db.sh" "$@"
+fi
+
+wait_for_nightly() {
+  # `pgrep -f` on the command the launchd agent runs. Matching "nh nightly" rather than a
+  # pid file because nothing writes one, and a stale pid file is the class of lie this
+  # script already lost a night to.
+  local waited=0
+  pgrep -qf 'nh nightly' || return 0
+  log "nightly still running; waiting up to ${WAIT_MINUTES} min"
+  while pgrep -qf 'nh nightly'; do
+    if [ "$waited" -ge "$WAIT_MINUTES" ]; then
+      log "nightly still running after ${waited} min; backing up anyway (the bracket covers it)"
+      alert "niche-hunter backup: nightly still running after ${waited} min, copying anyway"
+      return 0
+    fi
+    sleep 60
+    waited=$((waited + 1))
+  done
+  log "nightly finished; waited ${waited} min"
+}
+wait_for_nightly
+
 # Local window. Was 30, set when a backup was 26MB; at 2026-09-01 a backup is
 # 266MB and growing ~58MB/day, which trends to ~32GB of iCloud. 14 matches
 # `nh prune`'s raw-payload retention, so the two windows move together, and it
