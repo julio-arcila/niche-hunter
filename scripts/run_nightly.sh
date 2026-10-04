@@ -33,7 +33,7 @@ log "nightly starting"
 # collect_rc is unchanged. What this cannot do: a closed lid on battery still sleeps,
 # and a run still executing at the next 09:10 still absorbs that fire — every row it
 # goes on to write carries its START day. 2026-09-20/21 was lost that way; see the
-# RUNBOOK, "Keeping the Mac awake", including the open self-abort question.
+# RUNBOOK, "Keeping the Mac awake", and ADR-0066 for what a run past its own day boundary does.
 caffeinate -i -s uv run nh nightly
 collect_rc=$?
 

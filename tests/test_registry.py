@@ -113,3 +113,38 @@ def test_a_failed_sweep_does_not_fail_the_night():
     assert NightlyResult("r", now, [], bad).ok is False
     degraded = {**good, "youtube_rss": "degraded"}
     assert NightlyResult("r", now, [], degraded).ok is False  # ADR-0062: not a clean night
+
+
+# -- `aborted` and `NightlyResult.ok` (ADR-0066) --------------------------------------
+#
+# The rest of the day-boundary tests moved to tests/test_nightly.py: they are about
+# `run_nightly`'s control flow, and two of the three that lived here called the abort
+# helper directly, so removing the guard from `run_nightly` left them all green.
+
+
+def test_an_aborted_night_is_not_ok_so_the_exit_code_and_the_gate_agree():
+    """`aborted` is neither `ok` nor `skipped`. The sweep alone would not fail the night
+    (ADR-0057), so it is the aborted PHASES that carry it — which is right: the collectors
+    did run, and what is missing is recomputable but missing."""
+    from datetime import UTC, datetime
+
+    from nh.jobs.nightly import SWEEP_STATUS_KEY, NightlyResult
+
+    aborted = {
+        "youtube_api": "ok",
+        "youtube_rss": "degraded",
+        SWEEP_STATUS_KEY: "aborted",
+        "features": "aborted",
+    }
+    result = NightlyResult(
+        run_id="r", started_at=datetime(2026, 8, 27, tzinfo=UTC), planned=[], statuses=aborted
+    )
+    assert not result.ok
+    # The sweep key alone cannot fail a night — ADR-0057 excludes it from `ok`, abort or
+    # not — and that is why the abort writes a row for every PHASE too rather than
+    # trusting the sweep's status to carry the signal. A real abort always has both.
+    sweep_only = {"youtube_api": "ok", SWEEP_STATUS_KEY: "aborted"}
+    assert NightlyResult(
+        run_id="r", started_at=datetime(2026, 8, 27, tzinfo=UTC), planned=[], statuses=sweep_only
+    ).ok
+

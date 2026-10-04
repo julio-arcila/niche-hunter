@@ -10,6 +10,8 @@ be repointed at it. Until then, treat shape (not logic) as unverified.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 import requests
 import responses
@@ -319,10 +321,15 @@ def _prior_run(engine, units, *, same_quota_day=True, source="youtube_api"):
     """
     from datetime import UTC, timedelta
 
+    from nh.collectors.base import utcnow
     from nh.collectors.youtube_api import PACIFIC
     from nh.db.models import JobRun
-    from nh.db.types import utcnow
 
+    # `base.utcnow` deliberately, not `db.types.utcnow`: the collector takes its
+    # `observed_at` from the former (`base.py:131`) and `_spent_today` anchors the Pacific
+    # day to THAT, so a fixture reading the other clock places its row relative to a
+    # different day than the code under test uses. Invisible until `_pinned_clock` made
+    # the two differ by a fortnight.
     midnight = utcnow().astimezone(PACIFIC).replace(hour=0, minute=0, second=0, microsecond=0)
     started = midnight + timedelta(minutes=1) if same_quota_day else midnight - timedelta(hours=1)
     with session_scope(engine) as s:
@@ -778,11 +785,28 @@ def _serve_channels(engine, dead: set[str] | None = None):
     responses.add_callback(responses.GET, f"{API}/channels", callback=respond)
 
 
-def _night_collector(settings, engine):
-    from datetime import UTC, datetime
+#: The instant every collector test runs at, pinned autouse below.
+#:
+#: These tests build a world on WATCH_NIGHT, a date in the past, and the enrichment pass
+#: now asks `past_deadline()` before each batch (ADR-0066). Against the real clock that is
+#: always True, so every one of them would stop before its first request — the clock trap
+#: `nh criteria` and the ballast surface each walked into, arriving here from a feature
+#: rather than from a date change. Pinned to midday UTC on the night itself, well inside
+#: the boundary, so the tests measure what they are about.
+NOW = datetime.fromisoformat(WATCH_NIGHT).replace(hour=14, minute=10, tzinfo=UTC)
 
-    night = datetime.fromisoformat(WATCH_NIGHT).replace(hour=14, minute=10, tzinfo=UTC)
-    return _collector(settings, engine, backfill_only=True, observed_at=night)
+
+@pytest.fixture(autouse=True)
+def _pinned_clock(monkeypatch):
+    """`base.utcnow` is the read `past_deadline()` makes — `tests/test_youtube_rss.py`'s
+    `_frozen_clock`, as an autouse fixture because every test in this module needs it."""
+    from nh.collectors import base
+
+    monkeypatch.setattr(base, "utcnow", lambda: NOW)
+
+
+def _night_collector(settings, engine):
+    return _collector(settings, engine, backfill_only=True, observed_at=NOW)
 
 
 def _requested(path="/videos"):
@@ -1238,3 +1262,43 @@ def test_a_channel_enriched_by_discovery_tonight_is_not_bought_again(settings, e
     asked = _requested("/channels")
     assert discovered in asked, "discovery enriched the channel the watchlist also wants"
     assert len(asked) == len(set(asked)), f"a channel was bought twice: {asked}"
+
+
+@responses.activate
+def test_enrichment_stops_at_the_day_boundary_and_says_so(settings, engine, monkeypatch):
+    """ADR-0066. Every enrichment endpoint here writes a snapshot under `observed_date`,
+    so past the boundary a reading is not a reading of this run's day — ADR-0062's rule
+    for RSS, in the collector that also writes snapshots.
+
+    Checked per batch rather than once at entry: 2026-09-20's pass began inside its day
+    and crossed while running. No test covered this guard when it shipped; review found
+    that its only exercise was the autouse clock pin, which proves it does NOT fire.
+    """
+    from nh.collectors import base
+
+    _watch_world(engine)
+    _serve_videos(engine)
+    _serve_channels(engine)
+    collector = _night_collector(settings, engine)
+    monkeypatch.setattr(base, "utcnow", lambda: collector.deadline + timedelta(hours=8))
+
+    record = collector.run()
+
+    assert record.status == "degraded", record.status
+    assert "day boundary" in record.error
+    assert str(collector.observed_date) in record.error
+    assert len(responses.calls) == 0, "it stopped before asking for anything"
+
+
+@responses.activate
+def test_enrichment_inside_the_day_is_not_degraded(settings, engine):
+    """The guard must not fire on an ordinary night: a run starts at 09:10 local against a
+    boundary at 19:00."""
+    _watch_world(engine)
+    _serve_videos(engine)
+    _serve_channels(engine)
+
+    record = _night_collector(settings, engine).run()
+
+    assert record.status == "ok", record.error
+    assert responses.calls, "it did ask for something"

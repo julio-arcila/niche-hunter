@@ -127,9 +127,14 @@ all three merged into `main` the same night, 2026-09-23 ~00:20 local; the first 
 run with them is 09-23's): the gate fails on a previous day with
 no snapshot rows; the RSS pass stops at its run's own day boundary — 19:00 local, UTC
 midnight — and reports `degraded` for the feeds it did not reach, without charging them a
-failure; and `nh nightly` runs under `caffeinate`. What did **not** change: a run still
-executing at 09:10 still absorbs the fire, and the sweep and phases still run past the
-boundary — see "Keeping the Mac awake" below for the open self-abort question.
+failure; and `nh nightly` runs under `caffeinate`. What did **not** change on that day: a run
+still executing at 09:10 still absorbs the fire, and the sweep and phases still ran past
+the boundary. **That second half changed on 2026-10-04 (ADR-0066) — it aborts:** past
+the boundary every remaining collector, the sweep and all four phases are recorded
+`aborted`, the night is not `ok`, and each row says `nh compute --day D`. A woken run
+therefore ends at its next stage instead of spending another hour and absorbing the next
+fire. Two accepted costs: that day's features are a hand step, and C1's streak restarts
+for a late night that used to pass.
 
 **If you see it again** — `FAIL no video_snapshots row carries <day>` — the day is gone.
 Do not re-run for it: a catch-up run stamps its own start day, and the first reading of a

@@ -267,13 +267,27 @@ reviewer. Summarize exploration briefly.
   and there are now **three** — 08-30 (a fire slept through, on cron), 09-13 (a late wake
   ran before DNS was up), 09-20/21 (a run outlived its day and absorbed the next fire).
   ADR-0061 makes the third visible the next morning, ADR-0062 stops the RSS pass crossing
-  its day, ADR-0063 runs the nightly under `caffeinate` and leaves self-abort open — three
+  its day, ADR-0063 runs the nightly under `caffeinate` — three
   sibling branches written 2026-09-22 with this bullet, **all three merged into `main` the
   same night** (2026-09-23 ~00:20 local; 09-23's 09:10 nightly is the first to run under
   them). On merged `main`, `nh status --check` read-only that night said `FAIL no
   video_snapshots row carries 2026-09-21` — the one firing the gap gets; 09-23's run judges
   09-22, which holds 137,396 rows, so the gate clears on its own and nothing invokes the
   check before then (only `run_nightly.sh` runs it, after the nightly).
+- **ADR-0066 (2026-10-04) closed ADR-0063's self-abort question: a run past its own day
+  boundary STOPS.** Before each collector and again before the sweep, `run_nightly` asks
+  `past_deadline_for(started.date())`; past it, every remaining collector, the sweep and
+  all four phases get an `aborted` `job_runs` row naming the boundary and
+  `nh compute --day D`, and the run returns. `aborted` is neither `ok` nor `skipped`, so
+  the exit code and the gate agree and it pages. `youtube_api._enrich` checks per batch
+  too, so the API pass stops mid-flight. **Two costs, both accepted rather than argued
+  away:** a degraded night's features are a hand step, and C1's streak now restarts for a
+  late night that used to pass — a night that wrote readings past its own day should not
+  certify production-readiness. Review corrected two claims here: the check was at first
+  only after the collector loop, so `wikipedia` and `trends` would have gone on writing
+  snapshots stamped the wrong day (four and a half minutes of it on 09-21), and the abort
+  rows were being stamped `utcnow()`, which after midnight files them under D+1 where
+  `criteria._nightly_days` would mark a clean next day not-ok.
 - **The nightly runs from launchd** (`com.niche-hunter.nightly`, 09:10), not cron:
   cron silently skips a fire the Mac sleeps through and never retries it, which is
   how 2026-08-30 was lost for good. The backup and disk check stay in cron, because
