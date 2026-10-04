@@ -81,7 +81,7 @@ reviewer. Summarize exploration briefly.
 
 ## Current status
 - Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
-  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,096** (measured 2026-09-23 ~00:20 local on `main` after ADR-0061/0062/0063 merged — pytest's own summary line via a redirect, exit 0; 1,085 on 2026-09-22 before them, and note `pyproject.toml` already carries `addopts = "-q"`, so `pytest -q` is `-qq` and prints NO summary line — run `uv run pytest > file 2>&1` and read the last line; this line said 1,081 until 09-22. 967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until 09-15, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
+  `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,098** (measured 2026-10-04 12:20 local on `main`, pytest's own summary line via a redirect, exit 0. **It was RED from the 2026-09-27 nightly until ADR-0064 merged on 10-02** — one failure, `test_no_deferral_is_silently_unblocked_today[openness.rss_acceleration]`, caused by the *corpus* reaching 30 distinct snapshot days with no code change at all; see the known-defects bullet on tests that read the live DB. 1,096 on 09-23 after ADR-0061/0062/0063 merged; 1,085 on 2026-09-22 before them. Note `pyproject.toml` already carries `addopts = "-q"`, so `pytest -q` is `-qq` and prints NO summary line — run `uv run pytest > file 2>&1` and read the last line; this line said 1,081 until 09-22. 967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until 09-15, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
   now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
   so a new phase silently extends the nightly gate (it reads FAIL until the next nightly
   runs the new one; `run_nightly.sh` runs the phases before the check, so no page).
@@ -346,31 +346,60 @@ reviewer. Summarize exploration briefly.
   a reading that night from **any** source is skipped, which is also what makes it once
   per night across the primary run and the sweep — **for every id that answers.** One the
   API declines never gets a snapshot, so it is still there when the sweep arrives and is
-  asked again, by which point it is all that is left: the sweep reads 0 of N every night
+  asked again, by which point it is all that is left: the sweep usually reads 0 of N
   (169, 186, 213 on 09-15/16/17) while the primary pass those same nights read 6,273 /
   6,890 / 7,392. That line was a WARNING until 2026-09-17 and was read here as a dead
-  collector while coverage was **97%**. It is now INFO; the WARNING is kept for the case
+  collector while coverage was **97%**. "Every night" was too strong: on 2026-10-03 the
+  sweep read **54 of 343**, ids the API declined in the morning and answered for by
+  10:47. A sweep reading zero is the common case, not a law — which is the whole reason
+  the WARNING was moved off it. It is now INFO; the WARNING is kept for the case
   that can actually lose a reading — ids the ledger left unasked, measured from what
   `_enrich` sent rather than inferred from the ledger afterwards. Coverage lives in
   `nh status`, which counts stored rows; believe it over anything the collector says about
   itself. **Re-reads are snapshot-only** (raw
   kind `video_watch`): re-upserting the row would let a title edited since capture reach
-  clustering. **~152-158 units a night and growing** with the cohort (measured 2026-09-22;
-  this bullet said ~130 until then, which was true of the first nights and is not a
-  constant — the population ages in), capped at 15,000
-  ids. It decides what is *collected*; the frozen registration cohort decides what is
+  clustering. **182-193 units a night and still growing** with the cohort (measured
+  2026-09-30..10-04 from `raw_records.kind='video_watch'`, at 1 unit per 50 ids, on a
+  population of 9,374-9,749; the primary pass read 9,096 of 9,374 on 10-04). This figure
+  has now been wrong twice in the same direction — "~130" until 09-22, then "~152-158"
+  until 10-04 — because each was a true reading of a population that grows every night as
+  videos age into the 14-17 window. **Do not quote it as a constant; derive it from the
+  night you care about.** Capped at 15,000 ids. It decides what is *collected*; the frozen registration cohort decides what is
   *analysed*. The first decision date's uploads reach age 17 on **2026-09-19** — the
   watchlist must be collecting by then or they are lost.
-- **A pre-registered channel-grain test is running (ADR-0060) — read it, do not re-run it.**
-  Gated: T0 instrument, then H1 (`views_per_sub` persists at 14 days, given subscribers),
-  then H2 (`breakout_magnitude`) only if H1 passes. Registered 2026-09-15, before any outcome
-  existed. The first design — breakout with the median as a control — **passed by construction
-  40% of the time in simulation** and was retired before registration; that is the lesson to
-  keep: a control estimated from the same sample as the predictor manufactures a correlation.
-  Reads: interim **2026-09-25** (cannot pass), verdict **2026-10-02**, via
-  `nh prospective channel-reach read`. It refuses an unregistered or altered key and any read
-  before its date is collected. An H1 PASS licenses a ranked list of **channels** only; it never
-  touches `scorecards` or ranks a niche. H2 was registered as low-power: its FAIL means little.
+- **H1 PASSED. The channel-grain test is READ, and it is the first pre-registered test in
+  this repo to clear its own bar (ADR-0060, rendered 2026-10-02).** rho **+0.470**,
+  p 0.0001, top-decile lift 2.592, on **665 channels** and 873 channel-dates against
+  pre-registered floors of 200 and 5 clusters; T0 instrument +0.649; critical rho 0.066.
+  The interim had foreshadowed it at +0.411 on 276 channel-dates, so it is not an artefact
+  of one decision date — **that agreement across two cohorts is the strongest thing in the
+  result.** H2 FAILED at -0.031, p 0.5789, and was registered as low-power (5% of simulated
+  seeds passed with a strong effect), so that FAIL is weak evidence of absence, as
+  pre-committed. Both reports are committed verbatim:
+  `reports/channel_reach_2026-10-02.md` and `reports/channel_reach_interim_2026-09-25.md`
+  (the interim's filename is its own date; it was rendered on 10-02 because nobody ran it
+  on the day, and the windows had closed by then so the numbers are identical either way).
+  The draw key's sha256 was verified against `REGISTERED_KEY_SHA256` before any outcome was
+  read, at both reads.
+  **What it licenses is only what was registered: a ranked list of CHANNELS, within
+  cluster.** It does not touch `scorecards`, does not rank a niche, and **leaves Gate E's
+  2026-08-28 niche-grain null exactly where it was** — a channel-grain pass cannot repeal a
+  niche-grain null, and reading it as "ranking is unblocked now" is the one over-read to
+  expect here. **Nothing may be built on it until a PERSON records the verdict:**
+  `CHANNEL_REACH_H1_VALIDATED` does not exist in `nh/api/gates.py` yet, no code here may
+  create or set it (the `EXPOSITION_VALIDATED` / `BALLAST_VALIDATED` pattern, for that
+  pattern's reason), and `nh deferrals` carries that as its one outstanding manual entry.
+  Keep the design lesson: the FIRST design — breakout with the median as a control —
+  **passed by construction 40% of the time in simulation** and was retired before
+  registration, because a control estimated from the same sample as the predictor
+  manufactures a correlation.
+- **The next test is `channel-emergence`, and its clock is running.** Its register entry
+  came unblocked on 2026-10-02 (sequenced behind the verdict deliberately, so its design
+  can use what H1 taught) and carries a **HARD DEADLINE of 2026-11-30**, the first t+90:
+  a registration written after its outcome exists is void, and the register has **no
+  overdue state**, so an entry still reading unblocked after that date is a missed test,
+  not a reminder. The frozen cohort already exists. This is the only read in the project
+  that speaks to emergence rather than persistence.
 - **Two ballast warnings now, not one.** `BALLAST_DRIFT_SHARE` 0.05 per night catches a
   batch; `BALLAST_RAMP_SHARE` 0.10 over 7 **stored** days catches a flood no single night
   trips. The second exists because the first was blind by construction:
@@ -390,6 +419,28 @@ reviewer. Summarize exploration briefly.
   empty in `data/backtest.db` by design, so openness never entered the backtest.
   (`tests/test_lexicon_families.py`'s ruff I001 is fixed — it was held only because the
   branch was shared, and that branch is merged. `uv run ruff check .` is clean.)
+  **A test that reads the live corpus can redden the suite on a night's collection, and
+  one did.** `test_no_deferral_is_silently_unblocked_today` calls `fires()` with no
+  engine, so every `kind="query"` deferral is evaluated against
+  `data/niche_hunter.db` — the production corpus — on every run. That is how
+  `openness.rss_acceleration` turned `main` red on 2026-09-27 with no code change
+  (ADR-0064): the corpus reached the 30 distinct snapshot days its trigger named. **Four
+  query-kind entries are still wired this way** (`older than 365 days`, `known is_short`,
+  `tier-1 and a non-tier-1 geo`, `an exposition-domain score is CITED`) and can do the
+  same as the corpus grows. It is half intentional — the register is *supposed* to notice
+  — but it means a red suite is not always a code regression, and the fix (a hermetic
+  fixture DB, or a separate non-pytest check) is a test-design change nobody has made.
+  **A capped feed never returns, and the count is growing faster than it was.**
+  `feed_state` holds **158** feeds at `fail_count >= 5` on 2026-10-04 against 110 on
+  09-27 — +48 in seven days, ~6.9/day against the ~4.4/day measured before — and **all
+  158 are `last_status = 404`**, deleted channels, not outage damage. `_targets()` filters
+  `fail_count < FAIL_LIMIT` and no reset path exists in `nh/`, which is correct for a 404
+  and is why they stay. 86 of them were active-cluster members at the 09-27 count, with
+  1,009 long-form member videos whose views are frozen where the channel died; they stay
+  in `cluster_members` and the supply pools **by decision, not oversight** — the date a
+  feed first 404'd is not stored, so any exclusion applied to a replay of an earlier day
+  would leak information from after it. Worst cluster then was geopolitics at 3.3% of its
+  on-niche long-form pool. The acceleration is the thing to watch, not the level.
 - Blocked on other people: Reddit Data API (applied 2026-08-29, pending) and Google Ads
   Basic access (applied). `nh deferrals` is the register and is expected to be true —
   three entries were caught lying this session; read it, don't assume it.

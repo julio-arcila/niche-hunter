@@ -46,8 +46,19 @@ a real capture via `scripts/record_fixtures.py`.*
   logged, and the run is recorded `degraded` with the count in `job_runs.error`. Why: a
   run frozen with the Mac asleep on 2026-09-20 wrote 101,589 readings the next morning
   under the previous day's stamp, and 385 feeds were charged a `fail_count` for DNS
-  failures during maintenance wakes. A normal pass takes 16-20 minutes for ~7,800
-  feeds (measured 2026-09-19 and 09-22), so the boundary is never near on a healthy night.
+  failures during maintenance wakes — all of which reset themselves on their next healthy
+  poll, since `fail_count` is rewritten to 0 rather than decremented. A normal pass takes
+  16-20 minutes for ~7,800 feeds (measured 2026-09-19 and 09-22; 17-20 min again on
+  09-23..27, with one 39-min night on 09-24 from transient SSL failures), so the boundary
+  is never near on a healthy night — as of 2026-10-04 the pass has never reached it, so
+  `degraded` has never been recorded in production and is covered by tests only.
+- **A feed at `fail_count >= 5` is gone for good, and that is deliberate.** `_targets()`
+  filters it out and nothing in `nh/` resets it. Measured 2026-10-04: 158 such feeds, and
+  **all 158 are `last_status = 404`** — the channel no longer exists. Growing ~7/day
+  (110 on 09-27). Their videos stay in `videos` and in cluster membership with views
+  frozen at the channel's death, because the date of the first 404 is not stored and an
+  exclusion applied to a replay of an earlier day would therefore leak information from
+  after that day.
 - **Join key**: `video_id`, `channel_id`.
 - **Why it matters most**: this is the zero-cost view-velocity series, and it
   cannot be backfilled.
