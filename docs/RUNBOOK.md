@@ -135,7 +135,19 @@ boundary — see "Keeping the Mac awake" below for the open self-abort question.
 Do not re-run for it: a catch-up run stamps its own start day, and the first reading of a
 day is the one that survives. Read the log for what froze, and check `feed_state` for
 channels charged failures they did not earn:
-`select count(*) from feed_state where fail_count >= 3` before and after the night.
+`select fail_count, count(*), sum(last_status = 404) from feed_state where fail_count >= 3
+group by 1` before and after the night.
+
+**Read `last_status`, not just the count — a DNS charge is not a 404.** The 385 feeds
+charged on 09-20 all reset themselves: `youtube_rss.py` writes `fail_count = 0` on any
+healthy poll, so a feed that answers the next night is back to zero and nothing needs
+doing. What accumulates is the other kind. Measured 2026-10-04: **158** feeds sit at the
+`FAIL_LIMIT` of 5 and **every one of them is `last_status = 404`** — channels that no
+longer exist. They were 110 on 09-27, so the count is growing ~7/day. Those never return
+by design (`_targets()` filters `fail_count < FAIL_LIMIT`, and there is no reset path in
+`nh/`), and they are not a symptom of the night you are investigating. A night that
+charged failures it did not earn shows up as feeds at 1-4 that were at 0 the day before,
+with a non-404 `last_status`.
 
 The three realised failures, so the list stays honest: **2026-08-30** (cron skipped a fire
 the Mac slept through), **2026-09-13** (a late wake ran the nightly before DNS was up),
@@ -214,7 +226,10 @@ does not fail; it waits, and its rows keep the day it started with.
   mechanism that lost 2026-09-21, and `caffeinate` only makes it less likely, not impossible.
 - **A network that dies while the Mac dozes.** On 09-20, 385 feeds were charged a
   `fail_count` for DNS failures during maintenance wakes. ADR-0062 stops that past the day
-  boundary; inside the day it can still happen.
+  boundary; inside the day it can still happen. It self-heals: a healthy poll rewrites
+  `fail_count` to 0, and all 385 were back at zero within days. **Do not confuse it with
+  the 158 feeds at the cap on 2026-10-04, which are all `last_status = 404`** — dead
+  channels, accumulating ~7/day, and unrelated to any outage.
 
 What catches the case anyway (ADR-0061 and ADR-0062 were written the same day on sibling
 branches of this change; all three merged into `main` the same night, 2026-09-23 ~00:20
@@ -476,6 +491,12 @@ output to `-1`: a numeric `[ "$x" -lt 1 ]` on an empty string errors rather than
 being false, and an erroring test inside an `if` is exempt from `set -e`, so the
 guard would have been skipped and an unverified copy called good. That hole came
 in with the bracket and was closed in review, before any run used it.
+
+**Proven live on 2026-10-04**, the first night it could have mattered: `backup ok ...
+4,191,824 snapshots in [4,182,278, 4,191,824]` — 9,546 rows were written during the copy
+and the backup was kept. The equality test would have failed that night, as it did on the
+four before the fix. 10-03 was a quiet night and bracketed exactly, `[4,018,045,
+4,018,045]`, so both shapes are confirmed.
 
 Not fixed by this, and still true: the 09:40 slot races the nightly for I/O
 (2026-09-23's features phase took 62 minutes against a usual 18-25 while
