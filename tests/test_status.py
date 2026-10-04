@@ -867,3 +867,67 @@ def test_a_degraded_source_fails_the_check(settings, engine):
     result = check(engine, settings)
     assert not result.ok
     assert any("youtube_rss finished degraded" in p for p in result.problems), result.problems
+
+
+def _channels_watched(engine, channels, *, read):
+    """`channels` small member channels, optionally each with a subscriber reading today.
+
+    No uploads: this population is channels, not videos, so a channel with an empty
+    catalogue is still in it — its subscriber trajectory is the outcome.
+    """
+    from nh.db.models import ChannelSnapshot
+    from tests.conftest_features import add_channel, make_cluster
+
+    with session_scope(engine) as s:
+        today = s.scalar(sa.select(sa.func.min(JobRun.started_at))).date()
+    make_cluster(engine)
+    _snapshots_on(engine, today - timedelta(days=1))
+    for c in range(channels):
+        channel = f"UCc{c:03d}"
+        add_channel(engine, channel, subs=1_000, videos=0, day=today - timedelta(days=30))
+        if read:
+            with session_scope(engine) as s:
+                s.add(
+                    ChannelSnapshot(
+                        channel_id=channel,
+                        observed_date=today,
+                        subs=1_100,
+                        source="youtube_api",
+                        run_id="r",
+                    )
+                )
+
+
+def test_an_uncovered_channel_watchlist_warns_but_does_not_page(settings, engine):
+    """Measured 2026-10-04, before this pass existed: 181-195 of the 977 frozen
+    channel-reach cohort channels had a subscriber reading on any given night — 18.5-20%,
+    because the API snapshots a channel only when it appears in a search hit. A 90-day
+    subscriber outcome read off that fifth is selected on something close to the outcome.
+    Nothing measured this at all until ADR-0065, which is why it took five weeks and a
+    hand query against the frozen key to find."""
+    _healthy(engine)
+    _channels_watched(engine, 60, read=False)
+    result = check(engine, settings)
+
+    assert result.ok, result.problems
+    assert any("channel watchlist" in w and "0 of 60" in w for w in result.warnings), (
+        result.warnings
+    )
+
+
+def test_a_covered_channel_watchlist_is_silent(settings, engine):
+    _healthy(engine)
+    _channels_watched(engine, 60, read=True)
+    result = check(engine, settings)
+
+    assert not any("channel watchlist" in w for w in result.warnings), result.warnings
+
+
+def test_a_small_channel_watchlist_population_is_not_measured(settings, engine):
+    """Thirty channels is not a population to take a percentage of — the same floor the
+    video watchlist uses, and the reason the existing watchlist fixtures stay quiet here."""
+    _healthy(engine)
+    _channels_watched(engine, 30, read=False)
+    result = check(engine, settings)
+
+    assert not any("channel watchlist" in w for w in result.warnings), result.warnings

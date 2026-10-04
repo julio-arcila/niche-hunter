@@ -19,9 +19,15 @@ import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 
 from nh.collectors.registry import REGISTRY
-from nh.collectors.youtube_api import read_on, watchlist_population
+from nh.collectors.youtube_api import (
+    channel_read_on,
+    channel_watchlist_population,
+    read_on,
+    watchlist_population,
+)
 from nh.config import Settings, get_settings
 from nh.db.models import (
+    Channel,
     ClusterMember,
     FeatureDaily,
     JobRun,
@@ -201,6 +207,7 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
     _check_ballast_drift(engine, result)
     _check_sweep(engine, run_id, result)
     _check_watchlist(engine, run_id, result)
+    _check_channel_watchlist(engine, run_id, result)
     _check_previous_day(engine, run_id, result)
     return result
 
@@ -506,6 +513,48 @@ def _check_watchlist(engine: Engine | None, run_id: str, result: CheckResult) ->
             f"channel-reach watchlist: {read} of {total} videos aged 14-17 have a reading "
             f"on {day} ({read / total:.0%}) — the pre-registered 14-day outcome is being "
             f"censored (ADR-0059)"
+        )
+
+
+def _check_channel_watchlist(engine: Engine | None, run_id: str, result: CheckResult) -> None:
+    """Warn when small member channels lack tonight's subscriber reading.
+
+    The channel-grain twin of `_check_watchlist`, measured the same way — stored rows
+    against the collector's own population, never a flag the collector sets. A warning
+    and never a page: one missed night costs a day of a 90-day trajectory, where a missed
+    video reading can empty a [14, 17] window for good.
+
+    This check is the instrument that was missing. Before ADR-0065 nothing measured
+    channel coverage at all, so the 18.5-20% that made a subscriber outcome uncollectable
+    had to be found by hand, from the frozen key, five weeks after the cohort was drawn.
+    """
+    with session_scope(engine) as session:
+        started = session.scalar(
+            sa.select(sa.func.min(JobRun.started_at)).where(JobRun.run_id == run_id)
+        )
+        if started is None:
+            return
+        day = started.date()
+        ids = channel_watchlist_population(day).subquery()
+        total = session.scalar(sa.select(sa.func.count()).select_from(ids)) or 0
+        if total < WATCHLIST_MIN_POPULATION:
+            return
+        read = (
+            session.scalar(
+                sa.select(sa.func.count())
+                .select_from(Channel)
+                .where(
+                    Channel.channel_id.in_(sa.select(ids.c.channel_id)),
+                    channel_read_on(day),
+                )
+            )
+            or 0
+        )
+    if read / total < WATCHLIST_MIN_COVERAGE:
+        result.warnings.append(
+            f"channel watchlist: {read} of {total} small member channels have a subscriber "
+            f"reading on {day} ({read / total:.0%}) — a 90-day subscriber outcome measured "
+            f"from this night would be censored (ADR-0065)"
         )
 
 

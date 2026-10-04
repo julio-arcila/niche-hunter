@@ -3919,3 +3919,102 @@ in `nh/api/gates.py`, which does not exist yet. No code here sets it, on the
 `EXPOSITION_VALIDATED` / `BALLAST_VALIDATED` pattern and for that pattern's reason. What
 H1 licenses is only what was registered — a ranked list of **channels**, within cluster.
 It does not touch `scorecards`, does not rank a niche, and leaves Gate E standing.
+
+## ADR-0065 — The nightly re-reads small member channels' subscribers, because a 90-day outcome cannot be collected from search hits
+
+**2026-10-04.** `channels.list` over every small active-cluster member channel with no
+reading yet tonight, snapshot-only, last in the pass. ~112 units a night measured against
+2,900-3,000 of headroom. `status._check_channel_watchlist` warns below 0.9 coverage.
+
+### The measurement that forced it
+
+The API writes a `channel_snapshots` row only for a channel that appears in tonight's
+search hits. Measured 2026-10-04 against the frozen channel-reach key: of its **977**
+channels, **181-195 had a subscriber reading on any given night — 18.5-20.0%** (195, 193,
+193, 186, 181 on 09-30..10-04), and only **212** hold both an early (<= 09-08) and a
+recent (>= 10-01) reading.
+
+So a 90-day subscriber outcome read from today's corpus would exist for about a fifth of
+the cohort, and not a random fifth: a channel appears in search results because it is
+doing well. That is selection on something very close to the outcome — the YouNiverse
+survivorship defect this repo refuses elsewhere, and ADR-0059's problem one grain up.
+ADR-0059 fixed it for videos and did not look at channels, because nothing then needed a
+channel outcome; `channel-emergence` does, its register entry came unblocked 2026-10-02,
+and its reading window for t = 2026-09-01 opens 2026-11-30. **Collection has a fixed
+date; design does not** — which is why this ships before the registration it serves.
+
+### `MIN(subs)`, not `MAX(subs)` — the instrument nearly re-created the defect
+
+Both watchlist populations tested `MAX(subs) <= COHORT_MAX_SUBS`. That was indistinguishable
+from the right test only because subscriber counts were stale: a channel that outgrew the
+ceiling kept looking small until it next turned up in search. A nightly re-read ends the
+staleness, so under `MAX` a channel would have been evicted from the population **on the
+night it crossed 10k** — stopping its readings, and its videos' 14-17 day readings
+mid-window, precisely for the channels that grew.
+
+Censoring correlated with the outcome, introduced by the pass built to remove censoring
+correlated with the outcome. It was found by a test failure ("the population itself did
+not drift", 0 of 4) rather than by reasoning, which is worth recording: the interaction
+is invisible in either query read alone.
+
+Both populations now test `MIN(subs) <= COHORT_MAX_SUBS` over snapshots with
+`subs >= 1` — ever observed small, hence monotone: once a channel is in, no reading can
+be lost to the thing being measured. `features.inputs.cohort` keeps "small as of the day"
+for ANALYSIS, deliberately: that is the right question there, and a frozen key decides
+membership for a registered test anyway.
+
+**Where the zeros go is the whole fix, and the first version put them in the wrong
+place.** It wrote `min(subs).between(1, COHORT_MAX_SUBS)`, which reads as "ever small"
+and means "never zero" — and 0 is a real API reading for a brand-new channel, 1,387 rows
+across 573 channels. It therefore EVICTED 85 channels, among them one whose readings went
+0 to 2,000: a zero-start channel that grew, which is the exact case the change exists to
+protect. The claim "it only widens the population" was false as written, and the new tests
+passed either way because none of them had a channel that had ever read zero.
+
+Filtering `subs >= 1` in the WHERE, before the aggregate, is the correct form: a channel
+is judged on its non-zero readings. Measured after the fix: **6,561 channels against
+`MAX`'s 6,544** — 17 added (outgrowers, as intended), none removed. Only now does "only
+widens, so no history is lost" hold. Caught in review; the lesson is that a bound on an
+aggregate is not the same predicate as a bound on its inputs.
+
+### Snapshot-only, and here it matters more than at video grain
+
+No `Channel` upsert. ADR-0059 established the rule for videos because a title edited since
+capture would reach clustering's rescore. At channel grain the fields are worse: `keywords`
+and `topics` feed the lexicon scorer and `country` feeds the geo basis (ADR-0037). A pass
+whose only job is to read a number must not rewrite what the scorer reads, or the re-read
+changes what metrics MEASURE and not only what outcomes SEE. The payload is kept as raw
+(rule 2), so adopting the new metadata later is a query over stored evidence, never a
+re-fetch.
+
+### The rest of the shape, and why each piece is the video watchlist's
+
+- **Last in `_backfill`**, after the video watchlist: a missed subscriber reading costs one
+  night of a 90-day trajectory, a missed video reading can empty a [14, 17] window for
+  good. If the ledger stops somewhere, this is the cheapest place.
+- **`channel_read_on(day)` is source-blind**, so whichever of the primary run and the
+  ADR-0057 sweep arrives first satisfies it — once per channel per night.
+- **Hidden counts are NULL, never 0** (rule 7). Here it bites twice: a 0 would also read
+  as a channel that lost every subscriber between two nights. A channel whose count has
+  never been visible is simply absent from the population, honestly, since a hidden count
+  cannot be an outcome either.
+- **Oldest `first_seen` first, capped** at `yt_channel_watchlist_max_ids` (10,000 =
+  200 units), its own cap so neither watchlist can starve the other. Deterministic
+  draining is `_unenriched_ids`' reasoning, not the video watchlist's: there is no
+  [14, 17] window here to order by.
+- **The unasked/declined split** is ADR-0059's, for ADR-0059's reason — a declined id is a
+  terminated channel (expected, self-limiting, visible as coverage), an unasked id is
+  quota that ran out and a reading lost for good.
+
+Measured population on merge day, under the shipped `MIN` form: **6,561** channels, 959
+already read by the evening's run, 5,602 to ask, **113 units**. (The first draft of this
+ADR quoted 6,544 / 950 / 112, which were the `MAX` population's figures — measured before
+the change the ADR is about, which review caught.)
+
+### What this does NOT do
+
+It does not register anything, score anything, or decide what is analysed. It collects, so
+that a registration written in the next two weeks has an uncensored outcome to read in
+December. The emergence test's design — predictor, outcome, controls, floors, bar, read
+schedule — is its own ADR and its own pre-registration document, and it needs a person to
+commit it before any outcome exists.

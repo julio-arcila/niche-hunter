@@ -61,6 +61,15 @@ class Settings(BaseSettings):
     #: 5%/night, and a hard ceiling if discovery ever floods. Separate from the backfill
     #: cap so a large backlog night cannot starve the watchlist, or the reverse.
     yt_watchlist_max_ids: int = 15_000
+    #: Small active-cluster member CHANNELS, re-read nightly for subscribers (ADR-0065),
+    #: because the API only snapshots a channel that appears in tonight's search hits:
+    #: measured 2026-10-04, that is 181-195 of the 977 frozen cohort channels per night,
+    #: 18.5-20%, and a 90-day subscriber outcome read off that fifth is selected on
+    #: something close to the outcome. Measured the same day: ~6,000 channels in the
+    #: population, ~120 units at 1 per 50, against 2,900-3,000 units of headroom.
+    #: 10,000 is 200 units — room to grow, and a ceiling if discovery floods. Its own cap
+    #: for the same reason the video watchlist has one: neither pass may starve the other.
+    yt_channel_watchlist_max_ids: int = 10_000
 
     # --- youtube rss -------------------------------------------------------
     rss_user_agent: str = "niche-hunter-rss/0.1 (+contact@example.com)"
