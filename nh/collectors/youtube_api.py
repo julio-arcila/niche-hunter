@@ -170,17 +170,32 @@ def watchlist_population(day: date) -> sa.Select:
     and caps it; `jobs.status` measures coverage against it. Kept in one place because a
     population defined twice is a population that will disagree with itself.
 
-    "Small" is the openness cohort's own ceiling, `features.inputs.COHORT_MAX_SUBS`, on
-    MAX subs on or before `day`, imported rather than copied so the two cannot drift.
-    Membership is today's rather than as of `day`, deliberately — this decides what to
-    COLLECT, and reading a video that later leaves the cohort costs a fiftieth of a unit.
-    The frozen registration cohort, not this query, decides what is ANALYSED.
+    "Small" is the openness cohort's own ceiling, `features.inputs.COHORT_MAX_SUBS`,
+    imported rather than copied so the two cannot drift, and the test is **ever observed
+    at or below** it — `MIN(subs)` on or before `day`.
+
+    It was `MAX(subs)` until 2026-10-04, and the two agreed only because subscriber
+    counts were stale: the API snapshotted a channel just when it turned up in search
+    hits, so a channel that outgrew the ceiling went on looking small here for weeks.
+    ADR-0068's nightly subscriber re-read ended that, and under `MAX` the population
+    would have begun shedding a channel on the night it crossed 10k — mid-window for its
+    videos aged 14-17, so their readings would stop exactly for the channels that grew.
+    Censoring correlated with success, which is the defect the watchlist exists to
+    remove. `MIN` is monotone: once seen small, always in, so a reading can never be lost
+    to the thing being measured. It only ever widens the population, so no night's
+    collection is lost to the change.
+
+    This is the COLLECTION definition. `features.inputs.cohort` still reads "small as of
+    the day" for ANALYSIS, which is the right question there and deliberately different.
+    Membership is today's rather than as of `day`, also deliberately — reading a video
+    that later leaves the cohort costs a fiftieth of a unit, and the frozen registration
+    cohort, not this query, decides what is analysed.
     """
     small = (
         sa.select(ChannelSnapshot.channel_id)
         .where(ChannelSnapshot.observed_date <= day)
         .group_by(ChannelSnapshot.channel_id)
-        .having(sa.func.max(ChannelSnapshot.subs).between(1, COHORT_MAX_SUBS))
+        .having(sa.func.min(ChannelSnapshot.subs).between(1, COHORT_MAX_SUBS))
     )
     members = (
         sa.select(ClusterMember.item_id)
@@ -208,6 +223,74 @@ def read_on(day: date) -> sa.Exists:
     """
     return sa.exists().where(
         VideoSnapshot.video_id == Video.video_id, VideoSnapshot.observed_date == day
+    )
+
+
+def channel_watchlist_population(day: date) -> sa.Select:
+    """Small channels that are non-noise members of an active cluster, as of `day`.
+
+    The channel-grain twin of `watchlist_population`, and it exists for the same reason
+    that one does. The API snapshots a channel only when it turns up in tonight's search
+    hits, so measured 2026-10-04 just **181-195 of the 977 frozen channel-reach cohort
+    channels get a subscriber reading on any given night — 18.5-20%** — and only 212 hold
+    both an early and a recent one. A subscriber outcome read off that is censored to the
+    channels that kept appearing in search results, which is selection on something very
+    close to the outcome: exactly the defect ADR-0059 closed at video grain, and the
+    YouNiverse survivorship problem this repo already refuses elsewhere.
+
+    One definition, two consumers, as before: the collector narrows it to "no reading yet
+    today" and caps it, and `jobs.status` measures coverage against it.
+
+    "Small" here means **ever observed at or below** `features.inputs.COHORT_MAX_SUBS`
+    (imported, not copied) — `MIN(subs)`, not the `MAX(subs)` that `watchlist_population`
+    uses, and the difference is the whole point.
+
+    A `MAX` test would make this population shrink the moment a channel crosses the
+    ceiling, and the channels that cross it are precisely the ones that grew. Their
+    readings would stop on the night they succeeded, so a 90-day subscriber outcome would
+    be missing for the top of its own distribution — censoring correlated with the
+    outcome, which is the defect this collector exists to remove, re-introduced by the
+    collector itself. Once a channel has been seen small it stays in the population for
+    good: monotone, so a night's reading can never be lost to the thing being measured,
+    and cheap, because a channel that outgrows the cohort is one id a night.
+
+    A hidden subscriber count is NULL, never 0 (rule 7), so `min()` ignores it and a
+    never-visible channel is simply absent — honest, since a hidden count cannot be an
+    outcome either. Membership is today's rather than as of `day`, the same deliberate
+    looseness as the video watchlist: this decides what to COLLECT at a fiftieth of a
+    unit per id, and a frozen registration key decides what is ANALYSED.
+    """
+    small = (
+        sa.select(ChannelSnapshot.channel_id)
+        .where(ChannelSnapshot.observed_date <= day)
+        .group_by(ChannelSnapshot.channel_id)
+        .having(sa.func.min(ChannelSnapshot.subs).between(1, COHORT_MAX_SUBS))
+    )
+    members = (
+        sa.select(ClusterMember.item_id)
+        .join(Cluster, Cluster.cluster_id == ClusterMember.cluster_id)
+        .where(
+            ClusterMember.item_type == "channel",
+            ClusterMember.is_noise.is_(False),
+            Cluster.active.is_(True),
+        )
+    )
+    return sa.select(Channel.channel_id).where(
+        Channel.channel_id.in_(members),
+        Channel.channel_id.in_(small),
+    )
+
+
+def channel_read_on(day: date) -> sa.Exists:
+    """A subscriber reading for the correlated `Channel` on `day`, from any source.
+
+    Only `youtube_api` writes `channel_snapshots` today, but the predicate is written
+    source-blind for the same reason `read_on` is: whichever pass of the night arrives
+    first satisfies it, and the other finds the channel already read.
+    """
+    return sa.exists().where(
+        ChannelSnapshot.channel_id == Channel.channel_id,
+        ChannelSnapshot.observed_date == day,
     )
 
 
@@ -331,6 +414,11 @@ class YouTubeApiCollector(Collector):
         # version excluding attempts. Backlog ids need no exclusion: unenriched videos
         # have `is_short` NULL and are never in the population.
         yield from self._watchlist(read_tonight or set())
+        # Last of all, and deliberately after the video watchlist: a missed subscriber
+        # reading costs one night of a 90-day trajectory, while a missed video reading
+        # can leave a [14, 17] window empty for good. If the ledger is going to stop
+        # somewhere, this is the cheapest place for it to stop.
+        yield from self._channel_watchlist()
 
     def _drain_backlog(self, backlog: dict[str, str]) -> Iterable[Raw]:
         """Enrich the unenriched backlog; mark what the API no longer serves."""
@@ -430,6 +518,64 @@ class YouTubeApiCollector(Collector):
         if declined:
             self.log.info(
                 "watchlist: read %d of %d; %d gone (deleted or private)",
+                returned,
+                len(asked),
+                declined,
+            )
+
+    def _channel_watchlist_ids(self) -> list[str]:
+        """Channel-watchlist ids with no reading yet today, oldest-known first, capped.
+
+        Oldest `first_seen` first so a capped night drains deterministically instead of
+        re-shuffling and starving the same channels every time — `_unenriched_ids`'
+        reasoning, not the video watchlist's. There is no [14, 17] window here to order
+        by: a channel is in the population every night it is a small active member, so
+        what matters is that the cap falls in the same place each night rather than at
+        random.
+        """
+        query = (
+            channel_watchlist_population(self.observed_date)
+            .where(~channel_read_on(self.observed_date))
+            .order_by(Channel.first_seen)
+            .limit(self.settings.yt_channel_watchlist_max_ids)
+        )
+        with session_scope(self.engine) as session:
+            return list(session.scalars(query))
+
+    def _channel_watchlist(self) -> Iterable[Raw]:
+        """Re-read small member channels' subscriber counts (ADR-0068).
+
+        No `exclude` argument, unlike `_watchlist`: a channel enriched earlier tonight
+        already has a snapshot for the date, so `channel_read_on` has excluded it
+        already. The video watchlist needs its `read_tonight` set because a snapshot
+        written moments ago may not be flushed yet; here the ids come from a query that
+        runs after those flushes, in a later session.
+        """
+        ids = self._channel_watchlist_ids()
+        if not ids:
+            return
+        self.log.info("channel watchlist: re-reading subscribers for %d channels", len(ids))
+        asked: set[str] = set()
+        returned = 0
+        for item in self._enrich("channels", ids, asked=asked):
+            returned += 1
+            yield Raw(kind="channel_watch", key=item["id"], payload=item)
+        unasked = len(ids) - len(asked)
+        declined = len(asked) - returned
+        # The ADR-0059 split, for the ADR-0059 reason: an id the API declines is a
+        # terminated channel, expected and self-limiting, and already visible as
+        # coverage in `status._check_channel_watchlist`, which counts stored rows. An id
+        # the ledger never reached is the actionable one, because a subscriber reading
+        # for tonight cannot be recovered tomorrow.
+        if unasked:
+            self.log.warning(
+                "channel watchlist: budget ran out; %d of %d ids left unasked tonight",
+                unasked,
+                len(ids),
+            )
+        if declined:
+            self.log.info(
+                "channel watchlist: read %d of %d; %d gone (terminated or hidden)",
                 returned,
                 len(asked),
                 declined,
@@ -600,6 +746,8 @@ class YouTubeApiCollector(Collector):
             return self._norm_watch(raw)
         if raw.kind == "channel":
             return self._norm_channel(raw)
+        if raw.kind == "channel_watch":
+            return self._norm_channel_watch(raw)
         if raw.kind == "video_missing":
             return self._norm_missing(raw)
         raise ValueError(f"unknown raw kind {raw.kind!r}")
@@ -722,6 +870,38 @@ class YouTubeApiCollector(Collector):
                         "views": as_int(stats.get("viewCount")),
                         "likes": as_int(stats.get("likeCount")),
                         "comments": as_int(stats.get("commentCount")),
+                    },
+                )
+            ]
+        )
+
+    def _norm_channel_watch(self, raw: Raw) -> Batch:
+        """A channel-watchlist re-read (ADR-0068): the snapshot, and nothing else.
+
+        The `Channel` row is deliberately not re-upserted, which is ADR-0059's rule
+        applied to the entity whose fields actually feed clustering: `keywords` and
+        `topics` are read by the lexicon scorer, and `country` by the geo basis. A
+        channel that rewrote its keywords since discovery would otherwise have its
+        cluster membership rescored by a pass whose only job is to read a number — the
+        re-read would change what metrics measure, not only what outcomes see. The raw
+        payload keeps the rest (rule 2), so a later decision to adopt the new metadata
+        is a query over stored evidence rather than a re-fetch.
+        """
+        item = raw.payload
+        stats = item.get("statistics", {})
+        hidden = as_bool(stats.get("hiddenSubscriberCount"))
+        return Batch(
+            snapshots=[
+                Snapshot(
+                    ChannelSnapshot,
+                    {
+                        "channel_id": raw.key,
+                        # Hidden is unknown, not zero (rule 7) — and here it matters
+                        # twice, because a 0 would also read as a channel that lost
+                        # every subscriber between two nights.
+                        "subs": None if hidden else as_int(stats.get("subscriberCount")),
+                        "total_views": as_int(stats.get("viewCount")),
+                        "video_count": as_int(stats.get("videoCount")),
                     },
                 )
             ]
