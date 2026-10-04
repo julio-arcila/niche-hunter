@@ -15,12 +15,16 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import uuid4
 
-from nh.collectors.base import Collector
+from sqlalchemy.engine import Engine
+
+from nh.collectors.base import Collector, deadline_for, past_deadline_for
 from nh.collectors.registry import CollectorSpec, iter_specs
 from nh.collectors.youtube_api import YouTubeApiCollector
 from nh.config import Settings, get_settings
+from nh.db.models import JobRun
+from nh.db.session import session_scope
 from nh.db.types import utcnow
-from nh.jobs.phases import run_phases
+from nh.jobs.phases import PHASES, run_phases
 from nh.jobs.status import SWEEP_JOB
 
 #: The key `_sweep_enrichment` reports under in `NightlyResult.statuses`. Distinct from
@@ -160,6 +164,17 @@ def run_nightly(
             record.snapshots_written,
         )
 
+    # Past its own day boundary, the run stops rather than carrying on into tomorrow
+    # (ADR-0066). The sweep is a snapshot WRITER, so running it now would stamp
+    # tomorrow's readings with today's `observed_date` — the defect ADR-0062 closed for
+    # RSS and left open here. The phases are recomputable (`nh compute --day`), so what
+    # they cost past the boundary is only time, and that time is what absorbed the
+    # 2026-09-10 fire: 9 minutes of sweep plus 48 of phases, with the label still running
+    # at 09:10.
+    if only is None and past_deadline_for(started.date()):
+        statuses.update(_abort_past_boundary(run_id, started, job))
+        return NightlyResult(run_id=run_id, started_at=started, planned=planned, statuses=statuses)
+
     if only is None:
         statuses.update(_sweep_enrichment(run_id, started, settings, planned))
 
@@ -171,3 +186,44 @@ def run_nightly(
     if only is None:
         statuses.update(run_phases(run_id, started.date(), job=job))
     return NightlyResult(run_id=run_id, started_at=started, planned=planned, statuses=statuses)
+
+
+def _abort_past_boundary(
+    run_id: str, started: datetime, job: str, engine: Engine | None = None
+) -> dict[str, str]:
+    """Record the sweep and every phase as `aborted`, with how to recover.
+
+    A row per skipped stage rather than one summary line, because `status.check` reads
+    `job_runs` per source and per phase: a night that silently wrote no phase rows would
+    read as "the phase did not run", which is the same message a crashed phase gives.
+    `aborted` is distinct from `failed` on purpose — nothing went wrong, the night simply
+    ran out of its own day — and from `skipped`, which means "not configured" and is
+    counted as fine.
+
+    What this does NOT do is recompute. The features for the day are a hand step, and the
+    operator is reading the page anyway because the night is already not `ok`.
+    """
+    day = started.date()
+    reason = (
+        f"past this run's day boundary ({deadline_for(day).isoformat()}): "
+        f"a reading taken now is not a reading of {day}. "
+        f"Recover the phases with: nh compute --day {day}"
+    )
+    log.warning("aborting after the collectors: %s", reason)
+    statuses = {SWEEP_STATUS_KEY: "aborted"}
+    statuses.update({name: "aborted" for name, _ in PHASES})
+    with session_scope(engine) as session:
+        at = utcnow()
+        for source in statuses:
+            session.add(
+                JobRun(
+                    run_id=run_id,
+                    job=job,
+                    source=source,
+                    status="aborted",
+                    started_at=at,
+                    finished_at=at,
+                    error=reason[:4000],
+                )
+            )
+    return statuses

@@ -3834,6 +3834,14 @@ base class — or a `timeout` around `nh nightly` in `run_nightly.sh` set to end
 next morning (ADR-0061), the RSS pass does not cross its day (ADR-0062), and the Mac does
 not doze off on its own account (this ADR).
 
+**CLOSED 2026-10-04 by ADR-0066: it aborts**, by the `past_deadline()` check this section
+names. Three of the four arguments against it above do not survive being checked against
+the code — the sweep is a snapshot writer, C1 has already reset by then, and the watchlist
+reads membership as of today — and ADR-0062 had already answered the fourth. What survives
+is one accepted cost: a degraded night's features are a hand step, `nh compute --day D`.
+This section is left as written because the reasoning it contains is how the decision was
+reached; see ADR-0066 for which parts held.
+
 ## ADR-0064 — `openness.rss_acceleration` is re-deferred: the trigger counted days, and the metric the prototype holds is the shape data rule 9 forbids
 
 **2026-10-02.** The register fired. `openness.rss_acceleration` had been deferred on
@@ -4018,3 +4026,70 @@ that a registration written in the next two weeks has an uncensored outcome to r
 December. The emergence test's design — predictor, outcome, controls, floors, bar, read
 schedule — is its own ADR and its own pre-registration document, and it needs a person to
 commit it before any outcome exists.
+
+## ADR-0066 — A run past its own day boundary stops: the sweep and the phases abort, and the night is not `ok`
+
+**2026-10-04.** ADR-0063 left this open deliberately and named it the operator's
+trade-off. It is settled here because the repository's own rules settle the half that
+matters, and the other half turns out to cost almost nothing.
+
+### What changes
+
+Past `Collector.deadline` for the run's own `observed_date` — UTC midnight after it,
+19:00 local — `run_nightly` does not start the enrichment sweep and does not start the
+four phases. It writes one `job_runs` row per skipped stage with `status="aborted"` and an
+`error` naming the boundary and the recovery command, and returns. `aborted` is neither
+`ok` nor `skipped`, so `NightlyResult.ok` is False, the exit code is non-zero and the gate
+pages. Separately, `youtube_api._enrich` now checks the boundary before every batch, so
+the primary pass and the sweep stop mid-flight rather than only at entry.
+
+### Why the repo settles it
+
+ADR-0063's case *against* aborting had four parts. Three do not survive contact:
+
+- **"Snapshots are the only non-recomputable artefact."** True, and it argues FOR
+  aborting, not against: the sweep is a snapshot *writer*. Past the boundary it stamps
+  tomorrow's readings with today's `observed_date`, which is exactly the defect ADR-0062
+  closed for RSS and left open for the collector that also writes snapshots. That half was
+  never a policy question.
+- **"C1 reads the phases' output."** `criteria._nightly_days` counts only all-`ok` nights,
+  and a run past its boundary is already `degraded` from the RSS pass (ADR-0062), so C1 has
+  already reset. Zero marginal cost.
+- **"The watchlist reads the phases' output."** It reads `cluster_members` as of today,
+  deliberately loose — `watchlist_population`'s own docstring says membership is today's
+  rather than as of the day. A night without clustering leaves membership at D-1's.
+- **"Nothing says what to do with a day's PARTIAL collection."** ADR-0062 already said it:
+  a row stamped D was observed on D, so the partial day is kept under its stamp, honestly.
+
+What remains is the real cost, and it is accepted rather than argued away: **a degraded
+night's features are a hand step.** `nh compute --day D` exists (ADR-0014) and the abort
+row names it. The operator is reading the page regardless, because the night is not `ok`.
+
+### Why at the boundary rather than at 09:10
+
+A `timeout` in `run_nightly.sh` was rejected for ADR-0062's reasons: it needs a number
+with nothing behind it, SIGTERM mid-flush leaves `running` rows, and a frozen process's
+alarm fires on wake at exactly the moment a Python check would. Aborting at 09:10 instead
+was rejected because it would import the plist's schedule into `nh/` — a second source of
+truth for when the nightly runs. The boundary is 14 hours earlier than the collision and
+is already the repository's own line: a run awake and past 19:00 local is a ten-hour
+incident whether or not it collides with a fire.
+
+### What it does not fix
+
+A run frozen *before* its boundary and woken after it still absorbed the fire it was
+sleeping through; this makes the absorbed fire visible the next morning (ADR-0061) and
+stops the woken run from spending another hour, but launchd still drops the missed fire.
+The one realised case, 2026-09-21, would have finished within a minute of the operator's
+08:42 wake instead of running to 10:02 — the 09:10 fire would have started on time.
+
+### A clock trap found while testing it
+
+Pinning the boundary check inside `_enrich` turned twelve collector tests red at once:
+they build a world on a date in the past, so against the real clock every one of them is
+past its boundary and stops before its first request. The module now pins
+`base.utcnow` autouse, as `tests/test_youtube_rss.py` already did per-test. That also
+exposed `_prior_run` reading `db.types.utcnow` while the collector reads `base.utcnow`
+for the same Pacific-day question — invisible while both were the real clock, a fortnight
+apart once one was pinned. **A feature arrived at the clock trap this repo has walked into
+three times from a date change; it is the same trap from a new direction.**

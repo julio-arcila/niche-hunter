@@ -267,7 +267,7 @@ reviewer. Summarize exploration briefly.
   and there are now **three** — 08-30 (a fire slept through, on cron), 09-13 (a late wake
   ran before DNS was up), 09-20/21 (a run outlived its day and absorbed the next fire).
   ADR-0061 makes the third visible the next morning, ADR-0062 stops the RSS pass crossing
-  its day, ADR-0063 runs the nightly under `caffeinate` and leaves self-abort open — three
+  its day, ADR-0063 runs the nightly under `caffeinate`, and **ADR-0066 (2026-10-04) closed the self-abort question: past its own day boundary a run records the sweep and all four phases `aborted`, is not `ok`, and names `nh compute --day D` as the recovery — so a woken run stops in a minute instead of spending another hour; recomputing that day's features is an accepted hand step** — three
   sibling branches written 2026-09-22 with this bullet, **all three merged into `main` the
   same night** (2026-09-23 ~00:20 local; 09-23's 09:10 nightly is the first to run under
   them). On merged `main`, `nh status --check` read-only that night said `FAIL no

@@ -10,6 +10,8 @@ be repointed at it. Until then, treat shape (not logic) as unverified.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 import requests
 import responses
@@ -319,10 +321,15 @@ def _prior_run(engine, units, *, same_quota_day=True, source="youtube_api"):
     """
     from datetime import UTC, timedelta
 
+    from nh.collectors.base import utcnow
     from nh.collectors.youtube_api import PACIFIC
     from nh.db.models import JobRun
-    from nh.db.types import utcnow
 
+    # `base.utcnow` deliberately, not `db.types.utcnow`: the collector takes its
+    # `observed_at` from the former (`base.py:131`) and `_spent_today` anchors the Pacific
+    # day to THAT, so a fixture reading the other clock places its row relative to a
+    # different day than the code under test uses. Invisible until `_pinned_clock` made
+    # the two differ by a fortnight.
     midnight = utcnow().astimezone(PACIFIC).replace(hour=0, minute=0, second=0, microsecond=0)
     started = midnight + timedelta(minutes=1) if same_quota_day else midnight - timedelta(hours=1)
     with session_scope(engine) as s:
@@ -778,11 +785,28 @@ def _serve_channels(engine, dead: set[str] | None = None):
     responses.add_callback(responses.GET, f"{API}/channels", callback=respond)
 
 
-def _night_collector(settings, engine):
-    from datetime import UTC, datetime
+#: The instant every collector test runs at, pinned autouse below.
+#:
+#: These tests build a world on WATCH_NIGHT, a date in the past, and the enrichment pass
+#: now asks `past_deadline()` before each batch (ADR-0066). Against the real clock that is
+#: always True, so every one of them would stop before its first request — the clock trap
+#: `nh criteria` and the ballast surface each walked into, arriving here from a feature
+#: rather than from a date change. Pinned to midday UTC on the night itself, well inside
+#: the boundary, so the tests measure what they are about.
+NOW = datetime.fromisoformat(WATCH_NIGHT).replace(hour=14, minute=10, tzinfo=UTC)
 
-    night = datetime.fromisoformat(WATCH_NIGHT).replace(hour=14, minute=10, tzinfo=UTC)
-    return _collector(settings, engine, backfill_only=True, observed_at=night)
+
+@pytest.fixture(autouse=True)
+def _pinned_clock(monkeypatch):
+    """`base.utcnow` is the read `past_deadline()` makes — `tests/test_youtube_rss.py`'s
+    `_frozen_clock`, as an autouse fixture because every test in this module needs it."""
+    from nh.collectors import base
+
+    monkeypatch.setattr(base, "utcnow", lambda: NOW)
+
+
+def _night_collector(settings, engine):
+    return _collector(settings, engine, backfill_only=True, observed_at=NOW)
 
 
 def _requested(path="/videos"):

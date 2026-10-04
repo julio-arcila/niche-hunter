@@ -46,6 +46,20 @@ log = logging.getLogger(__name__)
 FLUSH_EVERY = 500
 
 
+def deadline_for(observed_date: date) -> datetime:
+    """UTC midnight after `observed_date` — 19:00 local, the snapshot day boundary.
+
+    A module function rather than only a `Collector` property because the nightly asks
+    the same question without having a collector to ask it of (ADR-0066), and two places
+    computing one boundary is one boundary that will disagree with itself.
+    """
+    return datetime.combine(observed_date + timedelta(days=1), time.min, tzinfo=UTC)
+
+
+def past_deadline_for(observed_date: date) -> bool:
+    return utcnow() >= deadline_for(observed_date)
+
+
 class NotPorted(NotImplementedError):
     """Placeholder collector: the prototype in legacy/ has not been ported yet."""
 
@@ -152,7 +166,7 @@ class Collector(ABC):
         `observed_date = D` was observed on D. On 2026-09-20 a run froze with the Mac
         asleep and wrote 101,589 readings the next morning under the previous day's stamp.
         """
-        return datetime.combine(self.observed_date + timedelta(days=1), time.min, tzinfo=UTC)
+        return deadline_for(self.observed_date)
 
     def past_deadline(self) -> bool:
         """Owned by `fetch()`; `normalize()` must stay pure and never read a clock."""

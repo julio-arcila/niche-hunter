@@ -703,6 +703,21 @@ class YouTubeApiCollector(Collector):
         """
         part, fields = _PARTS[endpoint]
         for batch in _chunks(ids):
+            # Every enrichment endpoint here writes a snapshot under `observed_date`:
+            # `videos` through the watchlist and the backlog, `channels` through the
+            # subscriber re-read. Past the boundary those readings are not readings of
+            # this run's day, so the pass stops and the run says so — ADR-0062's rule for
+            # RSS, applied to the collector that also writes snapshots (ADR-0066). Checked
+            # per batch rather than once at entry because a pass that began inside its day
+            # can cross the boundary while it runs, which is exactly the 2026-09-20 shape.
+            if self.past_deadline():
+                self.degraded = (
+                    f"stopped {endpoint} enrichment at the day boundary "
+                    f"({self.deadline.isoformat()}); a reading taken after it is not a "
+                    f"reading of {self.observed_date}"
+                )
+                self.log.warning("%s", self.degraded)
+                return
             if not self.quota.can_afford(LIST_COST):
                 self.log.warning("budget reached; stopping %s enrichment", endpoint)
                 return
