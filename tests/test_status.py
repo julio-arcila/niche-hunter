@@ -931,3 +931,84 @@ def test_a_small_channel_watchlist_population_is_not_measured(settings, engine):
     result = check(engine, settings)
 
     assert not any("channel watchlist" in w for w in result.warnings), result.warnings
+
+
+def _phase_row(engine, source, minutes):
+    """A finished phase row on the judged run, lasting `minutes`."""
+    from datetime import timedelta
+
+    from nh.db.models import JobRun
+
+    with session_scope(engine) as s:
+        run_id, started = s.execute(
+            sa.select(JobRun.run_id, sa.func.min(JobRun.started_at)).group_by(JobRun.run_id)
+        ).first()
+        s.add(
+            JobRun(
+                run_id=run_id,
+                job="nightly",
+                source=source,
+                status="ok",
+                started_at=started,
+                finished_at=started + timedelta(minutes=minutes),
+            )
+        )
+
+
+def test_a_phase_over_its_budget_warns_but_does_not_page(settings, engine):
+    """Measured 2026-09-23: the features phase took 62 minutes against a usual 18-26,
+    under `.backup` contention, and nothing noticed. 10-01 took 156 and nothing noticed
+    that either — it had to be dug out of `job_runs` by hand."""
+    _healthy(engine)
+    _phase_row(engine, "features", 61)
+    result = check(engine, settings)
+
+    assert result.ok, result.problems
+    assert any("features phase took 61 min" in w for w in result.warnings), result.warnings
+
+
+def test_a_phase_inside_its_budget_is_silent(settings, engine):
+    _healthy(engine)
+    _phase_row(engine, "features", 59)
+    result = check(engine, settings)
+
+    assert not any("phase took" in w for w in result.warnings), result.warnings
+
+
+def test_a_running_phase_is_not_judged_on_duration(settings, engine):
+    """A NULL `finished_at` means still running, which `_check_sources` already covers.
+    Treating it as a duration would read as "zero minutes" or crash on the subtraction."""
+    from nh.db.models import JobRun
+
+    _healthy(engine)
+    with session_scope(engine) as s:
+        run_id, started = s.execute(
+            sa.select(JobRun.run_id, sa.func.min(JobRun.started_at)).group_by(JobRun.run_id)
+        ).first()
+        s.add(
+            JobRun(
+                run_id=run_id,
+                job="nightly",
+                source="features",
+                status="running",
+                started_at=started,
+            )
+        )
+    result = check(engine, settings)
+
+    assert not any("phase took" in w for w in result.warnings), result.warnings
+
+
+def test_the_budget_is_absolute_not_a_multiple_of_a_rolling_median(settings, engine):
+    """The decision, pinned. A relative rule goes quiet under a steady ramp — features
+    went 18 -> 38 minutes across 2026-09-22..27 and no multiple-of-median rule would have
+    said a word — and `BALLAST_DRIFT_SHARE` was blind by construction for exactly that
+    reason. What a long phase threatens is the schedule, and the schedule does not grow
+    with the corpus."""
+    from nh.jobs.status import PHASE_WARN_MINUTES
+
+    assert PHASE_WARN_MINUTES == {"features": 60, "clustering": 30}
+    # A night at 38 minutes stays silent: the ramp is visible in `nh status`, not here.
+    _healthy(engine)
+    _phase_row(engine, "features", 38)
+    assert not any("phase took" in w for w in check(engine, settings).warnings)

@@ -4106,3 +4106,84 @@ exposed `_prior_run` reading `db.types.utcnow` while the collector reads `base.u
 for the same Pacific-day question — invisible while both were the real clock, a fortnight
 apart once one was pinned. **A feature arrived at the clock trap this repo has walked into
 three times from a date change; it is the same trap from a new direction.**
+
+## ADR-0067 — The backup waits for the nightly and holds the Mac awake while waiting; a slow phase warns on an absolute budget
+
+**2026-10-04.** Two changes to the same morning's contention, decided together because
+the second is how the first stays measurable.
+
+### The backup waits, and the cron slot does not move
+
+**Measured 2026-09-22..10-04:** the 09:40 cron fire has never found the nightly finished.
+`backup ok` lands 09:53-10:28, and the nightly ends 10:17-10:50 on an ordinary night —
+12:53 on 10-01. So `.backup` plus `gzip` of a 5.8 GB database has overlapped clustering
+and features **every night**, and on 2026-09-23 the features phase took 62 minutes against
+a usual 18-26 while this script held the disk.
+
+**Moving the cron line to 11:00 was rejected.** `pmset -g custom` reads `sleep 1` on AC as
+well as battery; the nightly's own `caffeinate` ends when `nh nightly` exits; and **cron
+silently skips a fire the Mac sleeps through**, which is precisely how 2026-08-30 was lost.
+An 11:00 slot sits after the machine is free to doze, trading measured I/O contention for
+the one failure class this system has actually paid for.
+
+So the slot stays at 09:40 — inside the window the nightly's own `caffeinate` is already
+holding open — and the backup **waits** for `pgrep -qf 'nh nightly'` to go quiet, holding
+the Mac awake itself by re-execing under `caffeinate -i -s`. The baton passes from one
+awake window to the next with no gap for sleep. Bounded at `NH_BACKUP_WAIT_MINUTES`
+(default 150, so 12:10): past the bound it copies anyway and pushes an alert, because a
+frozen nightly must not mean no backup at all — and the bracket check (2026-10-02) is what
+makes a mid-run copy honest rather than a failure. 10-01's 12:53 run would have exceeded
+the bound and been copied mid-features, which is exactly the case the bracket covers.
+
+Rejected alternatives: chaining the backup from `run_nightly.sh` (the launchd agent has no
+Full Disk Access to iCloud — measured 2026-08-30, it can create a new file there but
+cannot overwrite or enumerate — so retention would break and every night would fail); and
+granting the agent Full Disk Access, whose only gain is launchd replaying a slept-through
+fire, which riding the nightly's wake already avoids. Revisit that only if a backup is
+ever missed to sleep, which the log shows as a missing dated line.
+
+The re-exec is `exec caffeinate -i -s /bin/bash "$0" "$@"`, naming the interpreter rather
+than re-execing the path. The crontab happens to invoke the script directly and relies on
+mode 755 anyway, but a `bash scripts/backup_db.sh` invocation of a 644 copy would have
+died with "Permission denied" — found when a test harness's heredoc produced exactly that.
+
+### A slow phase warns, on an absolute budget
+
+`status._check_phase_durations`: a warning when a phase of the judged run exceeds
+`PHASE_WARN_MINUTES` — 60 for features, 30 for clustering. Never a page: a slow phase
+costs time, and the phases are recomputable (`nh compute --day`).
+
+**Absolute, not a multiple of a rolling median, and that is the decision.** What a long
+phase threatens is the SCHEDULE — the backup slot, the 19:00 boundary that now aborts the
+run (ADR-0066), the next 09:10 fire — and the schedule does not grow with the corpus. A
+relative rule fires on the first slow night after a quiet week and goes silent under a
+steady ramp: features went **18 -> 38 minutes across 2026-09-22..27** and no
+multiple-of-median rule would have said a word. That is `BALLAST_DRIFT_SHARE`'s
+blind-by-construction failure, which needed a second wire to repair. A 7-night window
+containing 10-01's **156 minutes** would also have lifted the median enough to hide
+10-02's 45.
+
+60 is ~2.3x the 26-minute median over the twelve clean nights and is the number the RUNBOOK
+already calls abnormal ("62 on 09-23 against a usual 18-25"), so it fires on the next
+09-23- or 10-01-class night and not on noise.
+
+**Optimisation is NOT yet warranted**, and the rule for when it becomes so is written down
+now rather than argued later: when the 7-night median exceeds 45 minutes, or the wire fires
+on two consecutive nights with no external cause (backup, restore drill, operator). Over
+the twelve clean nights the typical duration went 18 -> 26 while `video_snapshots` grew
+~1.5x — linear in the corpus, nothing shown to be superlinear. The suspect is known:
+`inputs.eligible_videos` takes `MAX(views)` over every snapshot `<= day` grouped by video,
+a scan of a 4.2M-row table per metric per cluster. Whatever replaces it must ship with a
+differential test — identical `features_daily` rows from both paths for a stored day.
+
+### What was found while measuring this
+
+**10-01's features phase took 156 minutes, not the 38 this session had been quoting.**
+`job_runs` has it at 15:15 to 17:51 UTC. It was not backup contention: the backup had
+already failed at 10:14 local, before features started. The monthly restore drill
+(`com.niche-hunter.restore-drill`, 1st of the month at 09:55) was gunzipping a 5 GB file in
+the same window and passed at 10:21, which explains part of it; the rest is unexplained.
+**Nothing would have shown this without reading `job_runs` by hand**, which is the case for
+the wire. Moving the drill off 09:55 — it is launchd, so a slept-through fire replays, and
+12:30 clears both the nightly and the backup — is an operator `launchctl` reload and is
+recommended, not done here.

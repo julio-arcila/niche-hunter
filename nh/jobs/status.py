@@ -74,6 +74,22 @@ SWEEP_JOB = "nightly:sweep"
 #: private videos are the only legitimate misses, well under 1% of a window; 0.9 leaves
 #: room for them and still catches a capped, budget-cut or skipped night.
 WATCHLIST_MIN_COVERAGE = 0.9
+
+#: Minutes a phase may take before the gate warns (ADR-0067). ABSOLUTE, not a multiple of
+#: a rolling median, and that is the whole decision: what a long phase threatens is the
+#: SCHEDULE — the backup window, the 19:00 boundary, the next fire — and the schedule does
+#: not grow with the corpus. A 2x-the-median rule fires on the first slow night after a
+#: quiet week and goes silent under a steady ramp, which is exactly how
+#: `BALLAST_DRIFT_SHARE` was blind by construction; the features phase went 18 -> 38
+#: minutes across 2026-09-22..27 and no relative rule would have said a word. A 7-night
+#: window containing 10-01's 156 minutes would also have lifted the median enough to hide
+#: 10-02's 45.
+#:
+#: 60 for features is ~2.3x the 26-minute median measured 2026-09-22..10-04 and is the
+#: number the RUNBOOK already calls abnormal ("62 on 09-23 against a usual 18-25"), so it
+#: fires on the next 09-23 or 10-01 night and not on noise. 30 for clustering is the same
+#: multiple of its own ~9.
+PHASE_WARN_MINUTES = {"features": 60, "clustering": 30}
 #: A handful of videos is not a population to measure coverage on.
 WATCHLIST_MIN_POPULATION = 50
 
@@ -209,6 +225,7 @@ def check(engine: Engine | None = None, settings: Settings | None = None) -> Che
     _check_watchlist(engine, run_id, result)
     _check_channel_watchlist(engine, run_id, result)
     _check_previous_day(engine, run_id, result)
+    _check_phase_durations(engine, run_id, result)
     return result
 
 
@@ -515,6 +532,36 @@ def _check_watchlist(engine: Engine | None, run_id: str, result: CheckResult) ->
             f"censored (ADR-0059)"
         )
 
+
+def _check_phase_durations(engine: Engine | None, run_id: str, result: CheckResult) -> None:
+    """Warn when a phase of the judged run took longer than its budget (ADR-0067).
+
+    A warning and never a page: a slow phase costs time, and the phases are recomputable
+    (`nh compute --day`). What it protects is the SCHEDULE — the 09:40 backup slot, the
+    19:00 boundary that now aborts the run (ADR-0066), and the next 09:10 fire.
+
+    A phase still running has a NULL `finished_at` and is not this check's business:
+    `_check_sources` already reports anything that did not finish `ok`. Measured
+    2026-09-22..10-04, features ran 18-45 minutes on ordinary nights, 62 on 2026-09-23
+    under `.backup` contention and 156 on 10-01 alongside the monthly restore drill — the
+    two nights this would have named, neither of which anything noticed at the time.
+    """
+    with session_scope(engine) as session:
+        rows = session.execute(
+            sa.select(JobRun.source, JobRun.started_at, JobRun.finished_at).where(
+                JobRun.run_id == run_id,
+                JobRun.source.in_(PHASE_WARN_MINUTES),
+                JobRun.finished_at.is_not(None),
+            )
+        ).all()
+    for source, started, finished in rows:
+        minutes = (finished - started).total_seconds() / 60
+        budget = PHASE_WARN_MINUTES[source]
+        if minutes > budget:
+            result.warnings.append(
+                f"{source} phase took {minutes:.0f} min against a {budget} min budget — "
+                f"it shares the morning with the backup and the next fire (ADR-0067)"
+            )
 
 def _check_channel_watchlist(engine: Engine | None, run_id: str, result: CheckResult) -> None:
     """Warn when small member channels lack tonight's subscriber reading.

@@ -503,7 +503,17 @@ and the backup was kept. The equality test would have failed that night, as it d
 four before the fix. 10-03 was a quiet night and bracketed exactly, `[4,018,045,
 4,018,045]`, so both shapes are confirmed.
 
-Not fixed by this, and still true: the 09:40 slot races the nightly for I/O
+**Fixed on 2026-10-04 (ADR-0067): the backup now WAITS for the nightly** and holds the
+Mac awake while it waits, by re-execing under `caffeinate -i -s`. The cron slot stays at
+09:40, deliberately — it fires inside the window the nightly's own `caffeinate` already
+holds open, and an 11:00 slot would sit after the machine is free to doze, where **cron
+silently skips a fire it sleeps through** (how 2026-08-30 was lost). Bounded at
+`NH_BACKUP_WAIT_MINUTES`, default 150: past it the copy proceeds anyway with an alert,
+because a frozen nightly must not mean no backup, and the bracket makes a mid-run copy
+honest. Expect `nightly still running; waiting up to 150 min` then `nightly finished;
+waited N min` in `logs/backup.log`.
+
+Historic, and the reason for the above: the 09:40 slot raced the nightly for I/O
 (2026-09-23's features phase took 62 minutes against a usual 18-25 while
 `.backup` and `gzip` ran). Moving the cron line to 11:00 is an operator change
 to a crontab this repo does not own; chaining the backup from `run_nightly.sh`
@@ -596,7 +606,12 @@ uv run nh prune --dry-run     # storage per kind/codec; what retention would dro
 uv run nh backfill descriptions --dry-run   # re-derive stored columns from raw
 uv run nh status              # last 7 days: runs, quota, snapshots per day
 uv run nh status --check      # the gate; exit 1 if the last night collected nothing,
-                              # or if the day before it has no snapshot rows (ADR-0061)
+                              # or if the day before it has no snapshot rows (ADR-0061).
+                              # Warns on: watchlist coverage below 0.9 (video and
+                              # channel), ballast drift and ramp, and a phase over its
+                              # minute budget (ADR-0067: features 60, clustering 30 —
+                              # absolute, because what a slow phase threatens is the
+                              # schedule, and the schedule does not grow with the corpus)
 uv run nh sources             # ported / configured / quota per source
 uv run nh doctor              # database reachable, schema present
 ```
