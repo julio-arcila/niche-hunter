@@ -10,7 +10,7 @@ be repointed at it. Until then, treat shape (not logic) as unverified.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
@@ -1262,3 +1262,43 @@ def test_a_channel_enriched_by_discovery_tonight_is_not_bought_again(settings, e
     asked = _requested("/channels")
     assert discovered in asked, "discovery enriched the channel the watchlist also wants"
     assert len(asked) == len(set(asked)), f"a channel was bought twice: {asked}"
+
+
+@responses.activate
+def test_enrichment_stops_at_the_day_boundary_and_says_so(settings, engine, monkeypatch):
+    """ADR-0066. Every enrichment endpoint here writes a snapshot under `observed_date`,
+    so past the boundary a reading is not a reading of this run's day — ADR-0062's rule
+    for RSS, in the collector that also writes snapshots.
+
+    Checked per batch rather than once at entry: 2026-09-20's pass began inside its day
+    and crossed while running. No test covered this guard when it shipped; review found
+    that its only exercise was the autouse clock pin, which proves it does NOT fire.
+    """
+    from nh.collectors import base
+
+    _watch_world(engine)
+    _serve_videos(engine)
+    _serve_channels(engine)
+    collector = _night_collector(settings, engine)
+    monkeypatch.setattr(base, "utcnow", lambda: collector.deadline + timedelta(hours=8))
+
+    record = collector.run()
+
+    assert record.status == "degraded", record.status
+    assert "day boundary" in record.error
+    assert str(collector.observed_date) in record.error
+    assert len(responses.calls) == 0, "it stopped before asking for anything"
+
+
+@responses.activate
+def test_enrichment_inside_the_day_is_not_degraded(settings, engine):
+    """The guard must not fire on an ordinary night: a run starts at 09:10 local against a
+    boundary at 19:00."""
+    _watch_world(engine)
+    _serve_videos(engine)
+    _serve_channels(engine)
+
+    record = _night_collector(settings, engine).run()
+
+    assert record.status == "ok", record.error
+    assert responses.calls, "it did ask for something"

@@ -145,34 +145,13 @@ def run_nightly(
     # scheduled fire, for no reason anyone would guess from the message.
     job = "nightly" if not only else "partial"
     log.info("%s run_id=%s since=%s", job, run_id, since)
-    for item in planned:
-        if not item.will_run:
-            statuses[item.spec.source] = "skipped"
-            log.info("skip %-16s %s", item.spec.source, item.reason)
-            continue
-        collector_cls: type[Collector] = item.spec.load()
-        collector = collector_cls(run_id, settings=settings, observed_at=started)
-        record = collector.run(job=job)
-        statuses[item.spec.source] = record.status
-        log.info(
-            "%-8s %-16s quota=%s raw=%s upserts=%s snapshots=%s",
-            record.status,
-            item.spec.source,
-            record.quota_used,
-            record.raw_written,
-            record.rows_upserted,
-            record.snapshots_written,
-        )
+    if _run_collectors(planned, statuses, run_id, started, settings, job, only):
+        return NightlyResult(run_id=run_id, started_at=started, planned=planned, statuses=statuses)
 
-    # Past its own day boundary, the run stops rather than carrying on into tomorrow
-    # (ADR-0066). The sweep is a snapshot WRITER, so running it now would stamp
-    # tomorrow's readings with today's `observed_date` — the defect ADR-0062 closed for
-    # RSS and left open here. The phases are recomputable (`nh compute --day`), so what
-    # they cost past the boundary is only time, and that time is what absorbed the
-    # 2026-09-10 fire: 9 minutes of sweep plus 48 of phases, with the label still running
-    # at 09:10.
+    # And again after the collectors: a pass that began inside its day can cross the
+    # boundary while it runs, which is 2026-09-20's shape exactly.
     if only is None and past_deadline_for(started.date()):
-        statuses.update(_abort_past_boundary(run_id, started, job))
+        statuses.update(_abort_past_boundary(run_id, started, job, []))
         return NightlyResult(run_id=run_id, started_at=started, planned=planned, statuses=statuses)
 
     if only is None:
@@ -188,10 +167,56 @@ def run_nightly(
     return NightlyResult(run_id=run_id, started_at=started, planned=planned, statuses=statuses)
 
 
+def _run_collectors(
+    planned: list[PlannedRun],
+    statuses: dict[str, str],
+    run_id: str,
+    started: datetime,
+    settings: Settings,
+    job: str,
+    only: list[str] | None,
+) -> bool:
+    """Run each planned collector in order. Returns True if the run aborted.
+
+    The boundary is checked BEFORE each collector, not only after the loop (ADR-0066):
+    `wikipedia` and `trends` write snapshots stamped `observed_date` exactly as the others
+    do — on 2026-09-21 they ran 08:58:31 to 09:03:10, four and a half minutes past the
+    boundary — so a check that only guarded the sweep would leave two more post-boundary
+    snapshot writers, and "the run stops at its boundary" would be false. Review caught
+    that; the first version of this change checked only after this loop.
+    """
+    for n, item in enumerate(planned):
+        if not item.will_run:
+            statuses[item.spec.source] = "skipped"
+            log.info("skip %-16s %s", item.spec.source, item.reason)
+            continue
+        if only is None and past_deadline_for(started.date()):
+            remaining = [i.spec.source for i in planned[n:] if i.will_run]
+            statuses.update(_abort_past_boundary(run_id, started, job, remaining))
+            return True
+        collector_cls: type[Collector] = item.spec.load()
+        collector = collector_cls(run_id, settings=settings, observed_at=started)
+        record = collector.run(job=job)
+        statuses[item.spec.source] = record.status
+        log.info(
+            "%-8s %-16s quota=%s raw=%s upserts=%s snapshots=%s",
+            record.status,
+            item.spec.source,
+            record.quota_used,
+            record.raw_written,
+            record.rows_upserted,
+            record.snapshots_written,
+        )
+    return False
+
 def _abort_past_boundary(
-    run_id: str, started: datetime, job: str, engine: Engine | None = None
+    run_id: str,
+    started: datetime,
+    job: str,
+    collectors: list[str],
+    engine: Engine | None = None,
 ) -> dict[str, str]:
-    """Record the sweep and every phase as `aborted`, with how to recover.
+    """Record `collectors`, the sweep and every phase as `aborted`, with how to recover.
 
     A row per skipped stage rather than one summary line, because `status.check` reads
     `job_runs` per source and per phase: a night that silently wrote no phase rows would
@@ -199,6 +224,18 @@ def _abort_past_boundary(
     `aborted` is distinct from `failed` on purpose — nothing went wrong, the night simply
     ran out of its own day — and from `skipped`, which means "not configured" and is
     counted as fine.
+
+    Each row is filed where the check that covers it will look: the sweep under
+    `job=SWEEP_JOB, source="youtube_api"`, as `_sweep_enrichment` files its own, so
+    `status._check_sweep` sees it and `_check_sources`' unknown-source sweep does not warn
+    about a source nothing covers. The first version wrote it as `source="youtube_api:sweep"`
+    under `job="nightly"` — the statuses KEY, which is not a source — and review found it
+    landing where neither check looks.
+
+    `started_at` is the run's own start, not `utcnow()`. The stages did not run, so there
+    is no later instant that belongs to them, and a post-midnight `utcnow()` would file
+    them under D+1 — where `criteria._nightly_days` groups by `started_at.date()` and
+    would mark a clean D+1 not-ok. Also review's.
 
     What this does NOT do is recompute. The features for the day are a hand step, and the
     operator is reading the page anyway because the night is already not `ok`.
@@ -209,21 +246,21 @@ def _abort_past_boundary(
         f"a reading taken now is not a reading of {day}. "
         f"Recover the phases with: nh compute --day {day}"
     )
-    log.warning("aborting after the collectors: %s", reason)
-    statuses = {SWEEP_STATUS_KEY: "aborted"}
-    statuses.update({name: "aborted" for name, _ in PHASES})
+    log.warning("aborting at the day boundary: %s", reason)
+    rows = [(source, job, source) for source in collectors]
+    rows.append((SWEEP_STATUS_KEY, SWEEP_JOB, "youtube_api"))
+    rows.extend((name, job, name) for name, _ in PHASES)
     with session_scope(engine) as session:
-        at = utcnow()
-        for source in statuses:
+        for _, row_job, source in rows:
             session.add(
                 JobRun(
                     run_id=run_id,
-                    job=job,
+                    job=row_job,
                     source=source,
                     status="aborted",
-                    started_at=at,
-                    finished_at=at,
+                    started_at=started,
+                    finished_at=started,
                     error=reason[:4000],
                 )
             )
-    return statuses
+    return {key: "aborted" for key, _, _ in rows}

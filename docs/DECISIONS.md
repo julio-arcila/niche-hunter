@@ -4052,9 +4052,14 @@ ADR-0063's case *against* aborting had four parts. Three do not survive contact:
   tomorrow's readings with today's `observed_date`, which is exactly the defect ADR-0062
   closed for RSS and left open for the collector that also writes snapshots. That half was
   never a policy question.
-- **"C1 reads the phases' output."** `criteria._nightly_days` counts only all-`ok` nights,
-  and a run past its boundary is already `degraded` from the RSS pass (ADR-0062), so C1 has
-  already reset. Zero marginal cost.
+- **"C1 reads the phases' output."** `criteria._nightly_days` counts only all-`ok`
+  nights, and a run whose RSS pass crossed the boundary with feeds unpolled is already
+  `degraded`, so C1 has already reset. **Not zero marginal cost in every case, which this
+  ADR claimed until review:** a run whose lateness falls entirely AFTER the RSS pass — a
+  slow API pass, wikipedia, trends, the sweep — was all-`ok` before this change and is
+  not now. That is a real cost, accepted: a night that wrote readings past its own day
+  boundary should not count toward a production-readiness streak, and C1's clock restarts
+  rather than certifying it.
 - **"The watchlist reads the phases' output."** It reads `cluster_members` as of today,
   deliberately loose — `watchlist_population`'s own docstring says membership is today's
   rather than as of the day. A night without clustering leaves membership at D-1's.
@@ -4080,8 +4085,16 @@ incident whether or not it collides with a fire.
 A run frozen *before* its boundary and woken after it still absorbed the fire it was
 sleeping through; this makes the absorbed fire visible the next morning (ADR-0061) and
 stops the woken run from spending another hour, but launchd still drops the missed fire.
-The one realised case, 2026-09-21, would have finished within a minute of the operator's
-08:42 wake instead of running to 10:02 — the 09:10 fire would have started on time.
+
+On the one realised case, 2026-09-21: the run would have ended at its first post-wake
+stage instead of running to 10:02, and the 09:10 fire would have started on time. **This
+ADR first said "within a minute of the 08:42 wake", which was false** — the check sat
+only after the collector loop, so `wikipedia` and `trends` would still have run (the log
+has them at 08:58:31 to 09:03:10, four and a half minutes, writing snapshots stamped the
+previous day). Review caught it, and the fix is the better one: the boundary is checked
+before EVERY collector now, not only before the sweep, because those two write snapshots
+under `observed_date` exactly as the others do. Leaving them unguarded would have left
+two post-boundary snapshot writers behind the claim that the run stops.
 
 ### A clock trap found while testing it
 

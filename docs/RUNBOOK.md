@@ -130,10 +130,11 @@ midnight — and reports `degraded` for the feeds it did not reach, without char
 failure; and `nh nightly` runs under `caffeinate`. What did **not** change on that day: a run
 still executing at 09:10 still absorbs the fire, and the sweep and phases still ran past
 the boundary. **That second half changed on 2026-10-04 (ADR-0066) — it aborts:** past
-the boundary the sweep and all four phases are recorded `aborted`, the night is not `ok`,
-and the row says `nh compute --day D` — so a woken run finishes in a minute instead of
-spending another hour and absorbing the next fire. Recomputing that day's features is a
-hand step, deliberately.
+the boundary every remaining collector, the sweep and all four phases are recorded
+`aborted`, the night is not `ok`, and each row says `nh compute --day D`. A woken run
+therefore ends at its next stage instead of spending another hour and absorbing the next
+fire. Two accepted costs: that day's features are a hand step, and C1's streak restarts
+for a late night that used to pass.
 
 **If you see it again** — `FAIL no video_snapshots row carries <day>` — the day is gone.
 Do not re-run for it: a catch-up run stamps its own start day, and the first reading of a

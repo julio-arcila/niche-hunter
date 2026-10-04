@@ -115,57 +115,11 @@ def test_a_failed_sweep_does_not_fail_the_night():
     assert NightlyResult("r", now, [], degraded).ok is False  # ADR-0062: not a clean night
 
 
-# -- the day boundary stops the night, it does not carry it into tomorrow (ADR-0066) ---
-
-
-def _abort_world(engine, monkeypatch, *, past: bool):
-    """A nightly started on DAY whose clock is either inside its day or past the boundary.
-
-    `past=True` places the clock at the boundary plus 8h42m — 2026-09-21's shape exactly,
-    the morning the operator woke the Mac and a frozen run carried on for another hour and
-    a half before absorbing the 09:10 fire.
-    """
-    from datetime import UTC, datetime, timedelta
-
-    from nh.collectors import base
-    from nh.collectors.base import deadline_for
-
-    started = datetime(2026, 8, 27, 14, 10, tzinfo=UTC)
-    boundary = deadline_for(started.date())
-    now = boundary + timedelta(hours=8, minutes=42) if past else started + timedelta(minutes=20)
-    monkeypatch.setattr(base, "utcnow", lambda: now)
-    monkeypatch.setattr("nh.jobs.nightly.utcnow", lambda: now)
-    return started
-
-
-def test_a_run_past_its_day_boundary_aborts_the_sweep_and_the_phases(engine, monkeypatch):
-    """The sweep is a snapshot WRITER, so running it past the boundary stamps tomorrow's
-    readings with today's `observed_date` — ADR-0062's defect in the collector it did not
-    cover. The phases are recomputable, so what they cost past the boundary is only time,
-    and that time is what absorbed the next fire on 2026-09-21: 9 minutes of sweep plus 48
-    of phases, with the label still running at 09:10."""
-    import sqlalchemy as sa
-
-    from nh.db.models import JobRun
-    from nh.db.session import session_scope
-    from nh.jobs.nightly import SWEEP_STATUS_KEY, _abort_past_boundary
-    from nh.jobs.phases import PHASES
-
-    started = _abort_world(engine, monkeypatch, past=True)
-    statuses = _abort_past_boundary("run-abort", started, "nightly", engine)
-
-    assert statuses[SWEEP_STATUS_KEY] == "aborted"
-    assert {name for name, _ in PHASES} <= set(statuses)
-    assert set(statuses.values()) == {"aborted"}
-    with session_scope(engine) as s:
-        rows = s.scalars(sa.select(JobRun).where(JobRun.run_id == "run-abort")).all()
-        # One row per skipped stage, not one summary line: `status.check` reads `job_runs`
-        # per source and per phase, and a night that wrote nothing would read as "the
-        # phase did not run" — the same message a crashed phase gives.
-        assert len(rows) == 1 + len(PHASES)
-        assert all(r.status == "aborted" for r in rows)
-        assert all(r.finished_at is not None for r in rows)
-        assert "nh compute --day 2026-08-27" in rows[0].error
+# -- `aborted` and `NightlyResult.ok` (ADR-0066) --------------------------------------
+#
+# The rest of the day-boundary tests moved to tests/test_nightly.py: they are about
+# `run_nightly`'s control flow, and two of the three that lived here called the abort
+# helper directly, so removing the guard from `run_nightly` left them all green.
 
 
 def test_an_aborted_night_is_not_ok_so_the_exit_code_and_the_gate_agree():
@@ -194,11 +148,3 @@ def test_an_aborted_night_is_not_ok_so_the_exit_code_and_the_gate_agree():
         run_id="r", started_at=datetime(2026, 8, 27, tzinfo=UTC), planned=[], statuses=sweep_only
     ).ok
 
-
-def test_a_run_inside_its_day_does_not_abort(engine, monkeypatch):
-    """The guard must not fire on an ordinary night: a normal run finishes 10:17-10:50
-    local against a boundary at 19:00, nine hours away."""
-    from nh.collectors.base import past_deadline_for
-
-    started = _abort_world(engine, monkeypatch, past=False)
-    assert not past_deadline_for(started.date())
