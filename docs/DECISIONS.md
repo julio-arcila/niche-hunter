@@ -4319,3 +4319,113 @@ The power table was computed directly (40,000-draw permutation null per n). The 
 correlations were measured against `data/backtest.db` by a read-only audit on 2026-10-22; I
 confirmed the corpus shape it used (29 niches, median 40 member channels at a 2016 date) but
 did not re-derive each coefficient. They should be re-run before being quoted as settled.
+
+## ADR-0069 — The channel-emergence test is registered: does short-run outperformance convert to audience?
+
+**2026-10-22.** Registered before any outcome for either decision date exists; the first
+becomes readable 2026-11-30 and the verdict reads 2026-12-14.
+`reports/channel_emergence_preregistration_2026-10-22.md`,
+`nh/prospective/channel_emergence.py`.
+
+**H1e:** among small channels, `views_per_sub` at *t* predicts 90-day subscriber growth
+within cluster, holding `ln_subs`, `catalogue_age` and `n_elig`. ADR-0060's H1 showed
+`views_per_sub` predicts **14-day reach** (rho +0.470). This asks whether that attention
+becomes **audience** — persistence versus conversion.
+
+### Why this test and not another
+
+ADR-0068 measured that a cross-sectional niche-grain test cannot be passed at ten clusters.
+So the question this project was built to answer — rank the niches — is not available, and
+the honest alternatives are at the channel grain, where the units are (665-3,700 per date).
+Of those, emergence is the one the repository has a frozen cohort and a collected outcome
+for, and it is the only read that speaks to emergence rather than persistence. It was
+unblocked on 2026-10-02 with a hard deadline of 2026-11-30 and **39 of those days were spent
+on collectors, backups and query plans** — recorded because the register had no overdue state
+and nothing else would say it.
+
+### The cohort is ADR-0060's, unchanged, and that is the strongest part
+
+Predictor and all three controls are read from
+`reports/channel_reach_cohort_draw_key_2026-09-15.jsonl` — sha256 `1cb64d0a…86e5f2`, already
+recorded in a merged commit. **The predictors were sealed seven weeks before this
+registration was written**, so no choice made here could have been informed by them. Nothing
+new is frozen; `write_key` would refuse anyway, and a second file with the same contents
+would be a second thing to keep honest.
+
+### The construction trap, checked before registering rather than after
+
+`subs_t` sits in the predictor's denominator (`views_per_sub` = median views / subs) and in
+the ratio outcome's denominator. YouTube publishes 3 significant figures, so error in
+`subs_t` could inflate predictor and outcome together and manufacture a positive correlation
+from nothing — the mechanism that killed ADR-0060's **first** design, which passed by
+construction 40% of the time in simulation.
+
+Simulated on the 977 real frozen rows under a null where subscribers move only by rounding
+and noise, 300 trials per cell, within-cluster ranks residualised on the three controls:
+
+| outcome | noise sd | mean rho under null | false-PASS |
+|---|---|---|---|
+| `ln(subs_r/subs_t)` | 0.02 - 0.25, ± size drift | −0.013 to +0.003 | **1.3% - 3.3%** |
+| `ln(subs_r)` + `ln_subs` control | 0.02 - 0.25 | −0.015 to −0.025 | 0.0% - 0.7% |
+
+The ratio holds inside α across every magnitude tested: residualising on `ln_subs` within
+cluster absorbs the shared denominator. **The expectation that motivated the check was
+wrong**, and that is recorded because a check reported only when it confirms is not a check.
+The ratio is primary (it is the interpretable quantity); the level is a pre-committed
+robustness row.
+
+### The bar, and the floor's provenance
+
+rho > 0, p < 0.05, **top-decile lift ≥ 1.15**. Significance alone was rejected: at the
+expected n ≈ 1,400 the critical rho is ≈ 0.052, so a significant but tiny effect would
+license nothing actionable.
+
+1.15 is a judgement, named as one and calibrated against a disclosed as-of-now read: realised
+cohort growth over the 18 days to 2026-10-22 has p50 +1.3%, p90 +18.4%, and a raw
+top-decile-**by-outcome** lift of 1.45 — a ceiling, since it sorts on the outcome itself. A
+predictor capturing a useful share of a spread that will be wider at 90 days should clear
+1.15. All as-of-now reads are listed in the registration; **no realised growth was joined to
+any frozen predictor.**
+
+### Three ways to return neither PASS nor FAIL
+
+Conflating a measurement failure with a finding is the error this guards against:
+
+- **under the floors** → INCONCLUSIVE (the registered n was not reached);
+- **more than 40% of outcomes exactly zero** → INSTRUMENT. Measured: ≥10% of cohort channels
+  show no movement over 18 days because of the publication floor. A degenerate outcome cannot
+  test a hypothesis, and calling that a FAIL blames the predictor for the instrument;
+- **T0e null** → INSTRUMENT. T0e asks whether ADR-0060's measured 14-day reach reaches
+  subscribers *at all*; if not, the predictor was never given a path to the outcome.
+  ADR-0060's T0 is deliberately not reused: `subs_r` against `subs_t` is trivially ~0.99.
+
+**No H2.** ADR-0060's H2 was registered at 5% power and its FAIL was uninformative; repeating
+that with `breakout_magnitude` would buy another uninterpretable result. If it is worth
+asking it gets its own registration and its own power analysis.
+
+Also: **floors count distinct channels, not channel-dates.** 977 channels across 1,473 rows
+means ~500 appear at both dates, so a row count would let a 200-channel floor be cleared by
+200 appearances of 120 channels. ADR-0060's "agreement across two cohorts" overstated
+independence for the same reason, which is worth not repeating one registration later.
+
+### Verified today
+
+`refuse_unless_ready` refuses with `TooEarly` ("the verdict reads on 2026-12-14 and the newest
+channel reading is 2026-10-22"), and `load_key` confirms 1,473 rows whose sha matches the
+registered constant. Feasibility: **954 of 977** cohort channels carry nightly subscriber
+readings since 2026-10-04, 952 with ≥10 nights (ADR-0065's watchlist), so the outcome will
+exist. The nightly must keep collecting through 2026-12-14; `status._check_channel_watchlist`
+warns below 0.9 coverage.
+
+### What a PASS licenses
+
+A ranked list of **channels within a cluster, by emergence**, behind
+`CHANNEL_EMERGENCE_H1E_VALIDATED` set by a person. Nothing about any niche — not a ranking,
+not `scorecards`, not a re-opening of Gate E, and not an aggregation to the ten clusters,
+which ADR-0068 shows is undetectable. A FAIL is a useful negative: `views_per_sub` would be a
+**reach** instrument and not a **growth** one, which closes the question instead of leaving
+it open.
+
+The git sha of this registering commit is recorded here by the commit itself — ADR-0060
+omitted that, which turned a later question about whether the code had moved into archaeology
+rather than a lookup.
