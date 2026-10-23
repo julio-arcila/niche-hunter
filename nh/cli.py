@@ -607,6 +607,61 @@ def niche_show(
     )
 
 
+@app.command("channels")
+def channels_cmd(
+    slug: str = typer.Argument(..., help="Cluster id, e.g. trading."),
+    day: datetime | None = typer.Option(None, "--day", formats=["%Y-%m-%d"]),
+    limit: int = typer.Option(20, "--limit", help="Rows to print."),
+    unvalidated: bool = typer.Option(
+        False,
+        "--unvalidated",
+        help="Show the list before a person has recorded ADR-0060's H1 verdict.",
+    ),
+) -> None:
+    """Channels in one cluster, ranked by `views_per_sub` — the only ranked list this
+    project has earned (ADR-0060 H1).
+
+    Withheld until `CHANNEL_REACH_H1_VALIDATED` is set by a person in `nh/api/gates.py`.
+    It ranks CHANNELS within one cluster and says nothing about any niche: ADR-0068
+    measured the niche grain as undetectable at ten clusters.
+    """
+    from nh.jobs import channels as channels_job
+    from nh.jobs import niche as niche_job
+
+    try:
+        view = channels_job.load(
+            slug, day.date() if day else None, include_unvalidated=unvalidated
+        )
+    except niche_job.UnknownCluster:
+        typer.echo(f"unknown niche: {slug}", err=True)
+        raise typer.Exit(2) from None
+
+    typer.echo(f"{view.cluster_id}  {view.day}")
+    typer.echo(view.licence)
+    if view.withheld:
+        typer.echo("")
+        typer.echo(f"WITHHELD — {view.verdict.reason}")
+        typer.echo("`--unvalidated` shows it anyway; that is a human asking once.")
+        return
+    if not view.rows:
+        typer.echo("")
+        typer.echo("no channel in this cluster has both a subscriber count and a view median.")
+        return
+    typer.echo("")
+    typer.echo(
+        f"{'#':>3}  {'channel':<36} {'views/sub':>10} {'median views':>13} {'subs':>9} {'n':>4}"
+    )
+    for row in view.rows[:limit]:
+        name = (row.title or row.channel_id)[:36]
+        typer.echo(
+            f"{row.rank:>3}  {name:<36} {row.views_per_sub:>10.2f} "
+            f"{row.median_views:>13,} {row.subs:>9,} {row.n_elig:>4}"
+        )
+    shown = min(limit, len(view.rows))
+    typer.echo("")
+    typer.echo(f"{shown} of {len(view.rows)} channels; {view.dead_excluded} excluded as dead feeds")
+
+
 @niche_app.command("trace")
 def niche_trace(
     slug: str = typer.Argument(..., help="Cluster id, e.g. history-of-ideas."),

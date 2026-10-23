@@ -47,9 +47,20 @@ KEY_PATH = Path("reports/channel_reach_cohort_draw_key_2026-09-15.jsonl")
 #: The sha256 the registration records. A constant a person sets in the commit that
 #: registers the test — never a file or an environment variable the code reads, on the
 #: `EXPOSITION_VALIDATED` pattern. `None` means unregistered and `read()` refuses.
-REGISTERED_KEY_SHA256: str | None = (
-    "1cb64d0acf07b50d5594389812c7725851adaabf3e38da2a0b6df2d28786e5f2"
-)
+#: **VOID since 2026-10-23 (ADR-0070).** Set to `None` deliberately, so
+#: `refuse_unless_ready` — which checks this first — makes the module physically unreadable
+#: as a registered test.
+#:
+#: Why: the registered bar can be cleared by two subscribers. The frozen cohort's median
+#: member has 192 subscribers and the registered top decile's has **fifteen**, so a lift of
+#: 1.15 over 90 days is **+2.2 subscribers**. No outcome existed when this was found (the
+#: first is readable 2026-11-30), so voiding it is a measurement decision and not tuning
+#: against a result — but ADR-0069's own clause says a change to the bar voids it, and that
+#: is honoured in letter rather than argued around.
+#:
+#: The code and tests stay. A successor needs a NEW freeze with a subscriber floor, because
+#: no threshold fixes a population this small; see ADR-0070.
+REGISTERED_KEY_SHA256: str | None = None
 
 DECISION_DATES = (date(2026, 9, 1), date(2026, 9, 8))
 

@@ -32,6 +32,23 @@ from dataclasses import dataclass
 #: commit that writes the result report and the interval into ADR-0041.
 EXPOSITION_VALIDATED: bool | None = None
 
+#: The verdict on ADR-0060's H1, once a person has recorded it. `None` means unrecorded;
+#: `True` means the operator read `reports/channel_reach_2026-10-02.md` and accepts it.
+#:
+#: H1 PASSED on 2026-10-02 — rho +0.470, p 0.0001, top-decile lift 2.59, on 665 channels and
+#: 873 channel-dates against pre-registered floors of 200 and 5 clusters. **The result is not
+#: in doubt; what this constant records is a human having looked.** Same shape and same
+#: reason as `EXPOSITION_VALIDATED`: a constant a person sets in a commit, never a file or an
+#: environment variable the code reads, because the registration says so and because a
+#: setting standing in for a verdict is what ADR-0050 forbids one layer down.
+#:
+#: What it unlocks is narrow and worth stating here, where someone about to set it will read
+#: it: **a ranked list of CHANNELS, within one cluster.** Not a niche ranking, not
+#: `scorecards`, not an aggregation of channels to a cluster number — ADR-0068 measured that
+#: last one as undetectable at ten clusters. Setting this to `True` cannot unlock a niche
+#: claim, and no later change should let it.
+CHANNEL_REACH_H1_VALIDATED: bool | None = None
+
 #: Metrics whose value or confidence changes when the relevance threshold changes — i.e.
 #: the scorer decided them.
 #:
@@ -203,6 +220,29 @@ GATE_E_NULL = (
     "composite it failed to support. Reviving the claim needs a corpus containing "
     "channels that FAILED, which YouNiverse is not. See reports/backtest_2026-08-28.md."
 )
+
+
+def channel_rank_citable() -> Verdict:
+    """May a ranked list of channels be shown? Only once a person recorded H1's verdict.
+
+    Not keyed on a cluster, unlike `scorecard_citable`: H1 was measured across 665 channels
+    in ten clusters and its licence is the same everywhere, so a per-cluster key would imply
+    a per-cluster strength the test never established.
+
+    The surface calls this; it never reads `CHANNEL_REACH_H1_VALIDATED` itself. That is the
+    `nh/api/gates.py` pattern and the reason it exists — the read layer decides, so a
+    presenter cannot forget to ask (ADR-0052).
+    """
+    if CHANNEL_REACH_H1_VALIDATED is True:
+        return CITABLE
+    state = "unrecorded" if CHANNEL_REACH_H1_VALIDATED is None else "declined"
+    return Verdict(
+        False,
+        f"a ranked channel list needs ADR-0060's H1 verdict recorded by a person, and it is "
+        f"{state}. H1 PASSED on 2026-10-02 (rho +0.470, p 0.0001, lift 2.59, 665 channels) — "
+        f"read reports/channel_reach_2026-10-02.md and set CHANNEL_REACH_H1_VALIDATED in "
+        f"nh/api/gates.py. It licenses channels within a cluster and nothing about any niche.",
+    )
 
 
 def scorecard_citable(cluster_id: str) -> Verdict:
