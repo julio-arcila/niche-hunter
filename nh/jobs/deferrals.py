@@ -76,20 +76,33 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="minutes for the verdict; the list surface is its own slice",
     ),
     Deferral(
-        metric="channel-emergence 90-day panel — its own pre-registration",
+        metric="channel-emergence H1e — the verdict read, 2026-12-14",
         blocker=(
-            "sequenced behind the channel-reach verdict (2026-10-02), so its design can use what that "
-            "read teaches; nothing else blocks it. HARD DEADLINE 2026-11-30, the first t+90: a "
-            "registration after its outcome exists is void, and this register has no overdue "
-            "state — an entry still reading unblocked after that date is a missed test"
+            "REGISTERED 2026-10-22 (ADR-0069), 39 days into its 59-day window and 39 days "
+            "after it came unblocked — the delay is recorded there because this register has "
+            "no overdue state and nothing else would say it. The design half of this entry is "
+            "DISCHARGED: reports/channel_emergence_preregistration_2026-10-22.md and "
+            "nh/prospective/channel_emergence.py exist, reusing ADR-0060's frozen cohort "
+            "unchanged, with the construction trap simulated before registering. What is left "
+            "is collection and a date: the 09-01 window closes 2026-12-07 and the 09-08 window "
+            "2026-12-14, so the nightly must keep writing subscriber readings through then "
+            "(ADR-0065's channel watchlist; `status._check_channel_watchlist` warns below 0.9 "
+            "coverage). `refuse_unless_ready` refuses before the date is collected"
         ),
-        # 2026-10-02, not 10-31: `fires()` reports a passed date as UNBLOCKED, so 10-31 would
-        # have announced an already-actionable task a month late, and kept saying unblocked
-        # past the deadline that voids it. Found by review before the registration merged.
         kind="date",
-        trigger="2026-10-02",
-        consumer="the only read in this project that speaks to emergence rather than persistence",
-        cost="a design and a registration, before 2026-11-30; the frozen cohort already exists",
+        # The LAST day still blocked: `fires()` is `today > trigger`, and the read is due ON
+        # 2026-12-14. Same off-by-one ADR-0060's interim entry had to be corrected for.
+        trigger="2026-12-13",
+        consumer=(
+            "reports/channel_emergence_2026-12-14.md; on PASS, "
+            "CHANNEL_EMERGENCE_H1E_VALIDATED in nh/api/gates.py set by a PERSON in the commit "
+            "that records it — no code may set it, on the EXPOSITION_VALIDATED pattern"
+        ),
+        cost=(
+            "minutes to read, once the date is collected. It licenses a ranked list of "
+            "CHANNELS within cluster and nothing about any niche: ADR-0068 closed the "
+            "niche grain at ten clusters"
+        ),
     ),
     Deferral(
         metric="relevance rule — independent human validation",

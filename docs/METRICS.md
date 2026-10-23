@@ -74,8 +74,9 @@ Feeds        : which composite score, if any
 
 ## Defined
 
-Twenty-three metrics across four of the six groups (`voice` and `cost_risk` are still
-empty). Twenty-two are registered in `nh/features/run.py::METRICS`; `supply.pressure_index`
+Twenty-four metrics across four of the six groups (`voice` and `cost_risk` are still
+empty). **Twenty-three** are registered in `nh/features/run.py::METRICS` (counted
+2026-10-23; this line said twenty-two of twenty-three); `supply.pressure_index`
 is computed cross-cluster after them and `supply.views_per_new_video` is backtest-only. Each was verified to **vary across the five live niches** before
 implementation — a metric that is flat across the units it
 compares is not a comparator, however plausible its formula.
@@ -1216,10 +1217,20 @@ render on `scorecards` and a number on screen invites being trusted.
   Deliberately NOT comparable across days on which the cluster set changed — it is a
   within-day comparator, and Slice 6 backtests it as one (rank correlation with
   90/180-day outcomes, replayed against each day's own cluster set).
-  KNOWN COMPRESSION: `supply` ranks median_views, which correlates with niche size,
-  and so does demand — so gap is a mismatch of ranks that share a driver and its
-  spread will be narrower than either input's. The Slice 5 composite, which brings
-  uploads_per_week into supply, is the fix. A narrow gap spread is expected, not a bug.
+  COMPRESSION — **the premise was measured on 2026-10-23 and does not hold on the live
+  ten.** This said: `supply` ranks median_views which correlates with niche size, and so
+  does demand, so gap is a mismatch of ranks sharing a driver and its spread must be
+  narrower than either input's. Measured over the 54 days with both columns, Spearman
+  (demand rank, supply rank) across the ten clusters averages **-0.118** (min -0.442, max
+  +0.600) — slightly NEGATIVE on average, not positively coupled. So the compression
+  argument, and with it the rationale for `supply.pressure_index` as "the fix", rests on a
+  correlation this portfolio does not have.
+  Where it WAS true: the backtest corpus, where demand and supply both load on starting
+  size (+0.21, +0.36) — which is also the confound that made Gate E measure something other
+  than what it registered (ADR-0068). A narrow gap spread on the live ten needs a different
+  explanation, or none; at n=10 the gap grid is 1/9 wide by construction and that alone
+  bounds the spread. **Nothing should be built on the compression claim without
+  re-measuring it.**
 - `scorecards.gap_confidence` = min(confidence(wiki_weekly_views),
   confidence(median_views)) — a chain is as strong as its weaker leg.
 - `value`, `sustainability`, `opportunity`, `ci_low`, `ci_high`, `stage` stay NULL
