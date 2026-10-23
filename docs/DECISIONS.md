@@ -4221,3 +4221,101 @@ written and nothing was lost — `.backup` reads the source — but the lesson i
 line: to exercise this script, copy it beside a STUB `_common.sh` that does not read
 `.env`, which is how its own harness runs. No automated test is committed for it; shell is
 not covered by pytest here, and the first real exercise of the wait is the next 09:40 fire.
+
+## ADR-0068 — A cross-sectional niche-grain test cannot be passed at ten clusters, so niche ranking stops being the product claim
+
+**2026-10-22.** ADR-0029 committed the project to a standing posture: `scorecards.value`,
+`sustainability` and `opportunity` stay NULL and **nothing ranked ships until a new
+pre-registered test passes on the niche grain.** That posture has governed every decision
+for two months. It cannot be discharged, and the reason is arithmetic rather than effort.
+
+### The measurement
+
+Spearman, two-sided α=0.05, Monte Carlo permutation null, 40,000 draws, computed here:
+
+| n niches | critical \|rho\| to clear p<0.05 once | rho needed for 80% power |
+|---|---|---|
+| **10 (today)** | **0.636** | **0.808** |
+| 20 | 0.444 | 0.617 |
+| 29 (Gate E's n) | 0.369 | 0.524 |
+| 30 | 0.365 | 0.516 |
+| 100 | 0.197 | 0.293 |
+
+The design is Gate E's — per-date Spearman with a global label permutation — so **the
+effective n is the number of niches, and no number of dates raises it.** The
+pre-registration said so itself. Ten active clusters therefore require an observed rho above
+**0.636** on a single read, and a true effect near **0.81** to get there reliably.
+
+Every effect this corpus admits is far below that:
+
+- Gate E's own 95% CI on `gap` topped out at **+0.327**;
+- the components, partialled on the size that actually matters, measure **≈+0.12** each;
+- the channel-grain partials of the same quantities run **+0.19 to +0.47**.
+
+Detecting rho = 0.3 at 80% power needs **~100 niches**. At ten, this is not an underpowered
+test. **It is not a test.** `report.verdict` would return INCONCLUSIVE below 20 regardless.
+
+**ADR-0060 already contained the number** — "detectable rho 0.667 at n = 10" — and routed
+around it to the channel grain without drawing the conclusion for the niche posture. The
+figure sat in this repository for five weeks while work continued on the assumption that the
+posture was a constraint to satisfy rather than a claim to check.
+
+### What Gate E actually measured, which is not what it was registered to measure
+
+Gate E's registered size control was **member-channel count**, which correlates with the
+180-day growth outcome at **+0.01**. The size that matters — a niche's median *starting
+subscribers* — correlates with that outcome at **−0.39**, while `demand` and `supply` both
+load positively on it (+0.21, +0.36). In the YouNiverse corpus every channel ends above 10k,
+so "growth from t" is substantially "how far below 10k were you at t".
+
+So the test asked whether `gap` predicts which niches' survivors started smallest — and
+`gap`, being a difference of two size-correlated ranks, had that component cancelled by its
+own subtraction. After partialling actual starting size, `demand` and `supply` come to
+**+0.12** each and `gap` to **+0.03**.
+
+This reframes three things that have been repeated as settled:
+
+1. **`supply` alone at −0.073 is not a wrong-sign discovery.** It is size riding through a
+   rank. Nothing follows from it about what supply measures.
+2. **"Nothing hides under size" was true of the size that was controlled** and false of the
+   size that mattered. The claim should name the control.
+3. **"A powered null" overstates the result.** Power at n=29 to detect the observed 0.091 was
+   ~7%; 80% power needed 0.52. What Gate E excludes is **rho > 0.33** — which is still
+   decisive against an effect of product size, so the verdict stands. The wording does not.
+
+### The decision
+
+**Niche ranking stops being the product claim.** Niche becomes an *editorial stratum* — the
+operator's choice of what to make content about — and the predictive instrument operates at
+the **channel** grain within it, which is where the units are (665–3,700 per date) and where
+the only passing test lives (ADR-0060 H1, rho +0.470). This is also what the repository's own
+`reports/niche_choice_procedure_2026-08-28.md` concluded on the day Gate E failed: "this tool
+cannot rank the eleven by profitability."
+
+`scorecards.value` / `sustainability` / `opportunity` **stay NULL — and the reason changes
+from "pending a test" to "no such test is available at this portfolio size."** That is a
+weaker and more honest statement. A ranked *niche* surface is not blocked on evidence that
+might arrive; it is blocked on a unit of analysis that has ten members.
+
+**What would change it**, stated so nobody re-opens this on a hunch: ~30 niches for a 0.5
+effect, ~100 for a 0.3 effect. Discovery costs ~600 units per cluster per night against a
+9,500 budget, so thirty is roughly twice the daily budget at present per-cluster cost and a
+hundred needs a different discovery model. ADR-0029's own route to n≈70–200 was sub-niche
+expansion (Slice 10), which was never built and has no consumer. **Adding clusters is not a
+free fix and must not be presented as one.**
+
+### What this does not say
+
+It does not say the metrics are worthless — twenty of twenty-four have simply never been
+tested against any outcome, which is a different and recoverable condition. It does not
+retire `gap`, `stage` or the feature history; they remain computed, stored and withheld. It
+does not touch the evidence surface (ADR-0052), which exists precisely to show rows without
+asserting an aggregate claim. And it does not license any ranked surface: the channel list
+still waits on a person setting `CHANNEL_REACH_H1_VALIDATED`.
+
+### Provenance of the numbers
+
+The power table was computed directly (40,000-draw permutation null per n). The size-confound
+correlations were measured against `data/backtest.db` by a read-only audit on 2026-10-22; I
+confirmed the corpus shape it used (29 niches, median 40 member channels at a 2016 date) but
+did not re-derive each coefficient. They should be re-run before being quoted as settled.
