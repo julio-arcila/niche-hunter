@@ -119,3 +119,41 @@ for all ten niches", having queried `niche_seeds.keywords` instead of the curate
 `seed_terms`. The result was implausible enough to re-check, which is a weaker safeguard than
 reading the docstring that says those fields are not interchangeable
 (`inputs.demand_terms`, "deliberately does NOT fall back to `niche_seeds.keywords`").
+
+---
+
+## Addendum 2026-10-23 — Step 3 attempted and NOT completable by me
+
+Step 3 of the procedure is creator RPM disclosures: *"~30–45 min per surviving candidate —
+the actual quantity from the actual auction, unlike `bid_high`. Registered queries, **every**
+qualifying hit in the top 20 (no cherry-picking), n ≥ 5, report min–median–max, never a
+point."*
+
+I attempted it and **obtained zero qualifying disclosures.** The reason is structural, not
+effort:
+
+- **Web search returns content farms, not disclosures.** The top results for RPM queries are
+  SEO marketing blogs quoting ranges like "$12–$18" and "$8–$20" for the same category,
+  unsourced and mutually inconsistent. A "qualifying hit" under this procedure is a creator
+  stating their own measured RPM; an aggregator asserting a band is not that, and averaging
+  bands would manufacture precisely the fabricated exchange rate data rule 6 forbids.
+- **The venues where real disclosures live are closed to me.** They are Reddit threads,
+  in-video analytics screenshares, and podcast audio. `reddit.com` refuses this user agent
+  outright; a video's on-screen analytics cannot be read from a search snippet; podcast
+  figures are spoken, not indexed.
+
+**Per the procedure's own rule — "Fewer than 5 disclosures is itself information" — this is
+recorded as n = 0, not as an absence of data.** What it says is narrower than it looks: it
+says *this method is not executable by a web-search agent*, not that the disclosures do not
+exist. The operator can watch a video's analytics overlay, read a Reddit thread and hear a
+podcast number; I cannot do any of the three.
+
+**So the one surviving value statement remains uncorroborated.** The 4.2x / 3.9x gap between
+ai-and-software and trading on one side and esoterism-spirituality on the other rests
+entirely on Google *search-ad* bids in COP from a single 2026-07-31 export — which is a
+proxy the procedure explicitly says is not RPM. Step 3 exists because that proxy is not
+trusted, and Step 3 has not been run.
+
+**Nothing has been added to the value column by this attempt**, deliberately. A table of
+marketing-blog ranges in this repository would read as evidence at a glance and would be
+worse than the blank it replaces.
