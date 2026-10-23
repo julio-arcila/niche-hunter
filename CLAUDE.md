@@ -185,11 +185,35 @@ reviewer. Summarize exploration briefly.
   ADR-0047 rests on the same machine judgements and shipped. The recall sample is what
   breaks that: it is the repo's first human-labelled **negative** evidence, and a failing
   row there is what legitimately licenses a lexicon tightening.
-- Nothing ranked ships, and neither validation changes that.
-  `scorecards.value` / `sustainability` / `opportunity` stay NULL behind **Gate E's
-  2026-08-28 null** (rho 0.091, p 0.4988, detectable rho 0.378 — a null, not an
-  underpowered run; demand alone +0.049 and supply alone -0.073, so the failure is not
-  in how they are combined).
+- **NICHE RANKING IS NOT THE PRODUCT CLAIM ANY MORE (ADR-0068, 2026-10-22), and the reason
+  is arithmetic.** A cross-sectional niche-grain Spearman test at **ten** active clusters
+  needs an observed rho above **0.636** to clear p<0.05 once, and a true effect near
+  **0.808** for 80% power (computed, 40k-draw permutation null; at n=20 it is 0.444/0.617,
+  at Gate E's n=29 0.369/0.524, and ~100 niches are needed to detect 0.3). The design is
+  Gate E's — per-date Spearman, global label permutation — so **effective n is the niche
+  count and no number of dates raises it.** Every effect this corpus admits is far below
+  that: Gate E's CI topped at **+0.327**, the size-controlled components measure **≈+0.12**,
+  the channel-grain partials +0.19..+0.47. So ADR-0029's "nothing ranked ships until a new
+  pre-registered test passes on the niche grain" is **a commitment that cannot be
+  discharged** at this portfolio size — not a constraint awaiting evidence. **ADR-0060 held
+  the number ("detectable rho 0.667 at n = 10") for five weeks and routed around it.**
+  Niche is now an **editorial stratum**; the predictive instrument is the **channel** grain
+  within it, which is where the units are (665-3,700 per date) and where the only passing
+  test lives. `scorecards.value` / `sustainability` / `opportunity` stay NULL, with the
+  reason changed from "pending a test" to "no such test is available at n=10".
+  **Adding clusters is not a free fix:** ~600 units/cluster/night against 9,500, so 30
+  niches is ~2x the daily budget and 100 needs a different discovery model.
+- **Gate E measured something other than what it registered, and three claims about it
+  were wrong (ADR-0068).** Its 2026-08-28 null was rho 0.091, p 0.4988, n=29. (1) The
+  registered size control was member-channel **count**, which correlates with the outcome at
+  **+0.01**, while niche median **starting subscribers** correlates at **-0.39** and both
+  components load positively on it — in a corpus where every channel ends above 10k, "growth"
+  is largely "how far below 10k did you start". Partialled on real size, demand and supply
+  are **+0.12** each and gap **+0.03**. So "nothing hides under size" was true only of the
+  size controlled. (2) **supply alone at -0.073 is not a wrong-sign finding** — it is size
+  riding through a rank, and nothing follows from it about what supply measures. (3) "A
+  powered null" overstates it: power to detect the observed 0.091 was ~7% and 80% power
+  needed 0.52; what it excludes is **rho > 0.33**. The verdict stands, the wording does not.
 - **"Do not build the dashboard" is AMENDED, not lifted (ADR-0052).** What stays forbidden
   is the ranked surface: no radar scatter, no niche list ordered by a score, no rendering
   of `scorecards`. What Slice 7 builds is the **evidence** surface — the demand series, the
