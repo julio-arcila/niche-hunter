@@ -22,11 +22,15 @@ def validated(monkeypatch):
 
 
 def _world(engine):
+    """Three channels that all clear the REGISTERED cohort: subs in (0, 10k], at least
+    `COHORT_MIN_VIDEOS` eligible videos, `order=date` lineage. Five videos each, not three
+    — a three-video channel is outside the population H1 was measured on, and a fixture
+    that ignored that would let the surface rank channels the test never saw."""
     make_cluster(engine)
-    # views are newest-first per `add_channel`; medians are 100, 1_000 and 20.
-    add_channel(engine, "UClow", subs=1_000, videos=3, views=[100, 100, 100], age_days=30, day=DAY)
-    add_channel(engine, "UChigh", subs=500, videos=3, views=[1_000] * 3, age_days=30, day=DAY)
-    add_channel(engine, "UCtiny", subs=5_000, videos=3, views=[20] * 3, age_days=30, day=DAY)
+    # medians are 100, 1_000 and 20 respectively.
+    add_channel(engine, "UClow", subs=1_000, videos=5, views=[100] * 5, age_days=30, day=DAY)
+    add_channel(engine, "UChigh", subs=500, videos=5, views=[1_000] * 5, age_days=30, day=DAY)
+    add_channel(engine, "UCtiny", subs=5_000, videos=5, views=[20] * 5, age_days=30, day=DAY)
 
 
 def test_the_list_is_withheld_until_a_person_records_the_verdict(engine):
@@ -98,7 +102,7 @@ def test_a_hidden_subscriber_count_is_not_a_zero_denominator(engine, validated):
     """Rule 7: `subs=None` is unknown, and `views/0` would be either a crash or an
     infinity at the top of the list."""
     make_cluster(engine)
-    add_channel(engine, "UChidden", subs=None, videos=3, views=[1_000] * 3, age_days=30, day=DAY)
+    add_channel(engine, "UChidden", subs=None, videos=5, views=[1_000] * 5, age_days=30, day=DAY)
     view = channels.load(CLUSTER, DAY, engine)
     assert view.rows == ()
 
@@ -128,6 +132,30 @@ def test_no_field_is_called_a_score_and_none_is_a_scorecard_field(engine, valida
     fields = set(type(row).__dataclass_fields__)
     assert not fields & {"score", "value", "opportunity", "sustainability", "gap"}
     assert not fields & gates.SCORECARD_FIELDS if hasattr(gates, "SCORECARD_FIELDS") else True
+
+
+def test_a_channel_outside_the_registered_cohort_is_not_ranked(engine, validated):
+    """The error this surface shipped on its first live run, pinned.
+
+    H1 was measured on the frozen cohort: subscribers visible and in (0, 10k], at least
+    `COHORT_MIN_VIDEOS` eligible videos, `order=date` lineage. Built on the wider
+    `eligible_videos` pool instead, the live list put channels with ONE to five
+    subscribers at the top — `views_per_sub` divides by a tiny denominator and noise wins.
+    Ranking a population the test never saw is not a weaker version of the result; it is a
+    different claim wearing its licence.
+    """
+    make_cluster(engine)
+    # Four videos: one short of COHORT_MIN_VIDEOS, and a spectacular ratio.
+    add_channel(engine, "UCthin", subs=1, videos=4, views=[50_000] * 4, age_days=30, day=DAY)
+    # Over the ceiling the cohort was drawn under.
+    add_channel(engine, "UCbig", subs=5_000_000, videos=6, views=[9_000_000] * 6, age_days=30, day=DAY)
+    # No `order=date` lineage.
+    add_channel(
+        engine, "UCundated", subs=900, videos=6, views=[5_000] * 6, age_days=30,
+        date_lineage=False, day=DAY,
+    )
+    view = channels.load(CLUSTER, DAY, engine)
+    assert [r.channel_id for r in view.rows] == []
 
 
 def test_the_list_is_per_cluster_and_offers_no_cross_cluster_shape(engine, validated):

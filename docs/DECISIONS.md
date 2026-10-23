@@ -4429,3 +4429,100 @@ it open.
 The git sha of this registering commit is recorded here by the commit itself — ADR-0060
 omitted that, which turned a later question about whether the code had moved into archaeology
 rather than a lookup.
+
+## ADR-0070 — H1's licence is narrower than it reads, and ADR-0069's bar can be cleared by two subscribers, so that registration is void before it is read
+
+**2026-10-23.** Found by building the surface H1 licensed and looking at its output. Two
+findings, one about what H1 means and one that voids a registration written yesterday.
+
+### Finding 1 — H1's registered top decile is 83% channels under 100 subscribers
+
+The frozen cohort (`reports/channel_reach_cohort_draw_key_2026-09-15.jsonl`, 1,473 rows)
+measured, which nobody had done:
+
+| | |
+|---|---|
+| median subscribers | **192** |
+| p10 / p90 | 7 / 4,112 |
+| minimum | **1** |
+| under 10 subs | 12.0% of the cohort |
+| **the registered top decile** (n=147, raw `views_per_sub`) | **median 15 subscribers** |
+| …under 10 subs | **37.4%** |
+| …under 100 subs | **83.0%** |
+
+`inputs.cohort`'s lower bound is `0 < subs`, so a one-subscriber channel qualifies, and
+`views_per_sub` = median views / subs puts exactly those at the top of any raw ranking.
+
+**H1's statistic is unaffected.** It residualises on `ln_subs` within cluster, which is what
+that control is for, so rho +0.470 is not a size artifact. **The LIFT is a different
+quantity** — `top_decile_lift` is computed on the raw predictor's top decile — and that
+decile's median member has fifteen subscribers.
+
+So the honest reading of H1, narrower than this repository has been repeating for three
+weeks: **`views_per_sub` ranks very small channels to the top, and among those the ones
+ranked highest do get more subsequent 14-day reach.** It is not "here are the channels to
+study". The lift of 2.59 is real and nearly content-free.
+
+### Finding 2 — which makes ADR-0069's bar meaningless, measured
+
+ADR-0069 registered `rho > 0, p < 0.05, top-decile lift >= 1.15` on 90-day **subscriber**
+growth, over this same frozen cohort. On a top decile whose median member has 15
+subscribers:
+
+| lift | absolute gain over 90 days |
+|---|---|
+| **1.15 (the registered floor)** | **+2.2 subscribers** |
+| 1.25 | +3.8 subscribers |
+| 2.0 | +15 subscribers |
+
+**A PASS would mean the top decile gained about two more subscribers than its controls
+predict.** Two people. That is inside the noise of a single viewer, and it is not a result
+anyone can act on. The 1.15 floor was calibrated against the *relative* spread of realised
+growth (p50 +1.3%, p90 +18.4%) and never against the absolute magnitude that spread implies
+on a 15-subscriber channel — an error of omission in a registration written one day earlier.
+
+### Decision — void ADR-0069 now, on the record, before any outcome exists
+
+ADR-0069's own void clause says any change to the bar after the document is committed voids
+it. So this does not pretend to be an amendment: **the registration is void, deliberately,
+and the reason is a measurement rather than an outcome.** No outcome for either decision date
+exists — the first is readable 2026-11-30 — so nothing here is tuning against a result. The
+void clause exists to stop exactly that, and honouring it in letter while the spirit is
+untouched is the cheap and correct move.
+
+`nh/prospective/channel_emergence.py` keeps its code and tests; `REGISTERED_KEY_SHA256` goes
+to `None`, which is what `refuse_unless_ready` checks first, so the module physically cannot
+be read as a registered test.
+
+### What a useful successor needs, and what it costs
+
+The binding constraint is the cohort, and it cannot be fixed by changing the bar: **a
+population whose median member has 192 subscribers cannot produce an actionable
+subscriber-growth result at any threshold.** `write_key` refuses to overwrite, and a cohort
+with a subscriber floor is a different population, so a successor needs a **new freeze**:
+
+- a subscriber floor at freeze time — `>= 500` puts the cohort above its current median, and
+  a 1.25 lift on a 500-subscriber channel is +125 subscribers, which is a result;
+- registered before its predictors exist, frozen on a nightly after that;
+- 90-day horizon, so a freeze in late October reads in **late January 2027**.
+
+That is slower than the operator wants and it is the honest number. The alternative is to
+stop registering subscriber-growth tests on this cohort and treat the **channel list** as the
+project's actionable output, with its own caveat attached.
+
+### The channel list ships faithful, not useful
+
+`nh/jobs/channels.py` ranks `inputs.cohort` on raw `views_per_sub` — the registered
+population on the registered quantity — so its top is one-subscriber channels, and the
+subscriber column is kept visible precisely so a reader sees that rather than trusting the
+order. A version with a subscriber floor would be more useful and would carry **no licence at
+all**, because the lift was never measured on that subpopulation. The surface may not quietly
+become the useful version; that needs the new test above.
+
+### How this was found, which is the transferable part
+
+Not by a test — 12 passed over the broken version, and over this one. By running the thing
+and reading six rows of output, where a channel with one subscriber sat second of 1,707. The
+first fix (ranking `eligible_videos` instead of `inputs.cohort`) was a real bug and fixed the
+wrong half; the second look showed the registered population has the same shape. **Twice in
+two days a green suite covered a defect that one glance at real output exposed.**

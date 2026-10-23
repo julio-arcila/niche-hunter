@@ -114,7 +114,20 @@ def load(
         if not verdict and not include_unvalidated:
             return ChannelList(cluster_id, target, (), verdict, 0)
 
-        pool = inputs.eligible_videos(session, cluster_id, target)
+        # `inputs.cohort`, NOT `eligible_videos` + `latest_subs`. This is the registered
+        # population and the distinction is not pedantry: H1 was measured on the frozen
+        # cohort — subscribers visible and in (0, COHORT_MAX_SUBS], at least
+        # COHORT_MIN_VIDEOS eligible videos, `order=date` discovery lineage — so a list
+        # built on the wider pool ranks channels the test never saw.
+        #
+        # The first version of this module did exactly that, and the live output said so
+        # immediately: channels with ONE to five subscribers held the top of the list,
+        # because `views_per_sub` divides by a tiny denominator and noise wins. "Invester
+        # 666", median 348 views, 1 subscriber, ranked second of 1,707. Applying a
+        # validated result to a population it was not validated on is the error class this
+        # repository spends most of its documentation on, and the surface built to show
+        # the one passing test committed it on its first live run.
+        pool = inputs.cohort(session, cluster_id, target)
         subs = inputs.latest_subs(session, cluster_id, target)
         dead = _dead_channels(session)
         titles = dict(
@@ -125,18 +138,21 @@ def load(
             ).all()
         )
 
+
         scored: list[tuple[float, str, int, int, int]] = []
         excluded = 0
-        for channel_id, videos in pool.items():
+        for channel_id, view_list in pool.items():
             if channel_id in dead:
                 excluded += 1
                 continue
             s = subs.get(channel_id)
-            views = sorted(v for _, v in videos)
+            views = sorted(view_list)
             if not s or s <= 0 or not views:
                 continue
             median = views[len(views) // 2]
             if median <= 0:
+                # A zero median is absent and counted, never scored — the rule
+                # `channel_reach.freeze_date` applies to the same quantity.
                 continue
             scored.append((median / s, channel_id, median, s, len(views)))
 

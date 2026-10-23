@@ -1,3 +1,29 @@
+> # VOID — 2026-10-23, one day after registering, before any outcome existed
+>
+> **The bar below can be cleared by two subscribers.** The frozen cohort's median member has
+> 192 subscribers and the registered top decile's has **fifteen**, so the registered
+> `top-decile lift >= 1.15` over 90 days is **+2.2 subscribers**. A PASS would have been
+> uninterpretable and unactionable.
+>
+> The 1.15 floor was calibrated against the *relative* spread of realised growth (p50 +1.3%,
+> p90 +18.4%) and never against the absolute magnitude that implies on a 15-subscriber
+> channel. That is an error of omission in this document, found by measuring the cohort while
+> building the surface ADR-0060 licensed.
+>
+> No outcome for either decision date existed when this was found — the first is readable
+> 2026-11-30 — so this is a measurement decision, not tuning against a result. But this
+> document's own void clause says a change to the bar voids it, so it is **void rather than
+> amended**, and `REGISTERED_KEY_SHA256` is `None` in the module so the code cannot read it.
+>
+> **A successor cannot fix this with a threshold.** A cohort whose median member has 192
+> subscribers cannot produce an actionable subscriber-growth result at any bar; it needs a new
+> freeze with a subscriber floor (>= 500 puts it above the current median, where a 1.25 lift
+> is +125 subscribers), registered before its predictors exist, reading ~late January 2027.
+> See ADR-0070.
+>
+> Everything below is kept verbatim as the registration that was made, including the
+> simulation that *was* right, so the error is legible rather than erased.
+
 # Pre-registration — channel emergence: does short-run outperformance convert to audience?
 
 **Registered 2026-10-22, before any outcome for either decision date exists.** The first

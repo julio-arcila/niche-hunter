@@ -282,16 +282,29 @@ def test_the_constants_are_the_registered_ones():
     assert ce.SEED == 20261122
     # ADR-0060's cohort, reused byte-for-byte rather than copied.
     assert ce.KEY_PATH.name == "channel_reach_cohort_draw_key_2026-09-15.jsonl"
-    assert ce.REGISTERED_KEY_SHA256 == (
-        "1cb64d0acf07b50d5594389812c7725851adaabf3e38da2a0b6df2d28786e5f2"
-    )
+    # VOID since 2026-10-23 (ADR-0070): the registered bar can be cleared by two
+    # subscribers, because the registered top decile's median member has fifteen. `None`
+    # is what `refuse_unless_ready` checks first, so the module cannot be read as
+    # registered. A successor needs a new freeze with a subscriber floor.
+    assert ce.REGISTERED_KEY_SHA256 is None
 
 
-def test_the_registration_document_exists_and_names_the_module():
-    """A registered constant pointing at a file nobody wrote is not a registration."""
+def test_the_voided_registration_cannot_be_read(engine, tmp_path):
+    """The void is enforced by the code, not only by a comment. `NotRegistered` is raised
+    before the key is even loaded, so no accidental December read is possible."""
+    with session_scope(engine) as s, pytest.raises(ce.NotRegistered):
+        ce.refuse_unless_ready(s, key_path=tmp_path / "anything.jsonl")
+
+
+def test_the_registration_document_exists_and_records_its_own_void():
+    """A registered constant pointing at a file nobody wrote is not a registration — and a
+    VOID registration whose document still reads as live is worse, because the next reader
+    finds a bar nobody stands behind. The document carries the void and the reason."""
     from pathlib import Path
 
     body = Path(ce.REGISTRATION).read_text()
-    assert ce.REGISTERED_KEY_SHA256 in body
-    assert "1.15" in body and "2026-12-14" in body
     assert "channel_emergence" in body
+    assert "1.15" in body and "2026-12-14" in body
+    assert body.lstrip().startswith("> # VOID"), "the void must be the first thing read"
+    assert "+2.2 subscribers" in body
+    assert "ADR-0070" in body
