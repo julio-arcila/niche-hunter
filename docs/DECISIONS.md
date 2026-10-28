@@ -4613,7 +4613,9 @@ ADR-0065's channel watchlist supplies them and `status._check_channel_watchlist`
 
 ### The cost, stated plainly
 
-A quarter. The read is 2027-02-03 and the operator wanted something sooner. The honest trade
+A quarter. The read is 2027-02-03 and the operator wanted something sooner.
+The registering commit is **750df45**, recorded here because ADR-0060 omitted its own and
+turned a later question about whether the code had moved into archaeology. The honest trade
 is that the sooner versions were measured and found empty: the voided cohort's bar meant two
 subscribers, and a shorter horizon on channels of that size would have been worse. What is
 available sooner is the channel list (ADR-0060's licence, built 2026-10-23), which needs no
