@@ -28,61 +28,91 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from nh.backtest.stats import DRAWS, Row, evaluate_stratified, top_decile_lift
-from nh.db.models import ChannelSnapshot
+from nh.db.models import ChannelSnapshot, Cluster
+from nh.features import inputs
 from nh.prospective.channel_reach import (
     CONTROLS,
     FrozenRow,
     KeyMismatch,
     NotRegistered,
     TooEarly,
+    freeze_date,
     load_key,
 )
 
-REGISTRATION = "reports/channel_emergence_preregistration_2026-10-22.md"
+REGISTRATION = "reports/channel_emergence_preregistration_2026-10-28.md"
 
-#: ADR-0060's key, reused byte-for-byte. Not a copy: a second file with the same contents
-#: would be a second thing to keep honest.
-KEY_PATH = Path("reports/channel_reach_cohort_draw_key_2026-09-15.jsonl")
+#: **A NEW cohort, frozen with a subscriber floor.** ADR-0069 reused ADR-0060's key and was
+#: voided for it (ADR-0070): that cohort's median member has 192 subscribers and its
+#: registered top decile's has fifteen, so any relative bar on 90-day subscriber growth came
+#: to a couple of people. No threshold fixes a population that small, so this test freezes
+#: its own — and the floor is the whole point of it existing.
+KEY_PATH = Path("reports/channel_emergence_cohort_draw_key_2026-10-28.jsonl")
 
-#: The sha256 the registration records. A constant a person sets in the commit that
-#: registers the test — never a file or an environment variable the code reads, on the
-#: `EXPOSITION_VALIDATED` pattern. `None` means unregistered and `read()` refuses.
-#: **VOID since 2026-10-23 (ADR-0070).** Set to `None` deliberately, so
-#: `refuse_unless_ready` — which checks this first — makes the module physically unreadable
-#: as a registered test.
-#:
-#: Why: the registered bar can be cleared by two subscribers. The frozen cohort's median
-#: member has 192 subscribers and the registered top decile's has **fifteen**, so a lift of
-#: 1.15 over 90 days is **+2.2 subscribers**. No outcome existed when this was found (the
-#: first is readable 2026-11-30), so voiding it is a measurement decision and not tuning
-#: against a result — but ADR-0069's own clause says a change to the bar voids it, and that
-#: is honoured in letter rather than argued around.
-#:
-#: The code and tests stay. A successor needs a NEW freeze with a subscriber floor, because
-#: no threshold fixes a population this small; see ADR-0070.
-REGISTERED_KEY_SHA256: str | None = None
+#: Measured 2026-10-28 before choosing it: at this floor the population is **2,141 channels
+#: across all ten clusters**, against floors of 200 and 5 — ten times the requirement — and
+#: a 1.25 lift on a 500-subscriber channel is **+125 subscribers**, which is a result rather
+#: than noise. Lower floors were measured too (250 -> 2,695 channels; 1,000 -> 1,623), so
+#: this is a choice inside a wide feasible range and not the only option that works.
+COHORT_MIN_SUBS = 500
 
-DECISION_DATES = (date(2026, 9, 1), date(2026, 9, 8))
+#: The sha256 of the frozen key, recorded by a person in the registering commit — never a
+#: file or an environment variable the code reads, on the `EXPOSITION_VALIDATED` pattern.
+#: `None` means unregistered and `refuse_unless_ready` refuses.
+REGISTERED_KEY_SHA256: str | None = (
+    "ed466f9bfd9845a5a544933e94811140e7f75d68ba4417b7b6205ded78e80243"
+)
 
-#: The outcome window. 90 is the horizon the registration names; the 7-day tolerance is the
-#: same shape as ADR-0059's [14, 17] and absorbs a lost night without losing the channel.
+#: One decision date, deliberately. ADR-0060 used two and its reports then claimed
+#: "agreement across two cohorts" as independent corroboration — which overstated it, since
+#: the two dates shared roughly half their channels. One date cannot invite that error.
+DECISION_DATES = (date(2026, 10, 28),)
+
+#: The outcome window. 90 is the horizon; the 7-day tolerance is ADR-0059's [14, 17] shape
+#: and absorbs a lost night without losing the channel.
 OUTCOME_MIN_AGE, OUTCOME_MAX_AGE = 90, 97
 
-#: The one read. No interim: ADR-0060's added nothing its verdict did not contain and cost a
-#: clause in its own void list.
-READ_DATE = date(2026, 12, 14)
-REPORT = Path("reports/channel_emergence_2026-12-14.md")
+READ_DATE = date(2027, 2, 3)
+REPORT = Path("reports/channel_emergence_2027-02-03.md")
 
-SEED = 20261122
+SEED = 20270203
 MIN_CHANNELS, MIN_CLUSTERS, CLUSTER_FLOOR = 200, 5, 20
 CLUSTER_MIN_OUTCOMES = 10
-ALPHA, LIFT_FLOOR = 0.05, 1.15
+ALPHA = 0.05
+
+#: Relative floor AND an absolute one, which is the correction ADR-0070 forced. A lift alone
+#: is scale-free, and scale-free was exactly how a bar came to mean two subscribers. Both
+#: must clear: the top decile must grow 25% more than its controls predict AND its median
+#: member must gain at least this many subscribers, so a PASS cannot be arithmetically true
+#: and practically empty.
+LIFT_FLOOR = 1.25
+ABSOLUTE_FLOOR_SUBS = 50
 
 #: Above this share of exactly-zero outcomes the read returns INSTRUMENT rather than FAIL.
-#: Measured 2026-10-22: at least 10% of cohort channels show no subscriber movement over 18
-#: days, because YouTube publishes 3 significant figures. A degenerate outcome cannot test a
-#: hypothesis, and calling that a FAIL would blame the predictor for the instrument.
+#: At a 500-subscriber floor a single new subscriber is 0.2% and visible, so ties should be
+#: far rarer here than on the voided cohort — but the guard stays, because that is a
+#: prediction and not a measurement.
 MAX_TIED_SHARE = 0.40
+
+
+def freeze_floored(session: Session, t: date) -> list[FrozenRow]:
+    """ADR-0060's frozen predictors, restricted to channels at or above the subscriber floor.
+
+    Reuses `channel_reach.freeze_date` rather than reimplementing it: the predictor and all
+    three controls are then computed by the same code that produced the cohort H1 was
+    measured on, and the floor is a SELECTION on those rows. A reimplementation would be a
+    second definition of `views_per_sub` to keep honest.
+    """
+    floor = math.log(COHORT_MIN_SUBS)
+    clusters = sorted(
+        session.scalars(sa.select(Cluster.cluster_id).where(Cluster.active.is_(True)))
+    )
+    rows: list[FrozenRow] = []
+    with inputs.pinned_ballast(False):
+        for cluster_id in clusters:
+            frozen, _absent = freeze_date(session, cluster_id, t)
+            rows += [r for r in frozen if r.ln_subs >= floor]
+    return rows
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +214,11 @@ class Hypothesis:
     rho: float | None
     p: float | None
     lift: float | None
+    #: Median absolute subscriber gain in the top decile. `None` for the instrument check,
+    #: which has no decile of its own. The reason this field exists at all is ADR-0070: a
+    #: relative lift is scale-free, and scale-free is how a registered bar came to mean two
+    #: subscribers on a cohort of fifteen-subscriber channels.
+    absolute: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,16 +232,36 @@ class Findings:
 
 
 def _judge(h: Hypothesis, *, floor: float | None) -> tuple[bool, str]:
+    """Significance, then the relative floor, then the ABSOLUTE floor — all three.
+
+    The third is ADR-0070's correction and it is not redundant with the second: a lift is a
+    ratio, so it is satisfiable at any scale, including a scale at which the result means
+    nothing. Both floors must clear for a PASS.
+    """
     if h.rho is None or h.p is None or (floor is not None and h.lift is None):
         return False, "could not be computed"
     if h.rho <= 0:
         return False, f"rho {h.rho:+.3f} is not positive"
     if h.p >= ALPHA:
         return False, f"p {h.p:.4f} is not below {ALPHA}"
-    if floor is not None and h.lift is not None and h.lift < floor:
+    if floor is None:
+        return True, f"rho {h.rho:+.3f}, p {h.p:.4f}"
+    if h.lift is not None and h.lift < floor:
         return False, f"top-decile lift {h.lift:.3f} is below {floor}"
-    tail = f", lift {h.lift:.3f}" if floor is not None else ""
-    return True, f"rho {h.rho:+.3f}, p {h.p:.4f}{tail}"
+    if h.absolute is None:
+        return False, "the top decile's absolute gain could not be computed"
+    if h.absolute < ABSOLUTE_FLOOR_SUBS:
+        return (
+            False,
+            f"top-decile median gain {h.absolute:+.0f} subscribers is below "
+            f"{ABSOLUTE_FLOOR_SUBS} — the lift of {h.lift:.3f} is real and too small to act "
+            f"on, which is the failure ADR-0070 was written about",
+        )
+    return (
+        True,
+        f"rho {h.rho:+.3f}, p {h.p:.4f}, lift {h.lift:.3f}, "
+        f"top-decile median gain {h.absolute:+.0f} subscribers",
+    )
 
 
 def verdict(f: Findings) -> dict[str, tuple[str, str]]:

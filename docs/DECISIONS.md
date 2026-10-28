@@ -4526,3 +4526,97 @@ and reading six rows of output, where a channel with one subscriber sat second o
 first fix (ranking `eligible_videos` instead of `inputs.cohort`) was a real bug and fixed the
 wrong half; the second look showed the registered population has the same shape. **Twice in
 two days a green suite covered a defect that one glance at real output exposed.**
+
+## ADR-0071 — The channel-emergence test, re-registered on a cohort large enough for the question
+
+**2026-10-28.** Replaces the registration ADR-0070 voided. Cohort frozen the same day;
+window opens 2027-01-26; verdict reads **2027-02-03**.
+`reports/channel_emergence_preregistration_2026-10-28.md`, key
+`reports/channel_emergence_cohort_draw_key_2026-10-28.jsonl`, sha256 `ed466f9b…e80243`.
+
+### What was wrong, and what the measurement said about fixing it
+
+ADR-0069 reused ADR-0060's cohort. That cohort's median member has 192 subscribers and its
+registered top decile's median has **fifteen**, so a relative bar on 90-day subscriber growth
+came to **+2.2 subscribers** (ADR-0070). The diagnosis was that no threshold fixes a
+population that small.
+
+**My own prediction about the remedy was wrong, and the measurement is why this test exists
+rather than being abandoned.** I expected a subscriber floor to be arithmetically impossible
+on this corpus — the same dead end ADR-0068 found at niche grain — because the pipeline
+discovers small and new channels. Measured 2026-10-28, member channels of active clusters with
+at least five eligible long-form videos:
+
+| subscriber floor | channels | clusters |
+|---|---|---|
+| 1 | 5,903 | 10 |
+| 250 | 2,695 | 10 |
+| **500** | **2,141** | **10** |
+| 1,000 | 1,623 | 10 |
+| 2,000 | 1,068 | 10 |
+
+Every floor clears the 200-channel and 5-cluster requirements by an order of magnitude. The
+dead end was imagined. **Had I asserted it instead of measuring it, the project would have
+abandoned a feasible test on a confident guess** — which is precisely the error ADR-0068
+documents ADR-0060 making in the other direction, five weeks earlier.
+
+### The cohort that was frozen
+
+1,931 channels, ten clusters, one decision date. Subscribers: min 500, p10 673, **p50 1,920**,
+p90 7,358, max 10,000. **Top decile of `views_per_sub`: median 1,480 subscribers**, against
+**15** on the voided cohort. A 1.25 lift there is **+370 subscribers**.
+
+Predictors and all three controls come from `channel_reach.freeze_date` **unchanged** — the
+code that produced the cohort H1 was measured on — with the floor applied as a *selection* on
+its rows. No second definition of `views_per_sub` exists to keep honest.
+
+**One decision date**, not two. ADR-0060 used two and its reports then offered "agreement
+across two cohorts" as independent corroboration, which overstated it: the dates shared
+roughly half their channels. One date cannot invite the error.
+
+### The bar has two floors, and the second is the whole correction
+
+**rho > 0, p < 0.05, top-decile lift ≥ 1.25, AND top-decile median absolute gain ≥ 50
+subscribers.**
+
+The absolute floor is not redundant with the relative one. **A lift is a ratio, so it is
+satisfiable at any scale, including a scale at which the finding is worthless** — which is
+exactly how the voided bar came to mean two people. On this cohort a 1.25 lift implies ~+370,
+so the relative floor binds and the absolute one is a safety net. It exists because the
+previous registration had no net and nothing caught it until a surface was built and read.
+
+Pinned by a test: a real lift of 1.30 on a +2-subscriber gain returns **FAIL**, with a reason
+that names ADR-0070.
+
+### The construction check, re-run rather than inherited
+
+`subs_t` sits in the predictor's denominator and the outcome's, so rounding error could
+inflate both. Simulated on the 1,931 real frozen rows under a null, 300 trials per cell:
+false-PASS **1.3%–3.3%** across noise sd 0.02–0.25, with and without size-proportional drift.
+Inside α everywhere.
+
+**Re-run and not carried over**, although the same check passed on the voided cohort: the
+subscriber distribution moved by an order of magnitude, and at 500+ subscribers
+three-significant-figure rounding is ±0.5% rather than ±5%. An inherited result would have
+been an argument where a measurement was available.
+
+### What it licenses, and the one operational dependency
+
+A PASS licenses a ranked list of **channels within a cluster, by emergence**, behind
+`CHANNEL_EMERGENCE_H1E_VALIDATED` set by a person. Nothing about any niche — ADR-0068 closed
+that grain. A FAIL says `views_per_sub` is a **reach** instrument and not a **growth** one,
+which is a useful negative that closes the question.
+
+The dependency: **the nightly must keep writing subscriber readings through 2027-02-02.**
+ADR-0065's channel watchlist supplies them and `status._check_channel_watchlist` warns below
+0.9 coverage. That is the only thing between here and a verdict.
+
+### The cost, stated plainly
+
+A quarter. The read is 2027-02-03 and the operator wanted something sooner.
+The registering commit is **750df45**, recorded here because ADR-0060 omitted its own and
+turned a later question about whether the code had moved into archaeology. The honest trade
+is that the sooner versions were measured and found empty: the voided cohort's bar meant two
+subscribers, and a shorter horizon on channels of that size would have been worse. What is
+available sooner is the channel list (ADR-0060's licence, built 2026-10-23), which needs no
+waiting and no new test — only a person's verdict on H1.

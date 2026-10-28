@@ -18,7 +18,7 @@ from nh.db.session import session_scope
 from nh.prospective import channel_emergence as ce
 from nh.prospective.channel_reach import FrozenRow
 
-T = date(2026, 9, 1)
+T = date(2026, 10, 28)
 
 
 def _frozen(channel: str, cluster: str = "aviation-disasters", **kw) -> FrozenRow:
@@ -146,7 +146,7 @@ def _findings(**kw) -> ce.Findings:
         n_terminated=3,
         tied=0.05,
         t0e=ce.Hypothesis(0.30, 0.001, None),
-        h1e=ce.Hypothesis(0.20, 0.001, 1.40),
+        h1e=ce.Hypothesis(0.20, 0.001, 1.40, absolute=300.0),
     )
     base.update(kw)
     return ce.Findings(**base)
@@ -154,9 +154,10 @@ def _findings(**kw) -> ce.Findings:
 
 def test_a_pass_needs_rho_p_and_the_lift_floor():
     assert ce.verdict(_findings())["H1e"][0] == "PASS"
-    assert ce.verdict(_findings(h1e=ce.Hypothesis(0.20, 0.001, 1.10)))["H1e"][0] == "FAIL"
-    assert ce.verdict(_findings(h1e=ce.Hypothesis(-0.20, 0.001, 1.40)))["H1e"][0] == "FAIL"
-    assert ce.verdict(_findings(h1e=ce.Hypothesis(0.20, 0.40, 1.40)))["H1e"][0] == "FAIL"
+    A = 300.0
+    assert ce.verdict(_findings(h1e=ce.Hypothesis(0.20, 0.001, 1.10, A)))["H1e"][0] == "FAIL"
+    assert ce.verdict(_findings(h1e=ce.Hypothesis(-0.20, 0.001, 1.40, A)))["H1e"][0] == "FAIL"
+    assert ce.verdict(_findings(h1e=ce.Hypothesis(0.20, 0.40, 1.40, A)))["H1e"][0] == "FAIL"
 
 
 def test_under_the_floors_is_inconclusive_not_a_fail():
@@ -272,39 +273,60 @@ def test_a_collected_read_date_and_a_matching_key_is_allowed(engine, tmp_path, m
 def test_the_constants_are_the_registered_ones():
     """The registration document is the authority; these are what the code promises it.
     A drift here is a drift between what was registered and what will be computed."""
-    assert ce.REGISTRATION == "reports/channel_emergence_preregistration_2026-10-22.md"
-    assert date(2026, 12, 14) == ce.READ_DATE
-    assert (date(2026, 9, 1), date(2026, 9, 8)) == ce.DECISION_DATES
+    assert ce.REGISTRATION == "reports/channel_emergence_preregistration_2026-10-28.md"
+    assert date(2027, 2, 3) == ce.READ_DATE
+    assert (date(2026, 10, 28),) == ce.DECISION_DATES
     assert (ce.OUTCOME_MIN_AGE, ce.OUTCOME_MAX_AGE) == (90, 97)
     assert (ce.MIN_CHANNELS, ce.MIN_CLUSTERS, ce.CLUSTER_FLOOR) == (200, 5, 20)
-    assert (ce.ALPHA, ce.LIFT_FLOOR) == (0.05, 1.15)
+    assert ce.ALPHA == 0.05
     assert ce.MAX_TIED_SHARE == 0.40
-    assert ce.SEED == 20261122
-    # ADR-0060's cohort, reused byte-for-byte rather than copied.
-    assert ce.KEY_PATH.name == "channel_reach_cohort_draw_key_2026-09-15.jsonl"
-    # VOID since 2026-10-23 (ADR-0070): the registered bar can be cleared by two
-    # subscribers, because the registered top decile's median member has fifteen. `None`
-    # is what `refuse_unless_ready` checks first, so the module cannot be read as
-    # registered. A successor needs a new freeze with a subscriber floor.
-    assert ce.REGISTERED_KEY_SHA256 is None
+    assert ce.SEED == 20270203
+    # Its OWN cohort, floored — not ADR-0060's. The floor is why the test exists at all.
+    assert ce.COHORT_MIN_SUBS == 500
+    assert ce.KEY_PATH.name == "channel_emergence_cohort_draw_key_2026-10-28.jsonl"
+    assert ce.REGISTERED_KEY_SHA256 == (
+        "ed466f9bfd9845a5a544933e94811140e7f75d68ba4417b7b6205ded78e80243"
+    )
 
 
-def test_the_voided_registration_cannot_be_read(engine, tmp_path):
-    """The void is enforced by the code, not only by a comment. `NotRegistered` is raised
-    before the key is even loaded, so no accidental December read is possible."""
-    with session_scope(engine) as s, pytest.raises(ce.NotRegistered):
-        ce.refuse_unless_ready(s, key_path=tmp_path / "anything.jsonl")
+def test_the_bar_has_a_relative_and_an_absolute_floor():
+    """ADR-0070's correction. A lift is a ratio and therefore satisfiable at any scale,
+    including one where the result is worthless — which is how the voided registration's
+    bar came to mean two subscribers."""
+    assert ce.LIFT_FLOOR == 1.25
+    assert ce.ABSOLUTE_FLOOR_SUBS == 50
 
 
-def test_the_registration_document_exists_and_records_its_own_void():
-    """A registered constant pointing at a file nobody wrote is not a registration — and a
-    VOID registration whose document still reads as live is worse, because the next reader
-    finds a bar nobody stands behind. The document carries the void and the reason."""
+def test_a_real_lift_on_a_trivial_absolute_gain_fails():
+    """The exact failure that voided ADR-0069, now a FAIL instead of a PASS."""
+    state, why = ce.verdict(_findings(h1e=ce.Hypothesis(0.20, 0.001, 1.30, 2.0)))["H1e"]
+    assert state == "FAIL"
+    assert "+2 subscribers is below 50" in why
+    assert "ADR-0070" in why
+
+
+def test_the_frozen_key_matches_its_registration_and_clears_the_floor():
+    """A registration whose key has moved is void by its own clause, and this is the
+    cheapest check of that. Also asserts every frozen row is above the subscriber floor —
+    the property the whole re-registration exists to secure."""
+    import math
+
+    rows, sha = ce.load_key(ce.KEY_PATH)
+    assert sha == ce.REGISTERED_KEY_SHA256
+    assert len(rows) == 1931
+    assert {r.t for r in rows} == {"2026-10-28"}
+    assert min(math.exp(r.ln_subs) for r in rows) >= ce.COHORT_MIN_SUBS - 1
+
+
+def test_the_registration_document_exists_and_states_what_it_replaced():
+    """A registered constant pointing at a file nobody wrote is not a registration — and
+    this one must also carry why its predecessor was void, or the next reader re-makes the
+    same bar."""
     from pathlib import Path
 
     body = Path(ce.REGISTRATION).read_text()
-    assert "channel_emergence" in body
-    assert "1.15" in body and "2026-12-14" in body
-    assert body.lstrip().startswith("> # VOID"), "the void must be the first thing read"
-    assert "+2.2 subscribers" in body
-    assert "ADR-0070" in body
+    assert ce.REGISTERED_KEY_SHA256 in body
+    assert "2027-02-03" in body and "1.25" in body
+    assert "50 subscribers" in body
+    assert "ADR-0070" in body and "+2.2 subscribers" in body
+    assert "1,480" in body, "the top-decile subscriber median is the number that justifies it"

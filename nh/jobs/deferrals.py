@@ -76,39 +76,29 @@ DEFERRALS: tuple[Deferral, ...] = (
         cost="minutes for the verdict; the list surface is its own slice",
     ),
     Deferral(
-        metric="channel-emergence — a NEW cohort with a subscriber floor, re-registered",
+        metric="channel-emergence H1e — the verdict read, 2027-02-03 (ADR-0071)",
         blocker=(
-            "ADR-0069 was registered 2026-10-22 and VOIDED 2026-10-23 (ADR-0070), before any "
-            "outcome existed: its bar could be cleared by TWO SUBSCRIBERS. The frozen cohort's "
-            "median member has 192 subs and the registered top decile's has fifteen, so a 1.15 "
-            "lift over 90 days is +2.2 subscribers. No threshold fixes that — the population is "
-            "too small — so a successor needs a NEW FREEZE with a subscriber floor (>= 500 puts "
-            "it above the current median, where a 1.25 lift is +125 subscribers), registered "
-            "before its predictors exist and reading ~late January 2027. The code and tests of "
-            "nh/prospective/channel_emergence.py stay; REGISTERED_KEY_SHA256 is None so it "
-            "cannot be read. **Decide whether to spend that horizon at all**: the alternative is "
-            "to treat the channel LIST as the actionable output and stop registering "
-            "subscriber-growth tests on channels this small"
+            "RE-REGISTERED 2026-10-28 (ADR-0071) on its own floored cohort, after ADR-0069 "
+            "was voided for a bar that came to two subscribers (ADR-0070). Frozen: 1,931 "
+            "channels, ten clusters, subs >= 500, top-decile median 1,480 subs against the "
+            "voided cohort's 15. The bar now carries a relative AND an absolute floor "
+            "(lift 1.25 and >= 50 subscribers), because a ratio is satisfiable at any scale. "
+            "What is left is collection and a date: the nightly must keep writing subscriber "
+            "readings through 2027-02-02 (ADR-0065's channel watchlist; "
+            "`status._check_channel_watchlist` warns below 0.9 coverage), and "
+            "`refuse_unless_ready` refuses before the date is collected"
         ),
-        # `manual`, not `date`: what is outstanding is a DECISION about whether to spend a
-        # 90-day horizon on a new cohort, not the arrival of a date. A date here would
-        # announce itself as actionable work on a day nobody chose.
-        kind="manual",
-        trigger=(
-            "the operator decides either (a) freeze a new cohort with a subscriber floor "
-            ">= 500 and register a 90-day test before its predictors exist, or (b) that the "
-            "channel list is the actionable output and no further subscriber-growth test is "
-            "worth a quarter. Until one of those, there is no emergence read."
-        ),
+        kind="date",
+        # The LAST day still blocked: `fires()` is `today > trigger` and the read is due ON
+        # 2027-02-03 — the off-by-one ADR-0060's interim entry had to be corrected for.
+        trigger="2027-02-02",
         consumer=(
-            "none until the decision is made. A passing successor would license a ranked "
-            "list of CHANNELS within cluster and nothing about any niche (ADR-0068)"
+            "reports/channel_emergence_2027-02-03.md; on PASS, "
+            "CHANNEL_EMERGENCE_H1E_VALIDATED in nh/api/gates.py set by a PERSON in the "
+            "commit that records it. It licenses a ranked list of CHANNELS within cluster "
+            "and nothing about any niche (ADR-0068)"
         ),
-        cost=(
-            "a freeze, a registration and 90 days — or nothing, if the answer is (b). The "
-            "2026-11-30 deadline ADR-0060 set for this read has been overtaken: it was a "
-            "deadline on the OLD cohort's horizon, which is void"
-        ),
+        cost="minutes to read, once the date is collected. The waiting is the cost",
     ),
     Deferral(
         metric="relevance rule — independent human validation",
