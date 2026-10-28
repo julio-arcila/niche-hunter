@@ -80,6 +80,30 @@ quota numbers observed this session, open TODOs, and rule violations found by
 reviewer. Summarize exploration briefly.
 
 ## Current status
+- **THE NICHE IS CHOSEN (ADR-0072, 2026-10-28): `anthropocene-anthropology` and
+  `logic-linguistics-gnoseology`.** The operator's procedure
+  (`reports/niche_choice_procedure_2026-08-28.md`) is executed end to end; the
+  pre-registration is `reports/niche_choice_2026-10-28.md`. **Nothing in the pipeline gated
+  this and nothing ever did** — ADR-0068 made niche an editorial stratum, and the procedure's
+  own closing section says so; two months were spent waiting on a dependency that did not
+  exist. The **vetoes eliminated nothing** (25 titles pass; #20 is cheaper — a reusable
+  format; #30 gets made; language **English**), so the choice fell entirely to supply
+  evidence, and "library vs treadmill" then eliminated more candidates than any value number.
+  Two findings each inverted the obvious answer. **`ai-and-software` is the worst place in
+  the portfolio for a small channel** — highest bid, 5.7M searches, the largest supply pool in
+  the corpus, and a sub-10k channel's **p90 is 500 views**, worst of the ten on 5,671 settled
+  videos. And **the measurement chose `metaphysical-battles`; reading ten titles overturned
+  it** — its chart-topping par 157 / p90 6,733 is debate re-cuts of other creators, its top
+  decile held by **21 channels at 3.6 videos each (top five 62%)** against 55 at 1.9 (32%) for
+  the pick. Fourth time a correct aggregate was overturned by reading real output, first time
+  it changed a decision. `logic-linguistics-gnoseology` is **the weakest pick and is labelled
+  so**: it fills the Tier-A slot because nothing else could, which is itself the finding —
+  across all four Tier-A niches, advertiser value and newcomer reachability point in opposite
+  directions. **Audience tripwire floors are measured, not the suggested 200**, which sits
+  3.2x/3.4x above the par a small channel actually reaches (63 and 59) and would have fired
+  regardless of performance; they are a property of this date's corpus, so **re-measure at the
+  review, do not carry the integers forward**. The RPM tripwire is **unarmed** — Step 3
+  returned n=0 for structural reasons. Both picks were already active, so no quota action.
 - Phase: **Slice 7 SHIPPED 2026-08-31 (ADR-0052) — the evidence surface.** `nh/api/`,
   `nh/web/`, `nh/scoring/rules.py`; `uv run nh web`. Suite green at **1,098** (measured 2026-10-04 12:20 local on `main`, pytest's own summary line via a redirect, exit 0. **It was RED from the 2026-09-27 nightly until ADR-0064 merged on 10-02** — one failure, `test_no_deferral_is_silently_unblocked_today[openness.rss_acceleration]`, caused by the *corpus* reaching 30 distinct snapshot days with no code change at all; see the known-defects bullet on tests that read the live DB. 1,096 on 09-23 after ADR-0061/0062/0063 merged; 1,085 on 2026-09-22 before them. Note `pyproject.toml` already carries `addopts = "-q"`, so `pytest -q` is `-qq` and prints NO summary line — run `uv run pytest > file 2>&1` and read the last line; this line said 1,081 until 09-22. 967 at Slice 7; 1,029 on 2026-09-05; 1,032 on the test-clock branch, then -2 when the register hygiene merge removed one test and one parametrized deferral case — this number goes stale on every merge, so read pytest, not this line; it read "green at 1,029" from 2026-09-15 00:00 until 09-15, while twelve tests were red — see the pinned-calendar bullet below). **`PHASES` is
   now FOUR** — clustering, features, scoring, rules — and `nh status --check` iterates it,
