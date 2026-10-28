@@ -4620,3 +4620,90 @@ is that the sooner versions were measured and found empty: the voided cohort's b
 subscribers, and a shorter horizon on channels of that size would have been worse. What is
 available sooner is the channel list (ADR-0060's licence, built 2026-10-23), which needs no
 waiting and no new test — only a person's verdict on H1.
+
+## ADR-0072 — The niche is chosen: `anthropocene-anthropology` and `logic-linguistics-gnoseology`
+
+**2026-10-28.** The operator's own procedure (`reports/niche_choice_procedure_2026-08-28.md`)
+is executed end to end. The pre-registration is `reports/niche_choice_2026-10-28.md`.
+
+**Context: the operator did not want to wait for 2027-02-03, and did not have to.** The
+emergence verdict is a validation instrument for a ranked *channel* list. It never gated the
+niche choice — ADR-0068 made niche an **editorial stratum** precisely because no test at this
+portfolio size can rank it, and the procedure's own closing section says "nothing in the
+pipeline gates the choice". Two months of waiting were being spent against a dependency that
+did not exist.
+
+### The vetoes eliminated nothing, which decided the shape of the rest
+
+Recorded 2026-10-28: the 25-title test passes for every group presented; episode #20 is
+**cheaper** (a reusable format); video #30 gets made after 29 flat ones; publish language is
+**English**, so the US Keyword Planner table applies as measured.
+
+The procedure expected the vetoes to be the strongest filter. They removed nothing, so the
+whole choice fell to supply evidence — and the "cheaper at #20" answer became load-bearing,
+because **library against treadmill eliminated more candidates than any number in the value
+column** (trading on live charts, geopolitics on current-events turnaround).
+
+### The supply eyeball was run off the corpus, not by hand, and the substitution is stated
+
+The procedure specifies an incognito top-20 search per candidate. Instead: on-niche
+(relevance ≥ 0.55) long-form videos published **30–120 days ago** — settled — from channels
+under 10,000 subscribers, uniformly across all ten. It answers a narrower and more useful
+question than the manual version: **what does a small channel's video actually get here?**
+
+### Two findings that each inverted an obvious answer
+
+**1. `ai-and-software` is the worst place in the portfolio for a small channel.** Highest bid
+(33,834), largest demand of the ten (5.7M monthly searches), largest supply pool in the
+corpus (50,522 member videos) — and a sub-10k channel's **p90 is 500 views**, the worst of
+all ten, measured on 5,671 settled videos. Demand and advertiser value point one way;
+newcomer reachability points the other. Eliminated.
+
+**2. The measurement chose `metaphysical-battles` and the title read overturned it.** It led
+every supply column — par 157, p75 1,030, p90 6,733, each ≥1.6× the next niche. Its top ten
+settled small-channel videos are **debate re-cuts of other creators** ("DEMOLISHES",
+"SHREDS", "HUMILIATES"), three from one 6,480-subscriber channel. The concentration check
+confirms the impression: its top decile comes from **21 channels at 3.6 videos each, top five
+holding 62%**, against 55 channels at 1.9 and 32% for the niche that was picked. A newcomer
+does not inherit a tail that belongs to twenty-one channels running one clip format.
+
+**This is the fourth time a correct aggregate was overturned by reading ten rows of output**,
+and the first time it changed a decision rather than fixing a defect. The number was right
+and was answering a question one step away from the one asked.
+
+### The picks, and the weakness that is labelled rather than smoothed
+
+**`anthropocene-anthropology`** (Tier B, the fit pick): the **most open niche of the ten**,
+13 of 20 top videos from sub-100k channels against 8 for the next, with a tail made of
+makeable template explainers from channels as small as 313 subscribers, and the most diffuse
+tail of the three finalists.
+
+**`logic-linguistics-gnoseology`** (Tier A, the portfolio requirement): **the weakest pick in
+the document, and recorded as such.** Thinnest tail of the three finalists, off-niche
+material in its top ten, 17.3% on-niche share. It is there because nothing else could fill
+the Tier-A slot — and **that absence is a finding**: across all four Tier-A niches on this
+corpus, advertiser value and newcomer reachability point in opposite directions.
+
+Different audience clusters, so the "four philosophy niches fail together" concentration the
+procedure warned about does not apply. Zero YMYL. **Two picks, not three:** at one video a
+week, three interleaved niches reach 20 videos each only at week 60, past the 26-week review
+horizon, so a three-niche portfolio could not be judged at its own horizon.
+
+### The tripwire floor is measured, and 200 would have fired regardless
+
+The procedure suggested an audience floor of 200 views and nothing measured it. It sits
+**3.2× and 3.4× above** the par a sub-10k channel actually achieves in the two picks (63 and
+59, on 1,057 and 635 settled videos). A tripwire above the measured par is a countdown, not a
+test. The floors are each niche's own par, and they are a property of the corpus on this date
+— **re-measure at the review rather than carrying the integers forward**, which is the
+mistake the watchlist unit cost has now made three times.
+
+The RPM tripwire **cannot be armed**: Step 3 returned n = 0 and the reason was structural.
+Recorded as unarmed rather than armed against marketing-blog ranges.
+
+### What this does not do
+
+It does not rank niches, use `scorecards`, or touch Gate E. No composite score, no weights,
+no ordering inside the value band — the procedure forbids all three and ADR-0068 made the
+prohibition arithmetic. Every number is supply texture about **current occupancy**, never a
+forecast. Both picks are already active and collecting, so no quota action follows.
